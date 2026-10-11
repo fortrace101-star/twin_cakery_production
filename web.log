@@ -1,0 +1,25 @@
+npm notice run dev
+npm notice run vite --port 5199 --strictPort
+[33mThe plugin "vite-tsconfig-paths" is detected. Vite now supports tsconfig paths resolution natively via the [1mresolve.tsconfigPaths[22m option. You can remove the plugin and set [1mresolve.tsconfigPaths: true[22m in your Vite config instead.[39m
+
+  [32m[1mVITE[22m v8.1.5[39m  [2mready in [0m[1m3408[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5199[22m/[39m
+[2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[2m1:39:23 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mdom-snapshot.html[22m
+[2m1:39:37 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mdom-snapshot.html[22m
+[2m1:40:14 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mdom-snapshot.html[22m
+[2m1:40:55 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mdom-offline.html[22m
+[2m1:41:11 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mdom-offline.html[22m
+[2m1:41:14 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mdom-offline.html[22m
+[2m1:41:58 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mdom-offline.html[22m
+[2m1:42:04 AM[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/public/catalogue[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m1:42:39 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mdom-offline.html[22m
+[2m1:43:43 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mdom-snapshot.html[22m
+[2m1:43:43 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mdom-offline.html[22m
+[2m1:46:50 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/components/cakery/products.tsx[22m
+[2m1:46:50 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/components/cakery/products.tsx[22m
+[2m1:46:50 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/components/cakery/products.tsx[22m

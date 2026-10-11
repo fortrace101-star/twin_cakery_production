@@ -1,0 +1,35 @@
+{
+  "name": "Twin Cakery ERP",
+  "short_name": "Twin Cakery",
+  "description": "Twin Cakery's integrated operations workspace — sales, production, inventory, delivery and finance.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#faf7f2",
+  "theme_color": "#3f2d1c",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["business", "productivity", "finance"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

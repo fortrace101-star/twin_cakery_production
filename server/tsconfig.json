@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "outDir": "../dist-server",
+    "rootDir": ".",
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"],
+    "typeRoots": ["../erp-interface-design/node_modules/@types"],
+    "declaration": true,
+    "incremental": true
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules", "dist", "dist-server", "database/store.legacy.ts"]
+}

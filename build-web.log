@@ -1,0 +1,15 @@
+npm notice run npx
+npm notice run vite build
+[33mThe plugin "vite-tsconfig-paths" is detected. Vite now supports tsconfig paths resolution natively via the [1mresolve.tsconfigPaths[22m option. You can remove the plugin and set [1mresolve.tsconfigPaths: true[22m in your Vite config instead.[39m
+[36mvite v8.1.5 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...✓ 1818 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                             0.99 kB │ gzip:   0.48 kB
+dist/assets/baking-class-BX-VdwAv.jpg     111.22 kB
+dist/assets/cake-collection-DugeJ-7P.jpg  125.36 kB
+dist/assets/bakery-hero-xq-Ik4Cp.jpg      253.66 kB
+dist/assets/index-DVSmV_hC.css             73.10 kB │ gzip:  13.19 kB
+dist/assets/index-Dx8JfV9j.js             484.17 kB │ gzip: 149.19 kB
+
+[32m✓ built in 5.36s[39m

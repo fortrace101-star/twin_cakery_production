@@ -1,0 +1,44 @@
+import { Router } from "express";
+import authRouter from "./auth.js";
+import catalogueRouter from "./catalogue.js";
+import contentRouter from "./content.js";
+import customerRouter from "./customers.js";
+import customerRemindersRouter from "./customer-reminders.js";
+import inquiryRouter from "./inquiries.js";
+import quotationRouter from "./quotations.js";
+import orderRouter from "./orders.js";
+import productionRouter from "./production.js";
+import inventoryRouter from "./inventory.js";
+import purchasingRouter from "./purchasing.js";
+import financeRouter from "./finance.js";
+import paymentRouter from "./payments.js";
+import deliveryRouter from "./deliveries.js";
+import feedbackRouter from "./feedback.js";
+import notificationRouter from "./notifications.js";
+import rbacRouter from "./rbac.js";
+import analyticsRouter from "./analytics.js";
+import publicRouter from "./public.js";
+
+export const apiRouter = Router();
+
+apiRouter.use("/auth", authRouter);
+apiRouter.use("/catalogue", catalogueRouter);
+apiRouter.use("/content", contentRouter);
+apiRouter.use("/customers", customerRouter);
+apiRouter.use("/customer-reminders", customerRemindersRouter);
+apiRouter.use("/inquiries", inquiryRouter);
+apiRouter.use("/quotations", quotationRouter);
+apiRouter.use("/orders", orderRouter);
+apiRouter.use("/production", productionRouter);
+apiRouter.use("/inventory", inventoryRouter);
+apiRouter.use("/purchasing", purchasingRouter);
+apiRouter.use("/finance", financeRouter);
+apiRouter.use("/payments", paymentRouter);
+apiRouter.use("/deliveries", deliveryRouter);
+apiRouter.use("/feedback", feedbackRouter);
+apiRouter.use("/notifications", notificationRouter);
+apiRouter.use("/rbac", rbacRouter);
+apiRouter.use("/analytics", analyticsRouter);
+apiRouter.use("/public", publicRouter);
+
+export default apiRouter;

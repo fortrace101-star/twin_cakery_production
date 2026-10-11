@@ -1,0 +1,16 @@
+{
+  "name": "twin-cakery-erp-server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Twin Cakery ERP Express API. Run from this folder (server/) or the repo root (erp/).",
+  "scripts": {
+    "dev": "tsx --tsconfig tsconfig.json index.ts",
+    "dev:api": "tsx --tsconfig tsconfig.json index.ts",
+    "start": "node ../dist-server/index.js",
+    "build": "tsc -p tsconfig.json",
+    "build:api": "tsc -p tsconfig.json",
+    "db:migrate": "tsx --tsconfig tsconfig.json database/migrate.ts",
+    "db:seed": "tsx --tsconfig tsconfig.json seeds/seed.ts"
+  }
+}
