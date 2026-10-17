@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from "express";
+import { Request, Response, NextFunction, RequestHandler } from "express";
 import { UnauthorizedError } from "../utils/errors.js";
 import { extractToken, AuthService } from "../services/auth.service.js";
 
@@ -23,7 +23,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   next();
 }
 
-export function requireRole(roles: string[]): Response | void {
+export function requireRole(roles: string[]): RequestHandler {
   return (req: Request, res: Response, next: NextFunction): void => {
     const session = (req as unknown as { auth?: { session: unknown } }).auth?.session;
     if (!session) {

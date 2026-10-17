@@ -26,6 +26,8 @@ type DataTableProps<T> = {
   columns: Column<T>[];
   rows: T[];
   rowKey: (row: T, index: number) => string;
+  /** Optional per-row class (e.g. status-tinted order rows). */
+  rowClassName?: (row: T, index: number) => string | undefined;
   /** Opt-in sticky header for internally scrolling tables (E3 decision). */
   stickyHeader?: boolean;
   density?: Density;
@@ -49,6 +51,7 @@ export function DataTable<T>({
   columns,
   rows,
   rowKey,
+  rowClassName,
   stickyHeader = false,
   density = "comfortable",
   sort = null,
@@ -101,6 +104,7 @@ export function DataTable<T>({
           {rows.map((row, i) => (
             <tr
               key={rowKey(row, i)}
+              className={rowClassName?.(row, i)}
               onClick={onRowActivate ? () => onRowActivate(row) : undefined}
               tabIndex={onRowActivate ? 0 : undefined}
               onKeyDown={

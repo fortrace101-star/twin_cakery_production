@@ -15,8 +15,8 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node"],
-    "typeRoots": ["../erp-interface-design/node_modules/@types"],
+    "types": ["node", "./node_modules/@types/express"],
+    "strict": true,
     "declaration": true,
     "incremental": true
   },

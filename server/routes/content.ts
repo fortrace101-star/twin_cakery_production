@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, RequestHandler } from "express";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -15,7 +15,7 @@ const requireFromFrontend = createRequire(
 const bcrypt = requireFromFrontend("bcryptjs") as typeof import("bcryptjs");
 
 /**
- * ERP "Web App Management" content router (E2).
+ * ERP "Site Management" content router (E2).
  *
  * Backs the ERP page that authors the public website's content — blog posts +
  * categories and website user accounts. Everything written here flows straight
@@ -65,13 +65,13 @@ router.post("/blog/categories", required("content.create"), (req, res) => {
 });
 
 router.patch("/blog/categories/:id", required("content.edit"), (req, res) => {
-  const updated = store.updateBlogCategory(req.params.id, req.body || {});
+  const updated = store.updateBlogCategory(String(req.params.id), req.body || {});
   if (!updated) throw new NotFoundError("Category not found");
   res.json(updated);
 });
 
 router.delete("/blog/categories/:id", required("content.edit"), (req, res) => {
-  if (!store.deleteBlogCategory(req.params.id)) throw new NotFoundError("Category not found");
+  if (!store.deleteBlogCategory(String(req.params.id))) throw new NotFoundError("Category not found");
   res.json({ ok: true });
 });
 
@@ -84,7 +84,7 @@ router.get("/blog/posts", required("content.view"), (_req, res) => {
 });
 
 router.get("/blog/posts/:id", required("content.view"), (req, res) => {
-  const post = store.blogPost(req.params.id);
+  const post = store.blogPost(String(req.params.id));
   if (!post) throw new NotFoundError("Post not found");
   res.json(post);
 });
@@ -97,13 +97,13 @@ router.post("/blog/posts", required("content.create"), (req, res) => {
 });
 
 router.patch("/blog/posts/:id", required("content.edit"), (req, res) => {
-  const updated = store.updateBlogPost(req.params.id, req.body || {});
+  const updated = store.updateBlogPost(String(req.params.id), req.body || {});
   if (!updated) throw new NotFoundError("Post not found");
   res.json(updated);
 });
 
 router.delete("/blog/posts/:id", required("content.edit"), (req, res) => {
-  if (!store.deleteBlogPost(req.params.id)) throw new NotFoundError("Post not found");
+  if (!store.deleteBlogPost(String(req.params.id))) throw new NotFoundError("Post not found");
   res.json({ ok: true });
 });
 
@@ -133,14 +133,14 @@ router.patch("/website-users/:id", required("content.edit"), async (req, res) =>
     patch.passwordHash = await bcrypt.hash(patch.password, 10);
   }
   delete patch.password;
-  const updated = store.updateWebsiteUser(req.params.id, patch);
+  const updated = store.updateWebsiteUser(String(req.params.id), patch);
   if (!updated) throw new NotFoundError("Website user not found");
   const { passwordHash: _omit, ...safe } = updated;
   res.json(safe);
 });
 
 router.delete("/website-users/:id", required("content.edit"), (req, res) => {
-  if (!store.deleteWebsiteUser(req.params.id)) throw new NotFoundError("Website user not found");
+  if (!store.deleteWebsiteUser(String(req.params.id))) throw new NotFoundError("Website user not found");
   res.json({ ok: true });
 });
 

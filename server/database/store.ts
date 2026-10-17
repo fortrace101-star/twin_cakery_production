@@ -12,6 +12,7 @@ import type {
   EventRecurrence,
   Expense,
   GoodsReceipt,
+  GoodsReceiptItem,
   Inquiry,
   InventoryItem,
   InventoryTransaction,
@@ -39,6 +40,7 @@ import type {
   RolePermission,
   StockReservation,
   Supplier,
+  SupplierPriceHistory,
   User,
   UserRole,
   WebsiteUser,
@@ -73,6 +75,24 @@ function mapBool(value: unknown): boolean {
 
 function makeId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+}
+
+/**
+ * Order numbers carry a UNIQUE constraint in Postgres (orders_order_number_key),
+ * but callers may supply a number that already exists (client retries,
+ * deterministic test probes like the E3 gate). A colliding INSERT rolls back the
+ * ENTIRE saveCache transaction, turning one duplicate into a 500 on unrelated
+ * tables too. Returns the requested number when free, otherwise a suffixed
+ * variant (`TC-E3PROBE-2`, `-3`, ...) so the write-back always succeeds.
+ */
+function uniqueOrderNumber(requested: string, taken: readonly Order[]): string {
+  const base = requested || makeId("TC");
+  if (!taken.some((o) => o.orderNumber === base)) return base;
+  for (let n = 2; n <= 100; n++) {
+    const candidate = `${base}-${n}`;
+    if (!taken.some((o) => o.orderNumber === candidate)) return candidate;
+  }
+  return `${base}-${Date.now()}`;
 }
 
 /** URL-safe slug from a title/name (lowercase, hyphenated, ascii-ish). */
@@ -114,7 +134,7 @@ function atNineUtc(dateStr: string): string {
   return Number.isNaN(iso.getTime()) ? new Date().toISOString() : iso.toISOString();
 }
 
-type Patch = Partial<Record<string, unknown>>;
+export type Patch = Record<string, unknown>;
 
 function applyPatch<T extends object>(target: T, patch: Patch, allowed: ReadonlyArray<string>): void {
   for (const key of allowed) {
@@ -400,7 +420,7 @@ export class MemoryStore {
     const status = String(input.status ?? "INQUIRY") as Order["status"];
     const record: Order = {
       id,
-      orderNumber: String(input.orderNumber ?? makeId("TC")),
+      orderNumber: uniqueOrderNumber(String(input.orderNumber ?? makeId("TC")), this.db.orders),
       customerId: String(input.customerId ?? ""),
       salespersonId: mapStr(input.salespersonId),
       items,
@@ -450,6 +470,12 @@ export class MemoryStore {
       "taxAmount", "total", "requiredBy", "requiredAt", "notes", "status", "paymentStatus",
       "deliveryStatus", "quotationId", "inquiryId", "createdBy", "deliveredAt",
     ]);
+    // Keep the UNIQUE(order_number) constraint safe even when the patch swaps
+    // in a number that another order already holds.
+    order.orderNumber = uniqueOrderNumber(
+      order.orderNumber,
+      this.db.orders.filter((o) => o.id !== orderId),
+    );
     order.updatedAt = new Date().toISOString();
     this.db.persist();
     return order;
@@ -717,6 +743,7 @@ export class MemoryStore {
       unit: String(input.unit ?? ""),
       reorderLevel: mapNum(input.reorderLevel),
       supplierId: String(input.supplierId ?? ""),
+      cost: mapNum(input.cost),
       lastUpdated: now,
       createdAt: now,
       updatedAt: now,
@@ -868,23 +895,61 @@ export class MemoryStore {
     for (const item of po.items) {
       item.receivedQuantity = item.quantity;
     }
+    const receiptId = makeId("gr");
+    // Spec §12: goods receipt must record every received line + update
+    // supplier price history (cost analysis / supplier comparison).
+    const receiptItems: GoodsReceiptItem[] = po.items.map((item) => ({
+      id: makeId("gri"),
+      goodsReceiptId: receiptId,
+      poItemId: item.id,
+      quantity: mapNum(item.quantity),
+      unit: item.unit || "unit",
+      unitCost: mapNum(item.unitPrice),
+      status: "COMPLETED",
+      createdAt: now,
+      updatedAt: now,
+    }));
     const receipt: GoodsReceipt = {
-      id: makeId("gr"),
+      id: receiptId,
       purchaseOrderId: poId,
       receivedBy: String(receivedBy ?? ""),
       date: now,
-      items: [],
+      items: receiptItems,
       total: mapNum(po.total),
       status: "COMPLETED",
       createdAt: now,
       updatedAt: now,
     };
+    this.db.goodsReceipts.push(receipt);
+    for (const item of receiptItems) {
+      const poLine = po.items.find((p) => p.id === item.poItemId);
+      if (!poLine || !mapNum(item.unitCost)) continue;
+      this.db.supplierPriceHistory.push({
+        id: makeId("sph"),
+        supplierId: po.supplierId,
+        productId: poLine.productId,
+        unit: item.unit,
+        price: mapNum(item.unitCost),
+        effectiveDate: now.slice(0, 10),
+        note: `Goods receipt ${receiptId} · ${po.poNumber}`,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
     this.db.persist();
     return { purchaseOrder: po, receipt };
   }
 
   purchaseRequirements(): PurchaseRequirement[] {
     return this.db.purchaseRequirements;
+  }
+
+  goodsReceipts(): GoodsReceipt[] {
+    return this.db.goodsReceipts;
+  }
+
+  supplierPriceHistory(): SupplierPriceHistory[] {
+    return this.db.supplierPriceHistory;
   }
 
   createPurchaseRequirement(input: Patch): PurchaseRequirement {
@@ -1452,7 +1517,7 @@ export class MemoryStore {
 
   // -------------------------------------------------------------------------
   // E2 — Website content: blog categories, blog posts, website users
-  // Managed from the ERP "Web App Management" page; the public website reads
+  // Managed from the ERP "Site Management" page; the public website reads
   // the published subset via GET /api/v1/public/*. One DB, no duplicate store.
   // -------------------------------------------------------------------------
 

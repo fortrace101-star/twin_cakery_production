@@ -17,9 +17,6 @@ dist-server
 .nitro
 *.local
 
-erp-interface-design/node_modules
-server/node_modules
-sweet-moments-cakery/node_modules
 
 # Env
 .env

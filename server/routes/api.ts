@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, RequestHandler } from "express";
 import authRouter from "./auth.js";
 import catalogueRouter from "./catalogue.js";
 import contentRouter from "./content.js";

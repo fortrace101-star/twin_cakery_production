@@ -1,8 +1,8 @@
 -- Twin Cakery ERP — 009 website content: blog + website users
--- E2 (governing architecture doc §4 catalogue principle + "Web App Management").
+-- E2 (governing architecture doc §4 catalogue principle + "Site Management").
 -- Purely additive and idempotent (IF NOT EXISTS) so the runner is safe to re-run.
 --
--- Data flow: ERP "Web App Management" page writes here -> Postgres -> the public
+-- Data flow: ERP "Site Management" page writes here -> Postgres -> the public
 -- website (sweet-moments-cakery) reads via GET /api/v1/public/*. One backend,
 -- one database; the website never keeps its own copy.
 
@@ -48,7 +48,7 @@ CREATE INDEX IF NOT EXISTS idx_blog_posts_published ON blog_posts(published_at);
 
 -- ---------------------------------------------------------------------------
 -- Website users: accounts for the public site (customers / site admins),
--- managed from the ERP "Web App Management" page. Distinct from ERP staff
+-- managed from the ERP "Site Management" page. Distinct from ERP staff
 -- `users` (internal RBAC). password_hash is bcrypt; status ACTIVE|SUSPENDED.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS website_users (

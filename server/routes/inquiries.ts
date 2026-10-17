@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
 import { rbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
@@ -6,7 +6,7 @@ import { AuthService, extractToken } from "../services/auth.service.js";
 const router = Router();
 const authService = new AuthService();
 
-const required = (perm: string) => (req, res, next) => {
+const required = (perm: string): RequestHandler => (req, res, next) => {
   try {
     const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     rbacService.requirePermission(session.userId, perm);
@@ -47,13 +47,13 @@ router.post("/", required("inquiries.create"), (req, res) => {
 });
 
 router.get("/:id", required("inquiries.view"), (req, res) => {
-  const inquiry = store.inquiries().find((i) => i.id === req.params.id);
+  const inquiry = store.inquiries().find((i) => i.id === String(req.params.id));
   if (!inquiry) throw new Error("Inquiry not found");
   res.json(inquiry);
 });
 
 router.patch("/:id", required("inquiries.edit"), (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const inquiry = store.inquiries().find((i) => i.id === id);
   if (!inquiry) throw new Error("Inquiry not found");
   const patch = req.body || {};

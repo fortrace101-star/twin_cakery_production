@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
 import { rbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
@@ -7,7 +7,7 @@ import { NotFoundError } from "../utils/errors.js";
 const router = Router();
 const authService = new AuthService();
 
-const required = (perm: string) => (req, res, next) => {
+const required = (perm: string): RequestHandler => (req, res, next) => {
   try {
     const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     rbacService.requirePermission(session.userId, perm);
@@ -40,13 +40,13 @@ router.get("/permissions", required("roles.manage"), (req, res) => {
 });
 
 router.get("/:id/permissions", required("roles.manage"), (req, res) => {
-  const role = store.roles().find((r) => r.id === req.params.id);
+  const role = store.roles().find((r) => r.id === String(req.params.id));
   if (!role) throw new NotFoundError("Role not found");
   res.json({ role, permissions: rbacService.getRolePermissions(role) });
 });
 
 router.post("/:id/permissions/:permissionId", required("roles.manage"), (req, res) => {
-  const { id, permissionId } = req.params;
+  const id = String(req.params.id); const permissionId = String(req.params.permissionId);
   const role = store.roles().find((r) => r.id === id);
   if (!role) throw new NotFoundError("Role not found");
   const perm = store.permissions().find((p) => p.id === permissionId);

@@ -1,9 +1,13 @@
-import { useEffect } from "react";
-import { Routes, Route, Navigate, useParams } from "react-router-dom";
+import { useEffect, useRef } from "react";
+import { Routes, Route, Navigate, useParams, useNavigate } from "react-router-dom";
 import { Workspace } from "./components/erp/workspace";
-import { WorkspaceProvider } from "./components/erp/store";
+import { WorkspaceProvider, useWorkspace } from "./components/erp/store";
 import { DensityProvider } from "./lib/density";
 import { modules } from "./components/erp/data";
+import { PrivateRoute } from "./components/erp/PrivateRoute";
+import { LoginPage } from "./pages/LoginPage";
+import { SignUpPage } from "./pages/SignUpPage";
+import { hasExistingUser } from "./lib/api";
 
 function applyMeta(title: string, description: string) {
   document.title = title;
@@ -30,8 +34,18 @@ function ModulePage() {
       `Manage ${config?.label.toLowerCase() || "operations"} in the Twin Cakery business workspace.`,
     );
   }, [config?.label]);
+
+  // The dashboard isn't part of the modules table, so render it directly —
+  // this keeps /workspace/dashboard working (matches notification deep links).
+  if (module === "dashboard") return <Workspace module="dashboard" />;
+  // "/workspace/" (empty module) is a stray link — send the user home to the
+  // dashboard instead of showing a dead 404.
+  if (!module) return <Navigate to="/" replace />;
   if (!config) return <Navigate to="/not-found" replace />;
-  return <Workspace key={module} module={module} />;
+  // No `key` here on purpose: remounting Workspace on every module switch
+  // would reset its local UI state (e.g. the sidebar collapsed flag). Keeping
+  // a single instance lets navigation preserve that state.
+  return <Workspace module={module} />;
 }
 
 function NotFoundPage() {
@@ -56,13 +70,59 @@ function NotFoundPage() {
   );
 }
 
+function GuestPage() {
+  const { user, loading } = useWorkspace();
+  const navigate = useNavigate();
+  const settledRef = useRef(false);
+
+  useEffect(() => {
+    // Already authed → the dashboard renders right here at "/", so there is
+    // nothing to redirect to.
+    if (user) return;
+
+    // Wait for the restored session (me()) to settle before deciding where a
+    // guest goes; otherwise a signed-in user whose token hasn't resolved yet
+    // would be bounced to /login on a soft reload.
+    if (loading) return;
+
+    // Not authed → decide the entry point by whether the workspace already
+    // has registered staff accounts ("history"). A fresh workspace with no
+    // accounts is a first-run visitor, so we land on /signup; otherwise /login.
+    if (!settledRef.current) {
+      settledRef.current = true;
+      void hasExistingUser().then((hasHistory) => {
+        if (!user) {
+          navigate(hasHistory ? "/login" : "/signup", { replace: true });
+        }
+      });
+    }
+  }, [loading, user, navigate]);
+
+  // Authenticated → show the real dashboard at the default route.
+  if (user) return <DashboardPage />;
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
+      <p className="text-sm text-muted-foreground">Connecting to Twin Cakery…</p>
+    </div>
+  );
+}
 export default function App() {
   return (
     <WorkspaceProvider>
       <DensityProvider>
         <Routes>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/workspace/:module" element={<ModulePage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignUpPage />} />
+          <Route path="/" element={<GuestPage />} />
+          <Route
+            path="/workspace/:module"
+            element={
+              <PrivateRoute>
+                <ModulePage />
+              </PrivateRoute>
+            }
+          />
           <Route path="/not-found" element={<NotFoundPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

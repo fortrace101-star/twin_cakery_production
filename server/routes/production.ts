@@ -1,13 +1,16 @@
-import { Router } from "express";
+import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
 import { rbacService } from "../services/rbac.service.js";
+import { businessService } from "../services/business.service.js";
+
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
+import { publishLowStockAlert } from "../services/stock-alerts.js";
 
 const router = Router();
 const authService = new AuthService();
 
-const required = (perm: string) => (req, res, next) => {
+const required = (perm: string): RequestHandler => (req, res, next) => {
   try {
     const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     rbacService.requirePermission(session.userId, perm);
@@ -28,13 +31,13 @@ router.get("/jobs", required("production.view"), (req, res) => {
 });
 
 router.get("/jobs/:id", required("production.view"), (req, res) => {
-  const job = store.productionJobs().find((j) => j.id === req.params.id);
+  const job = store.productionJobs().find((j) => j.id === String(req.params.id));
   if (!job) throw new NotFoundError("Production job not found");
   res.json(job);
 });
 
 router.post("/jobs/:id/start", required("production.start"), (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   const job = store.updateProductionJob(id, { status: "IN_PRODUCTION", stage: "PRODUCE", progress: 20, updatedAt: new Date().toISOString() });
@@ -43,8 +46,23 @@ router.post("/jobs/:id/start", required("production.start"), (req, res) => {
   res.json(job);
 });
 
+router.post("/jobs", required("production.schedule"), (req, res) => {
+  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  if (!session) return res.status(401).json({ error: "Not authenticated" });
+  const { orderId } = req.body || {};
+  if (!orderId) return res.status(400).json({ error: "orderId is required" });
+  const order = store.orders().find((o) => o.id === String(orderId));
+  if (!order) throw new NotFoundError("Order not found");
+  if (order.status !== "READY_FOR_PRODUCTION" && order.status !== "CONFIRMED" && order.status !== "PRODUCTION_REVIEW") {
+    return res.status(409).json({ error: "Order must be in READY_FOR_PRODUCTION, CONFIRMED, or PRODUCTION_REVIEW" });
+  }
+  const { job } = businessService.prepareOrderForProduction(String(orderId), session.userId);
+  store.persist();
+  res.status(201).json(job);
+});
+
 router.post("/jobs/:id/complete", required("production.complete"), (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   const job = store.updateProductionJob(id, { status: "READY_FOR_QUALITY", stage: "QUALITY", progress: 80, updatedAt: new Date().toISOString() });
@@ -54,7 +72,7 @@ router.post("/jobs/:id/complete", required("production.complete"), (req, res) =>
 });
 
 router.post("/jobs/:id/quality-check", required("production.quality_check"), (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   const { result, issues, notes, reworkRequired, reworkCost, wastageCaused } = req.body || {};
@@ -82,14 +100,16 @@ router.post("/jobs/:id/quality-check", required("production.quality_check"), (re
 });
 
 router.post("/jobs/:id/wastage", required("production.record_wastage"), (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   const { itemId, quantity, unit, reason, cost } = req.body || {};
   if (!itemId || quantity === undefined) return res.status(400).json({ error: "itemId and quantity are required" });
   const job = store.productionJobs().find((j) => j.id === id);
   if (!job) throw new NotFoundError("Production job not found");
+  const previousStock = store.inventoryItems().find((i) => i.id === itemId)?.physicalStock ?? 0;
   store.adjustInventory(itemId, -quantity, unit || "unit", "WASTAGE", `Wastage for ${job.orderId}`, session.userId, cost || 0, `Wastage: ${reason}`);
+  publishLowStockAlert(itemId, previousStock, { userId: session.userId, role: session.userId, isAdmin: true });
   store.createProductionWastage({
     jobId: job.id,
     itemId,
@@ -101,6 +121,27 @@ router.post("/jobs/:id/wastage", required("production.record_wastage"), (req, re
   });
   store.persist();
   res.json({ ok: true });
+});
+
+router.get("/jobs/:id/costs", required("production.view"), (req, res) => {
+  const job = store.productionJobs().find((j) => j.id === String(req.params.id));
+  if (!job) throw new NotFoundError("Production job not found");
+  const costs = store.productionCosts().filter((c) => c.jobId === job.id);
+  res.json({ jobId: job.id, costs });
+});
+
+router.get("/jobs/:id/consumption", required("production.view"), (req, res) => {
+  const job = store.productionJobs().find((j) => j.id === String(req.params.id));
+  if (!job) throw new NotFoundError("Production job not found");
+  const consumption = store.productionConsumption().filter((c) => c.jobId === job.id);
+  res.json({ jobId: job.id, consumption });
+});
+
+router.get("/jobs/:id/wastage", required("production.view"), (req, res) => {
+  const job = store.productionJobs().find((j) => j.id === String(req.params.id));
+  if (!job) throw new NotFoundError("Production job not found");
+  const wastage = store.productionWastage().filter((w) => w.jobId === job.id);
+  res.json({ jobId: job.id, wastage });
 });
 
 export default router;

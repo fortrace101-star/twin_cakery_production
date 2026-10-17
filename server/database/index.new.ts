@@ -14,6 +14,8 @@ import type {
   Delivery,
   Expense,
   ExpenseCategory,
+  GoodsReceipt,
+  GoodsReceiptItem,
   Inquiry,
   InventoryItem,
   InventoryTransaction,
@@ -41,6 +43,7 @@ import type {
   RolePermission,
   StockReservation,
   Supplier,
+  SupplierPriceHistory,
   User,
   UserRole,
   WebsiteUser,
@@ -138,6 +141,9 @@ export interface DbCache {
   purchaseOrders: PurchaseOrder[];
   poItems: PurchaseOrderItem[];
   purchaseRequirements: PurchaseRequirement[];
+  goodsReceipts: GoodsReceipt[];
+  goodsReceiptItems: GoodsReceiptItem[];
+  supplierPriceHistory: SupplierPriceHistory[];
   deliveries: Delivery[];
   notifications: Notification[];
   notificationRecipients: NotificationRecipient[];
@@ -202,6 +208,9 @@ export function createCache(): DbCache {
     purchaseOrders: [],
     poItems: [],
     purchaseRequirements: [],
+    goodsReceipts: [],
+    goodsReceiptItems: [],
+    supplierPriceHistory: [],
     deliveries: [],
     notifications: [],
     notificationRecipients: [],
@@ -226,11 +235,10 @@ export function createCache(): DbCache {
     persist: () => {
       saveChain = saveChain
         .then(() => saveCache())
+        .then(() => {})
         .catch((err: unknown) => {
           pendingPersistError = err instanceof Error ? err : new Error(String(err));
-          logger.error("store", "persist failed", {
-            error: err instanceof Error ? err.message : String(err),
-          });
+          logger.failure("store", `persist failed: ${pendingPersistError.message}`);
         });
       return saveChain;
     },
@@ -293,9 +301,7 @@ export async function loadCache(): Promise<void> {
     try {
       columnMap = await fetchColumnMap();
     } catch (err) {
-      logger.error("store", "schema introspection failed", {
-        error: err instanceof Error ? err.message : String(err),
-      });
+      logger.failure("store", "schema introspection failed");
       columnMap = null;
       return;
     }
@@ -304,7 +310,7 @@ export async function loadCache(): Promise<void> {
     const load = async <T>(table: string): Promise<T[] | null> => {
       const cols = cm.get(table);
       if (!cols || cols.length === 0) {
-        logger.warn("store", `table ${table} not found in schema - skipping`);
+        logger.failure("store", `table ${table} not found in schema - skipping`);
         return null;
       }
       try {
@@ -312,9 +318,7 @@ export async function loadCache(): Promise<void> {
         loadedTables.add(table);
         return rows.map((r) => coerceRow(cols, r) as unknown as T);
       } catch (err) {
-        logger.error("store", `load failed for ${table}`, {
-          error: err instanceof Error ? err.message : String(err),
-        });
+        logger.failure("store", `load failed for ${table}`);
         return null;
       }
     };
@@ -386,6 +390,12 @@ export async function loadCache(): Promise<void> {
       po.items = cache.poItems.filter((i) => i.purchaseOrderId === po.id);
     }
     cache.purchaseRequirements = (await load<PurchaseRequirement>("purchase_requirements")) ?? [];
+    cache.goodsReceipts = (await load<GoodsReceipt>("goods_receipts")) ?? [];
+    cache.goodsReceiptItems = (await load<GoodsReceiptItem>("goods_receipt_items")) ?? [];
+    for (const r of cache.goodsReceipts) {
+      r.items = cache.goodsReceiptItems.filter((i) => i.goodsReceiptId === r.id);
+    }
+    cache.supplierPriceHistory = (await load<SupplierPriceHistory>("supplier_price_history")) ?? [];
 
     // production
     cache.productionJobs = (await load<ProductionJob>("production_jobs")) ?? [];
@@ -418,13 +428,10 @@ export async function loadCache(): Promise<void> {
     cache.expenseCategories = (await load<ExpenseCategory>("expense_categories")) ?? [];
 
     currentDb = cache;
-    logger.info(
-      "store",
-      `cache loaded: ${cache.users.length} users, ${cache.customers.length} customers, ` +
-        `${cache.orders.length} orders, ${cache.quotations.length} quotations, ` +
-        `${cache.inventoryItems.length} inventory items, ${cache.catalogue.products.length} catalogue products, ` +
-        `${cache.blogPosts.length} blog posts`,
-    );
+    logger.boot(`cache loaded: ${cache.users.length} users, ${cache.customers.length} customers, ` +
+      `${cache.orders.length} orders, ${cache.quotations.length} quotations, ` +
+      `${cache.inventoryItems.length} inventory items, ${cache.catalogue.products.length} catalogue products, ` +
+      `${cache.blogPosts.length} blog posts`);
   } catch (err) {
     console.error("[store] loadCache failed - booting with empty/partial cache:", err);
   }
@@ -537,6 +544,9 @@ const MIRRORS: Mirror[] = [
   { table: "purchase_orders", rows: (c) => c.purchaseOrders },
   { table: "purchase_order_items", rows: (c) => c.poItems },
   { table: "purchase_requirements", rows: (c) => c.purchaseRequirements },
+  { table: "goods_receipts", rows: (c) => c.goodsReceipts },
+  { table: "goods_receipt_items", rows: (c) => c.goodsReceipts.flatMap((r) => (Array.isArray(r.items) ? r.items : [])) },
+  { table: "supplier_price_history", rows: (c) => c.supplierPriceHistory },
   { table: "deliveries", rows: (c) => c.deliveries },
   { table: "expense_categories", rows: (c) => c.expenseCategories },
   { table: "expenses", rows: (c) => c.expenses },
@@ -562,11 +572,7 @@ const MIRRORS: Mirror[] = [
 async function saveCache(): Promise<void> {
   if (loadedTables.size === 0 || !columnMap) {
     // Never silently drop write-backs: this means boot-time load never ran.
-    logger.error(
-      "store",
-      "saveCache skipped - cache not loaded " +
-        `(loadedTables=${loadedTables.size}, columnMap=${columnMap ? "ok" : "missing"})`,
-    );
+    logger.failure("store", "saveCache skipped - cache not loaded");
     return;
   }
   const cm = columnMap;

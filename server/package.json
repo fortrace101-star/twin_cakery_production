@@ -7,10 +7,26 @@
   "scripts": {
     "dev": "tsx --tsconfig tsconfig.json index.ts",
     "dev:api": "tsx --tsconfig tsconfig.json index.ts",
+    "dev:nodemon": "nodemon --config nodemon.json",
     "start": "node ../dist-server/index.js",
     "build": "tsc -p tsconfig.json",
     "build:api": "tsc -p tsconfig.json",
     "db:migrate": "tsx --tsconfig tsconfig.json database/migrate.ts",
     "db:seed": "tsx --tsconfig tsconfig.json seeds/seed.ts"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^18.0.6",
+    "express": "^5.2.1",
+    "pg": "^8.23.1",
+    "uuid": "^14.0.2"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/express": "^5.0.6",
+    "@types/pg": "^8.23.1",
+    "nodemon": "^3.1.14",
+    "tsx": "^4.23.15",
+    "typescript": "^5.8.3"
   }
 }

@@ -104,16 +104,25 @@
   --brand-ink: oklch(.3 .05 52);
   --lime: oklch(.72 .13 78);
   --lime-soft: oklch(.94 .05 88);
-  --blue-soft: oklch(.94 .035 235);
-  --blue-ink: oklch(.45 .09 245);
-  --peach-soft: oklch(.945 .045 75);
-  --amber-ink: oklch(.5 .11 65);
-  --violet-soft: oklch(.94 .035 300);
-  --violet-ink: oklch(.48 .13 300);
-  --green-soft: oklch(.945 .04 155);
-  --green-ink: oklch(.42 .09 155);
-  --red-soft: oklch(.95 .03 25);
-  --red-ink: oklch(.5 .15 25);
+  /* Order-stage palette: one hue per pipeline stage (theme-tokens.ts
+     ORDER_STAGE_TONES). Softs are tints for badge/row backgrounds, inks are
+     the darkened text colour on top of them (AA on the soft). */
+  --blue-soft: oklch(.92 .055 235);
+  --blue-ink: oklch(.42 .11 245);
+  --peach-soft: oklch(.92 .07 78);
+  --amber-ink: oklch(.46 .12 62);
+  --violet-soft: oklch(.92 .05 300);
+  --violet-ink: oklch(.44 .15 300);
+  --green-soft: oklch(.92 .06 155);
+  --green-ink: oklch(.38 .11 155);
+  --red-soft: oklch(.93 .04 25);
+  --red-ink: oklch(.48 .17 25);
+  --teal-soft: oklch(.974 .008 217);
+  --teal-ink: oklch(.5405 .0821 218.7);
+  --orange-soft: oklch(.92 .07 55);
+  --orange-ink: oklch(.45 .12 50);
+  --rose-soft: oklch(.93 .045 10);
+  --rose-ink: oklch(.48 .16 10);
   --chart-revenue: oklch(.76 .12 76);
   --chart-expense: oklch(.86 .015 85);
   /* transparent-logo plate: the logo PNG has no background, so on dark
@@ -174,6 +183,13 @@
   --green-ink: oklch(.8 .12 155);
   --red-soft: oklch(.3 .05 25);
   --red-ink: oklch(.8 .14 25);
+  /* Dark counterparts of the order-stage hues: deep tinted plates, bright ink. */
+  --teal-soft: oklch(.296 .042 215.5);
+  --teal-ink: oklch(.779 .088 213.5);
+  --orange-soft: oklch(.32 .055 55);
+  --orange-ink: oklch(.84 .11 62);
+  --rose-soft: oklch(.32 .045 10);
+  --rose-ink: oklch(.84 .11 10);
   --chart-revenue: oklch(.8 .13 80);
   --chart-expense: oklch(.52 .05 235);
   --shadow-popover: 0 8px 32px oklch(0 0 0 / .55);
@@ -208,6 +224,12 @@
  --color-green-ink: var(--green-ink);
  --color-red-soft: var(--red-soft);
  --color-red-ink: var(--red-ink);
+ --color-teal-soft: var(--teal-soft);
+ --color-teal-ink: var(--teal-ink);
+ --color-orange-soft: var(--orange-soft);
+ --color-orange-ink: var(--orange-ink);
+ --color-rose-soft: var(--rose-soft);
+ --color-rose-ink: var(--rose-ink);
 }
 body { font-family:var(--font-sans); font-size:13px; letter-spacing:0; }
 button, input, select, textarea {font:inherit;}
@@ -255,6 +277,20 @@ button, a, input, select, textarea { -webkit-tap-highlight-color:transparent; }
 .profile strong {display:block;font-size:11px;font-weight:600;}
 .profile small {font-size:11px;color:var(--muted-foreground);}
 .profile>svg {margin-left:auto;}
+.sidebar-nav-area {position:relative;flex:1;min-height:0;display:flex;flex-direction:column;}
+.scroll-arrow {position:absolute;left:0;right:0;height:26px;display:grid;place-items:center;z-index:5;border:0;cursor:pointer;color:var(--muted-foreground);}
+.scroll-arrow:hover {color:var(--foreground);}
+.scroll-up {top:0;background:linear-gradient(to bottom,var(--card) 55%,transparent);}
+.scroll-down {bottom:0;background:linear-gradient(to top,var(--card) 55%,transparent);}
+.profile-wrap {position:relative;}
+button.profile {background:none;cursor:pointer;width:100%;text-align:left;font-family:inherit;color:inherit;border-left-width:0;border-right-width:0;border-bottom-width:0;}
+.profile-open>svg {transform:rotate(180deg);}
+.profile-menu {position:absolute;bottom:calc(100% + 8px);right:0;min-width:210px;background:var(--card);border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 28px oklch(0 0 0 / 14%);padding:6px;z-index:40;}
+.profile-menu-head {padding:8px 10px 10px;border-bottom:1px solid var(--border);margin-bottom:4px;}
+.profile-menu-head strong {display:block;font-size:12px;font-weight:600;}
+.profile-menu-head small {font-size:11px;color:var(--muted-foreground);word-break:break-all;}
+.profile-menu-item {display:flex;align-items:center;gap:9px;width:100%;padding:9px 10px;border:0;background:none;cursor:pointer;border-radius:6px;font-family:inherit;font-size:12px;font-weight:500;color:var(--foreground);text-align:left;}
+.profile-menu-item:hover {background:var(--sidebar-accent);color:var(--sidebar-accent-foreground);}
 .main-shell {width:calc(100% - 240px);margin-left:240px;transition:margin-left .2s;}
 .topbar {height:64px;background:var(--card);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;padding:0 32px;gap:16px;}
 .breadcrumb {display:flex;align-items:center;gap:13px;font-size:11px;color:var(--muted-foreground);}
@@ -302,7 +338,7 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .panel-heading p {font-size:11px;color:var(--muted-foreground);margin-top:4px;}
 .panel-heading button {font-size:11px;}
 .panel-heading>button svg {width:14px;}
-.charts-grid {display:grid;grid-template-columns:minmax(0,1.85fr) minmax(0,1fr);gap:24px;margin-bottom:24px;}
+.charts-grid {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.85fr);gap:24px;margin-bottom:24px;}
 .segmented {display:flex;border:1px solid var(--border);padding:2px;border-radius:5px;}
 .segmented button {font-size:11px;min-width:45px;height:25px;padding:0 8px;}
 .segmented .selected {background:var(--muted);}
@@ -330,14 +366,23 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .donut strong {font-size:29px;font-weight:600;font-variant-numeric:tabular-nums;}
 .donut span {font-size:11px;color:var(--muted-foreground);margin-top:3px;}
 .donut-caption {font-size:11px;color:var(--muted-foreground);}
-.donut-legend {display:flex;gap:10px;justify-content:space-between;padding:0 20px 21px;}
+.donut-legend {display:flex;flex-wrap:wrap;gap:10px 14px;justify-content:space-between;padding:0 20px 21px;}
+/* production job progress bar (E3) */
+.progress-track {height:6px;border-radius:999px;background:var(--muted);overflow:hidden;}
+.progress-bar {height:100%;border-radius:999px;background:var(--chart-revenue);transition:width .3s ease;}
 .donut-legend>div {display:flex;flex-direction:column;gap:6px;font-size:11px;}
 .donut-legend>div>span {display:flex;align-items:center;gap:5px;color:var(--muted-foreground);font-size:11px;white-space:nowrap;}
 .donut-legend i {width:6px;height:6px;display:inline-block;border-radius:2px;}
 .donut-legend strong {font-size:16px;font-weight:550;padding-left:10px;}
 .legend-lime {background:var(--chart-revenue);}
+.legend-blue {background:var(--blue-soft);}
+.legend-green {background:var(--green-soft);}
 .legend-violet {background:var(--violet-soft);}
 .legend-peach {background:var(--peach-soft);}
+.legend-amber {background:var(--peach-soft);}
+.legend-teal {background:var(--teal-soft);}
+.legend-orange {background:var(--orange-soft);}
+.legend-rose {background:var(--rose-soft);}
 .operations-grid {display:grid;grid-template-columns:minmax(0,1.85fr) minmax(0,1fr);gap:24px;margin-bottom:24px;}
 .title-with-count {display:flex;align-items:center;gap:8px;}
 .title-with-count>span,.inline-count {background:var(--muted);font-size:11px;font-weight:500;padding:2px 6px;border-radius:4px;}
@@ -360,6 +405,78 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .orders-table td {padding:14px 12px;font-size:12px;font-variant-numeric:tabular-nums;border-bottom:1px solid var(--border);}
 .orders-table tbody tr {cursor:pointer;}
 .orders-table tbody tr:hover {background:var(--background);}
+.orders-table tbody tr.order-row-tint {--row-tint:var(--muted);background:linear-gradient(to right,var(--row-tint) 0%,var(--row-tint) 12%,color-mix(in oklch,var(--row-tint) 45%,var(--card)) 33%,var(--card) 62%,var(--card) 100%);}
+.orders-table tbody tr.order-row-tint td {background:transparent;}
+.orders-table tbody tr.order-row-tint:hover {background:linear-gradient(to right,var(--row-tint) 0%,var(--row-tint) 12%,color-mix(in oklch,var(--row-tint) 45%,var(--background)) 33%,var(--background) 62%,var(--background) 100%);}
+.orders-table tbody tr.order-row-tint.tone-green {--row-tint:var(--green-soft);}
+.orders-table tbody tr.order-row-tint.tone-blue {--row-tint:var(--blue-soft);}
+.orders-table tbody tr.order-row-tint.tone-violet {--row-tint:var(--violet-soft);}
+.orders-table tbody tr.order-row-tint.tone-red {--row-tint:var(--red-soft);}
+.orders-table tbody tr.order-row-tint.tone-amber {--row-tint:var(--peach-soft);}
+.orders-table tbody tr.order-row-tint.tone-gray {--row-tint:var(--muted);}
+.orders-table tbody tr.order-row-tint.tone-teal {--row-tint:var(--teal-soft);}
+.orders-table tbody tr.order-row-tint.tone-orange {--row-tint:var(--orange-soft);}
+.orders-table tbody tr.order-row-tint.tone-rose {--row-tint:var(--rose-soft);}
+/* Vertical order-progress rail on the left of each order row — graphical only
+   (erp_design.md C2: the badge next to it carries the word). Tick = stage
+   passed, filled dot = current stage (its hue echoes the row tint via
+   --step-color), outline ring = stage still ahead; connectors are solid on the
+   travelled path and dashed for the road ahead. */
+.order-stepper {display:flex;flex-direction:column;align-items:center;gap:4px;padding:2px 0;}
+.order-stepper li {position:relative;display:grid;place-items:center;width:11px;height:11px;}
+.order-stepper li:not(:last-child)::after {content:'';position:absolute;left:50%;top:100%;transform:translateX(-50%);height:4px;border-left:1.5px dashed color-mix(in oklch,var(--muted-foreground) 45%,transparent);}
+.order-stepper li.step-done::after {border-left-style:solid;border-left-color:var(--step-color);}
+.order-stepper li.step-done {color:var(--step-color);}
+.order-stepper .step-node {width:10px;height:10px;border-radius:50%;border:1.5px solid color-mix(in oklch,var(--muted-foreground) 55%,transparent);box-sizing:border-box;}
+.order-stepper li.step-current .step-node {width:11px;height:11px;border:0;background:var(--step-color);box-shadow:0 0 0 3px color-mix(in oklch,var(--step-color) 18%,transparent);}
+.order-stepper.tone-green {--step-color:var(--green-ink);}
+.order-stepper.tone-blue {--step-color:var(--blue-ink);}
+.order-stepper.tone-violet {--step-color:var(--violet-ink);}
+.order-stepper.tone-amber {--step-color:var(--amber-ink);}
+.order-stepper.tone-teal {--step-color:var(--teal-ink);}
+.order-stepper.tone-orange {--step-color:var(--orange-ink);}
+.order-stepper.tone-rose {--step-color:var(--rose-ink);}
+.order-stepper.tone-red {--step-color:var(--red-ink);}
+.order-stepper.tone-gray {--step-color:var(--muted-foreground);}
+
+/* Phase E5 — order-detail stage strip + prev/next navigation (OrderDialog):
+   same tone variables as the row stepper, applied to a horizontal pipeline. */
+.order-stage-strip {display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0;padding:0;}
+.order-stage-strip li {display:flex;align-items:center;gap:4px;font-size:11px;padding:3px 8px;border:1px solid var(--border);border-radius:4px;color:var(--muted-foreground);background:var(--card);}
+.order-stage-strip li.is-done {color:var(--foreground);}
+.order-stage-strip li.is-current {background:var(--stage-tone-soft);border-color:var(--stage-tone);color:var(--stage-tone);font-weight:600;}
+.order-stage-strip li.is-target {border-style:dashed;border-color:var(--stage-tone);color:var(--stage-tone);}
+.order-stage-strip li.tone-green {--stage-tone:var(--green-ink);--stage-tone-soft:var(--green-soft);}
+.order-stage-strip li.tone-blue {--stage-tone:var(--blue-ink);--stage-tone-soft:var(--blue-soft);}
+.order-stage-strip li.tone-violet {--stage-tone:var(--violet-ink);--stage-tone-soft:var(--violet-soft);}
+.order-stage-strip li.tone-amber {--stage-tone:var(--amber-ink);--stage-tone-soft:var(--peach-soft);}
+.order-stage-strip li.tone-teal {--stage-tone:var(--teal-ink);--stage-tone-soft:var(--teal-soft);}
+.order-stage-strip li.tone-orange {--stage-tone:var(--orange-ink);--stage-tone-soft:var(--orange-soft);}
+.order-stage-strip li.tone-rose {--stage-tone:var(--rose-ink);--stage-tone-soft:var(--rose-soft);}
+.order-stage-strip li.tone-red {--stage-tone:var(--red-ink);--stage-tone-soft:var(--red-soft);}
+.order-stage-strip li.tone-gray {--stage-tone:var(--muted-foreground);--stage-tone-soft:var(--muted);}
+.stage-nav {display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.stage-nav-btn {background:var(--stage-tone-soft);color:var(--stage-tone);border:1px solid color-mix(in oklch,var(--stage-tone) 35%,transparent);}
+.stage-nav-btn:disabled {opacity:.45;}
+.stage-nav-btn.tone-green {--stage-tone:var(--green-ink);--stage-tone-soft:var(--green-soft);}
+.stage-nav-btn.tone-blue {--stage-tone:var(--blue-ink);--stage-tone-soft:var(--blue-soft);}
+.stage-nav-btn.tone-violet {--stage-tone:var(--violet-ink);--stage-tone-soft:var(--violet-soft);}
+.stage-nav-btn.tone-amber {--stage-tone:var(--amber-ink);--stage-tone-soft:var(--peach-soft);}
+.stage-nav-btn.tone-teal {--stage-tone:var(--teal-ink);--stage-tone-soft:var(--teal-soft);}
+.stage-nav-btn.tone-orange {--stage-tone:var(--orange-ink);--stage-tone-soft:var(--orange-soft);}
+.stage-nav-btn.tone-rose {--stage-tone:var(--rose-ink);--stage-tone-soft:var(--rose-soft);}
+.stage-nav-btn.tone-red {--stage-tone:var(--red-ink);--stage-tone-soft:var(--red-soft);}
+.stage-nav-btn.tone-gray {--stage-tone:var(--muted-foreground);--stage-tone-soft:var(--muted);}
+
+/* Phase E5 — CRM Occasions tab: cross-customer grouped occasion lists. */
+.occasions-panel {display:flex;flex-direction:column;gap:14px;}
+.occasions-toolbar {display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.occasions-toolbar .date-range {display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted-foreground);}
+.occasions-toolbar .date-range input {font-size:11px;height:25px;padding:0 6px;border:1px solid var(--border);border-radius:4px;background:var(--card);color:var(--foreground);}
+.occasions-group h3 {font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground);margin-top:6px;}
+.occasions-group h3 .inline-count {margin-left:6px;}
+.crm-event-list {list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;}
+.crm-event-list li {display:flex;align-items:center;justify-content:space-between;gap:12px;}
 .orders-table tbody tr:last-child td {border-bottom:0;}
 .orders-table td:last-child {padding-left:0;padding-right:8px;}
 .orders-table td:last-child button {height:25px;width:25px;}
@@ -390,6 +507,9 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .status-violet {background:var(--violet-soft);color:var(--violet-ink);}
 .status-red {background:var(--red-soft);color:var(--red-ink);}
 .status-amber {background:var(--peach-soft);color:var(--amber-ink);}
+.status-teal {background:var(--teal-soft);color:var(--teal-ink);}
+.status-orange {background:var(--orange-soft);color:var(--orange-ink);}
+.status-rose {background:var(--rose-soft);color:var(--rose-ink);}
 .sort-button {font-size:11px;height:24px;padding:0 6px;gap:3px;color:var(--muted-foreground);font-weight:500;}
 .table-foot {border-top:1px solid var(--border);padding:13px 24px;display:flex;justify-content:space-between;color:var(--muted-foreground);font-size:11px;}
 .foot-note {display:flex;align-items:center;gap:4px;}
@@ -541,7 +661,7 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .crm-msg-out{align-self:flex-end;}
 .crm-detail-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;}
 
-/* ── Web App Management (E2) ─────────────────────────────────────────── */
+/* ── Site Management (E2) ───────────────────────────────────────────────── */
 .webapp{display:flex;flex-direction:column;gap:16px;}
 .webapp-banner{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 20px;}
 .webapp-banner h2{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:600;}

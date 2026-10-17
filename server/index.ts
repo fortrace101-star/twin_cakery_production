@@ -42,30 +42,28 @@ app.use(express.json({ limit: "100kb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(attachAuth);
 
-// â”€â”€ Request log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Logs every action that reaches the backend: method, path, status, duration
-// and the authenticated user (when a token was supplied). Runs after
-// attachAuth so the session is available when the response finishes.
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Request log ──────────────────────────────────────────────────
+// ONE log line per HTTP request — exactly five fields, nothing more:
+// source (`http`), endpoint (TypeScript route path, NOT the SQL query),
+// method (GET/POST/PUT/PATCH/DELETE), response time, response code.
+// Spec: IMPLEMENTATION_PLAN §7.1. Runs after attachAuth so the session is
+// available when the response finishes.
+// ────────────────────────────────────────────────────────────────────
 app.use((req: Request, res: Response, next: NextFunction) => {
   const startedAt = process.hrtime.bigint();
   const { method, originalUrl } = req;
 
   res.on("finish", () => {
-    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
-    const session = (req as unknown as { auth?: { session?: { userId: string; username: string } } })
-      .auth?.session;
-    logger.info("http", `${method} ${originalUrl} -> ${res.statusCode}`, {
-      durationMs: durationMs.toFixed(1),
-      user: session ? session.username : "anonymous",
-      ip: req.ip,
-    });
+    const duration = `${(Number(process.hrtime.bigint() - startedAt) / 1e6).toFixed(1)}ms`;
+    // Emit exactly five fields, nothing more: source (http), endpoint,
+    // method (GET/POST), response time, response code.
+    logger.request({ source: "http", endpoint: originalUrl, method, time: duration, status: res.statusCode });
   });
 
   next();
 });
 
-// ── Durability gate ─────────────────────────────────────────────────────────
+// ── Durability gate ──────────────────────────────────────────────
 // Routes mutate the in-memory cache synchronously and queue a Postgres
 // write-back. Hold every JSON response until that write-back has committed so
 // a 2xx means "persisted" (and a failed persist surfaces as a 500 instead of
@@ -78,10 +76,7 @@ app.use((req, res, next) => {
         if (!res.headersSent) originalJson(body);
       })
       .catch((err: unknown) => {
-        logger.error("server", "write-back failed, responding 500", {
-          error: err instanceof Error ? err.message : String(err),
-          path: req.originalUrl,
-        });
+        logger.failure("server", "write-back failed, responding 500");
         if (!res.headersSent) res.status(500).json({ error: "Failed to persist changes" });
       });
     return res;
@@ -89,36 +84,39 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── Health ────────────────────────────────────────────────────────────────
+// ── Health ───────────────────────────────────────────────────────
 app.get("/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// ── API v1 ────────────────────────────────────────────────────────────────
+// ── API v1 ───────────────────────────────────────────────────────
 app.use("/api/v1", apiRouter);
 
-// ── Serve static frontend (when built) ─────────────────────────────────────
+// ── Serve static frontend (when built) ───────────────────────────
 const distDir = path.resolve(__dirname, "..", "erp-interface-design", "dist");
 if (IS_PRODUCTION && fs.existsSync(distDir)) {
   app.use(express.static(distDir));
-  app.get("*", (req: Request, res: Response, next) => {
+  // SPA fallback (version-proof): Express 5 rejects app.get("*") with a
+  // PathError at boot, so use a plain middleware instead of a wildcard route.
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.method !== "GET") return next();
     if (req.path.startsWith("/api") || req.path.startsWith("/health")) return next();
     res.sendFile(path.resolve(distDir, "index.html"));
   });
 }
 
-// ── 404 ───────────────────────────────────────────────────────────────────
+// ── 404 ──────────────────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404).json({ error: "Not found", path: req.path });
 });
 
-// ── Global error handler ───────────────────────────────────────────────────
-app.use((err: unknown, req: Request, res: Response) => {
-  logger.error("server", "unhandled route error", {
-    error: err instanceof Error ? err.message : String(err),
-    path: req.originalUrl,
-    method: req.method,
-  });
+// ── Global error handler ─────────────────────────────────────────
+/* Express 5 only treats 4-arg middleware as an error handler. The previous
+   3-arg version was silently ignored, so thrown route errors (e.g.
+   NotFoundError) became uncaught exceptions and killed the tsx process
+   (dev:api has no auto-restart). The 4th param MUST stay. */
+app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  logger.failure("server", `unhandled route error on ${req.originalUrl} (${req.method})`);
   if (res.headersSent) return;
   const status = err && (err as { statusCode?: number }).statusCode ? (err as { statusCode: number }).statusCode : 500;
   res.status(status).json({
@@ -128,13 +126,32 @@ app.use((err: unknown, req: Request, res: Response) => {
 
 void ready
   .catch((err) =>
-    logger.error("store", "initial load failed", {
-      error: err instanceof Error ? err.message : String(err),
-    }),
+    logger.failure("store", "initial load failed"),
   )
   .finally(() => {
-    app.listen(PORT, () => {
-      logger.info("server", `Twin Cakery ERP API running on http://localhost:${PORT}`);
-      logger.info("server", `API docs: http://localhost:${PORT}/api/v1`);
+    // ── Crash guards ─────────────────────────────────────────
+    // tsx does NOT auto-restart: any uncaught exception / unhandled rejection
+    // kills the API silently. Log loudly instead of vanishing.
+    process.on("uncaughtException", (err: unknown) => {
+      const e = err as Error;
+      logger.failure("server", `uncaughtException - ${String(e?.message ?? err)}`);
+    });
+    process.on("unhandledRejection", (reason: unknown) => {
+      const e = reason as Error;
+      logger.failure("server", `unhandledRejection - ${String(e?.message ?? reason)}`);
+    });
+    const server = app.listen(PORT, () => {
+      logger.boot(`Twin Cakery ERP API running on http://localhost:${PORT}`);
+      logger.boot(`API docs: http://localhost:${PORT}/api/v1`);
+    });
+    // A second `dev:api` / stale node on the same port throws EADDRINUSE and —
+    // without this — the process dies instantly. Name the culprit instead.
+    server.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") {
+        logger.failure("server", `port ${PORT} in use - another API instance is running; refusing to start`);
+        process.exit(1);
+      }
+      logger.failure("server", "listen failed - exiting");
+      process.exit(1);
     });
   });

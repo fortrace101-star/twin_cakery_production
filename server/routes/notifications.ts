@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, RequestHandler } from "express";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { rbacService } from "../services/rbac.service.js";
 import { store } from "../database/store.js";
@@ -17,21 +17,21 @@ router.use((req, res, next) => {
 
 router.get("/", (req, res) => {
   const { userId } = req.query;
-  const id = typeof userId === "string" ? userId : (req.auth?.session?.userId || "");
+  const id = typeof userId === "string" ? userId : ((req as unknown as { auth?: { session?: { userId?: string } } }).auth?.session?.userId || "");
   const notifications = store.getUserNotifications(id, 50);
   res.json(notifications);
 });
 
 router.get("/unread-count", (req, res) => {
   const { userId } = req.query;
-  const id = typeof userId === "string" ? userId : (req.auth?.session?.userId || "");
+  const id = typeof userId === "string" ? userId : ((req as unknown as { auth?: { session?: { userId?: string } } }).auth?.session?.userId || "");
   res.json({ count: store.getUnreadCount(id) });
 });
 
 router.patch("/:id/read", (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const { userId } = req.query;
-  const targetUserId = typeof userId === "string" ? userId : (req.auth?.session?.userId || "");
+  const targetUserId = typeof userId === "string" ? userId : ((req as unknown as { auth?: { session?: { userId?: string } } }).auth?.session?.userId || "");
   if (!targetUserId) return res.status(400).json({ error: "userId required" });
   const success = store.markAsRead(id, targetUserId);
   if (!success) throw new NotFoundError("Notification not found or access denied");
@@ -40,7 +40,7 @@ router.patch("/:id/read", (req, res) => {
 
 router.post("/mark-all-read", (req, res) => {
   const { userId } = req.query;
-  const id = typeof userId === "string" ? userId : (req.auth?.session?.userId || "");
+  const id = typeof userId === "string" ? userId : ((req as unknown as { auth?: { session?: { userId?: string } } }).auth?.session?.userId || "");
   if (!id) return res.status(400).json({ error: "userId required" });
   const count = store.markAllAsRead(id);
   res.json({ ok: true, count });
@@ -48,7 +48,7 @@ router.post("/mark-all-read", (req, res) => {
 
 router.get("/preferences", (req, res) => {
   const { userId } = req.query;
-  const id = typeof userId === "string" ? userId : (req.auth?.session?.userId || "");
+  const id = typeof userId === "string" ? userId : ((req as unknown as { auth?: { session?: { userId?: string } } }).auth?.session?.userId || "");
   res.json(store.getNotificationPreferences(id));
 });
 

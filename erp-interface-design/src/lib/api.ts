@@ -334,6 +334,23 @@ export function toUiOrder(
 
 /* ── Endpoint helpers ──────────────────────────────────────────────────── */
 
+
+export interface RegisterInput {
+  username: string;
+  displayName: string;
+  email: string;
+  phone: string;
+  password: string;
+  confirmPassword: string;
+  role?: string;
+  isAdmin?: boolean;
+}
+
+export async function register(payload: RegisterInput): Promise<LoginResult> {
+  return request<LoginResult>("/auth/register", { method: "POST", body: payload });
+}
+
+
 export async function login(username: string, password: string): Promise<LoginResult> {
   const result = await request<LoginResult & { permissions?: string[] }>("/auth/login", {
     method: "POST",
@@ -355,6 +372,18 @@ export async function logout(): Promise<void> {
 
 export async function me(): Promise<{ user: ServerUser; permissions: string[] } | null> {
   return safe<{ user: ServerUser; permissions: string[] } | null>(() => request("/auth/me"), null);
+}
+
+/** Whether the workspace already has registered staff accounts ("history").
+ *  Used by the guest landing (App.tsx) to decide /login vs /signup.
+ *
+ *  Interim: GET /auth/user-count backfill is not in place yet, so a failed or
+ *  unknown answer falls back to "history exists" (seeded admin). Once the
+ *  user-count route is live, set hasHistory from its `hasHistory` field. */
+export async function hasExistingUser(): Promise<boolean> {
+  const res = await safe(() => request<{ hasHistory: boolean }>("/auth/user-count"), null);
+  if (res === null) return true;
+  return res.hasHistory === true;
 }
 
 export async function listCustomers(): Promise<ServerCustomer[]> {
@@ -514,7 +543,7 @@ export function dismissEventReminder(id: string): Promise<ServerEventReminder | 
   return safe(() => request<ServerEventReminder>(`/customer-reminders/${id}/dismiss`, { method: "PATCH" }), null);
 }
 
-/* ── E2: Web App Management — blog + website users ───────────────────────── */
+/* ── E2: Site Management — blog + website users ──────────────────────────── */
 
 export interface ServerBlogCategory {
   id: string;
@@ -599,4 +628,393 @@ export function deleteWebsiteUser(id: string): Promise<boolean> {
   return safe(() => request<void>(`/content/website-users/${id}`, { method: "DELETE" }).then(() => true), false);
 }
 
+/* ── Catalogue (E2: source of the website's "Our Cakes" page) ─────────────── */
+// Live product/category management. Writes here hit the RBAC-guarded
+// /catalogue routes (catalogue.create/edit/archive); the public website reads
+// the published subset via GET /api/v1/public/catalogue on its next sync.
+
+export interface ServerCatalogueCategory {
+  id: string;
+  name: string;
+  code: string;
+  description: string;
+  displayOrder: number;
+  active: boolean;
+  catalogueVisible: boolean;
+}
+
+export interface ServerCatalogueType {
+  id: string;
+  categoryId: string;
+  name: string;
+  code: string;
+  displayOrder: number;
+  active: boolean;
+  catalogueVisible: boolean;
+}
+
+export interface ServerCatalogueProduct {
+  id: string;
+  sku: string;
+  categoryId: string;
+  name: string;
+  description: string;
+  basePrice: number;
+  costReference: string;
+  catalogueVisible: boolean;
+  productionEnabled: boolean;
+  image: string;
+  active: boolean;
+  archived: boolean;
+  notes: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CatalogueProductInput {
+  sku: string;
+  categoryId: string;
+  name: string;
+  description?: string;
+  basePrice?: number;
+  image?: string;
+  catalogueVisible?: boolean;
+  productionEnabled?: boolean;
+  notes?: string;
+}
+
+export async function listCatalogueCategories(): Promise<ServerCatalogueCategory[]> {
+  return safe(() => request<ServerCatalogueCategory[]>("/catalogue/categories"), []);
+}
+export async function listCatalogueTypes(): Promise<ServerCatalogueType[]> {
+  return safe(() => request<ServerCatalogueType[]>("/catalogue/types"), []);
+}
+/** Full catalogue rows (all visibility states) — richer than `listProducts`. */
+export async function listCatalogueProducts(): Promise<ServerCatalogueProduct[]> {
+  return safe(() => request<ServerCatalogueProduct[]>("/catalogue/products"), []);
+}
+
+export function createProductApi(payload: CatalogueProductInput): Promise<ServerCatalogueProduct | null> {
+  return safe(() => request<ServerCatalogueProduct>("/catalogue/products", { method: "POST", body: payload }), null);
+}
+export function updateProductApi(
+  id: string,
+  patch: Partial<Omit<CatalogueProductInput, "sku">> & { active?: boolean; archived?: boolean },
+): Promise<ServerCatalogueProduct | null> {
+  return safe(() => request<ServerCatalogueProduct>(`/catalogue/products/${id}`, { method: "PATCH", body: patch }), null);
+}
+export function archiveProductApi(id: string): Promise<ServerCatalogueProduct | null> {
+  return safe(() => request<ServerCatalogueProduct>(`/catalogue/products/${id}/archive`, { method: "POST" }), null);
+}
+
+/* ── E3: Production — jobs, QC, wastage, costs, consumption ─────────────── */
+// Live production board. Reads hit the RBAC-guarded /production routes
+// (production.view); the action buttons require production.start / .complete /
+// .quality_check / .record_wastage. Every mutation persists to Postgres and is
+// reflected on the next refresh.
+
+export interface ServerProductionJob {
+  id: string;
+  orderId: string;
+  customerId: string;
+  productId: string;
+  variantOptions: string;
+  quantity: number;
+  recipeVersion: string;
+  requiredBy: string | null;
+  requiredAt: string | null;
+  status: string;
+  stage: string;
+  progress: number;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ServerQualityCheck {
+  id: string;
+  jobId: string;
+  checkedBy: string;
+  checkedAt: string;
+  issues: string;
+  notes: string;
+  reworkRequired: boolean;
+  reworkCost: number;
+  wastageCaused: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function listProductionJobs(): Promise<ServerProductionJob[]> {
+  return safe(() => request<ServerProductionJob[]>("/production/jobs"), []);
+}
+
+export function getProductionJob(id: string): Promise<ServerProductionJob | null> {
+  return safe(() => request<ServerProductionJob>(`/production/jobs/${id}`), null);
+}
+
+export function startProductionJob(id: string): Promise<ServerProductionJob | null> {
+  return safe(() => request<ServerProductionJob>(`/production/jobs/${id}/start`, { method: "POST" }), null);
+}
+
+export function completeProductionJob(id: string): Promise<ServerProductionJob | null> {
+  return safe(() => request<ServerProductionJob>(`/production/jobs/${id}/complete`, { method: "POST" }), null);
+}
+
+export function recordQualityCheck(
+  id: string,
+  payload: { result: "PASS" | "FAIL"; issues?: string; notes?: string; reworkRequired?: boolean; reworkCost?: number; wastageCaused?: number },
+): Promise<{ job: ServerProductionJob; check: ServerQualityCheck } | null> {
+  return safe(() => request<{ job: ServerProductionJob; check: ServerQualityCheck }>(`/production/jobs/${id}/quality-check`, { method: "POST", body: payload }), null);
+}
+
+export function recordProductionWastage(
+  id: string,
+  payload: { itemId: string; quantity: number; unit?: string; reason?: string; cost?: number },
+): Promise<boolean> {
+  return safe(() => request<{ ok: boolean }>(`/production/jobs/${id}/wastage`, { method: "POST", body: payload }).then((r) => Boolean(r?.ok)), false);
+}
+
+export function getProductionCosts(id: string): Promise<ServerProductionCost[]> {
+  return safe(() => request<{ costs: ServerProductionCost[] }>(`/production/jobs/${id}/costs`).then((r) => r?.costs ?? []), []);
+}
+
+export function getProductionConsumption(id: string): Promise<ServerProductionConsumption[]> {
+  return safe(() => request<{ consumption: ServerProductionConsumption[] }>(`/production/jobs/${id}/consumption`).then((r) => r?.consumption ?? []), []);
+}
+
+export interface ServerProductionCost {
+  id: string;
+  jobId: string;
+  ingredientCost: number;
+  packagingCost: number;
+  labourCost: number;
+  overheadCost: number;
+  total: number;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ServerProductionConsumption {
+  id: string;
+  jobId: string;
+  itemId: string;
+  quantity: number;
+  unit: string;
+  recipeVersion: string;
+  unitCost: number;
+  actualCost: number;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/* ── E3: Inventory ledger + purchasing receive ───────────────────────────── */
+
+export interface ServerInventoryItem {
+  id: string;
+  sku: string;
+  name: string;
+  category: string;
+  unit: string;
+  physicalStock: number;
+  reorderLevel: number;
+  cost: number;
+  availableStock?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ServerInventoryTransaction {
+  id: string;
+  itemId: string;
+  quantity: number;
+  unit: string;
+  type: string;
+  reference: string;
+  unitCost: number;
+  notes: string;
+  recordedBy: string;
+  createdAt: string;
+}
+
+export function listInventoryItems(): Promise<ServerInventoryItem[]> {
+  return safe(() => request<ServerInventoryItem[]>("/inventory"), []);
+}
+
+export function getInventoryLedger(itemId?: string, limit?: number): Promise<ServerInventoryTransaction[]> {
+  const qs = new URLSearchParams();
+  if (itemId) qs.set("itemId", itemId);
+  if (limit) qs.set("limit", String(limit));
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return safe(() => request<{ count: number; transactions: ServerInventoryTransaction[] }>(`/inventory/ledger${suffix}`).then((r) => r?.transactions ?? []), []);
+}
+
+export interface ServerInventoryAlert extends ServerInventoryItem {
+  status: "Low stock" | "Out of stock";
+  shortfall: number;
+}
+
+export function listInventoryAlerts(): Promise<ServerInventoryAlert[]> {
+  return safe(() => request<{ count: number; alerts: ServerInventoryAlert[] }>("/inventory/alerts").then((r) => r?.alerts ?? []), []);
+}
+
+
+
+
+export interface ServerInventoryAdjustmentInput {
+  itemId: string;
+  quantity: number;
+  unit?: string;
+  type?: string;
+  reference?: string;
+  unitCost?: number;
+  notes?: string;
+}
+
+export function adjustInventory(input: ServerInventoryAdjustmentInput): Promise<ServerInventoryTransaction | null> {
+  return safe(() => request<ServerInventoryTransaction>("/inventory/adjustments", { method: "POST", body: input }), null);
+}
+
+export interface ServerPurchaseOrderItem {
+  id: string;
+  purchaseOrderId: string;
+  productId: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  total: number;
+  receivedQuantity: number;
+}
+
+export interface ServerPurchaseOrder {
+  id: string;
+  poNumber: string;
+  supplierId: string;
+  date: string;
+  expectedDate: string;
+  items: ServerPurchaseOrderItem[];
+  total: number;
+  status: "DRAFT" | "SENT" | "ACCEPTED" | "PARTIALLY_RECEIVED" | "COMPLETED" | "CANCELLED";
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function listPurchaseOrders(status?: string): Promise<ServerPurchaseOrder[]> {
+  return safe(() => request<ServerPurchaseOrder[]>(`/purchasing/orders${status ? `?status=${encodeURIComponent(status)}` : ""}`), []);
+}
+
+export interface ServerGoodsReceiptItem {
+  id: string;
+  goodsReceiptId: string;
+  poItemId: string;
+  quantity: number;
+  unit: string;
+  unitCost: number;
+  status: string;
+  createdAt: string;
+}
+
+export interface ServerGoodsReceipt {
+  id: string;
+  purchaseOrderId: string;
+  receivedBy: string;
+  date: string;
+  total: number;
+  status: string;
+  items?: ServerGoodsReceiptItem[];
+}
+
+export function receivePurchaseOrder(poId: string): Promise<{ purchaseOrder: ServerPurchaseOrder; receipt: ServerGoodsReceipt } | null> {
+  return safe(() => request<{ purchaseOrder: ServerPurchaseOrder; receipt: ServerGoodsReceipt }>(`/purchasing/orders/${encodeURIComponent(poId)}/receive`, { method: "POST" }), null);
+}
+
+export function listGoodsReceipts(): Promise<ServerGoodsReceipt[]> {
+  return safe(() => request<ServerGoodsReceipt[]>("/purchasing/receipts"), []);
+}
+
+export interface ServerSupplier {
+  id: string;
+  businessName: string;
+  contactPerson: string;
+  phone: string;
+  email: string;
+  address: string;
+  productsSupplied: string;
+  paymentTerms: string;
+  notes: string;
+  active: boolean;
+}
+
+export function listSuppliers(): Promise<ServerSupplier[]> {
+  return safe(() => request<ServerSupplier[]>("/purchasing/suppliers"), []);
+}
+
+export interface ServerSupplierPriceRow {
+  id: string;
+  supplierId: string;
+  productId: string;
+  unit: string;
+  price: number;
+  effectiveDate: string;
+  note: string;
+}
+
+export function listSupplierPriceHistory(filter?: { supplierId?: string; productId?: string }): Promise<ServerSupplierPriceRow[]> {
+  const qs = new URLSearchParams();
+  if (filter?.supplierId) qs.set("supplierId", filter.supplierId);
+  if (filter?.productId) qs.set("productId", filter.productId);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return safe(() => request<ServerSupplierPriceRow[]>(`/purchasing/price-history${suffix}`), []);
+}
+
+/* ── E3: shortage → purchase requirement → PO loop ───────────────────────── */
+
+export interface ServerPurchaseRequirement {
+  id: string;
+  productIds: string;
+  quantity: number;
+  unit: string;
+  reason: string;
+  urgency: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+  status: "OPEN" | "ACKNOWLEDGED" | "ORDERED" | "RECEIVED" | "RESOLVED";
+  requestedBy: string;
+  requestedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function listPurchaseRequirements(status?: string): Promise<ServerPurchaseRequirement[]> {
+  return safe(() => request<ServerPurchaseRequirement[]>(`/purchasing${status ? `?status=${encodeURIComponent(status)}` : ""}`), []);
+}
+
+export interface ServerPurchaseRequirementInput {
+  productIds: string[];
+  quantity: number;
+  unit?: string;
+  reason?: string;
+  urgency?: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+  requestedBy?: string;
+}
+
+export function createPurchaseRequirement(input: ServerPurchaseRequirementInput): Promise<ServerPurchaseRequirement | null> {
+  return safe(() => request<ServerPurchaseRequirement>("/purchasing", { method: "POST", body: input }), null);
+}
+
+export function acknowledgePurchaseRequirement(id: string): Promise<ServerPurchaseRequirement | null> {
+  return safe(() => request<ServerPurchaseRequirement>(`/purchasing/${encodeURIComponent(id)}/acknowledge`, { method: "POST" }), null);
+}
+
+export interface ServerPurchaseOrderInput {
+  supplierId: string;
+  expectedDate?: string;
+  notes?: string;
+  items: { productId: string; quantity: number; unit?: string; unitPrice: number }[];
+}
+
+export function createPurchaseOrder(input: ServerPurchaseOrderInput): Promise<ServerPurchaseOrder | null> {
+  return safe(() => request<ServerPurchaseOrder>("/purchasing/orders", { method: "POST", body: input }), null);
+}
 

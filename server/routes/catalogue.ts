@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
 import { rbacService } from "../services/rbac.service.js";
 import { NotFoundError } from "../utils/errors.js";
@@ -6,7 +6,7 @@ import { extractToken, AuthService } from "../services/auth.service.js";
 
 const router = Router();
 const authService = new AuthService();
-const required = (perm: string) => (req, res, next) => {
+const required = (perm: string): RequestHandler => (req, res, next) => {
   try {
     const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     rbacService.requirePermission(session.userId, perm);
@@ -52,7 +52,7 @@ router.post("/categories", required("catalogue.create"), (req, res) => {
 });
 
 router.patch("/categories/:id", required("catalogue.edit"), (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const cats = store.db.catalogue?.categories || [];
   const idx = cats.findIndex((c) => c.id === id);
   if (idx === -1) throw new NotFoundError("Category not found");
@@ -128,13 +128,13 @@ router.post("/products", required("catalogue.create"), (req, res) => {
 });
 
 router.get("/products/:id", required("catalogue.view"), (req, res) => {
-  const product = store.db.catalogue?.products?.find((p) => p.id === req.params.id);
+  const product = store.db.catalogue?.products?.find((p) => p.id === String(req.params.id));
   if (!product) throw new NotFoundError("Product not found");
   res.json(product);
 });
 
 router.patch("/products/:id", required("catalogue.edit"), (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const products = store.db.catalogue?.products || [];
   const idx = products.findIndex((p) => p.id === id);
   if (idx === -1) throw new NotFoundError("Product not found");
@@ -145,7 +145,7 @@ router.patch("/products/:id", required("catalogue.edit"), (req, res) => {
 });
 
 router.post("/products/:id/archive", required("catalogue.archive"), (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const products = store.db.catalogue?.products || [];
   const idx = products.findIndex((p) => p.id === id);
   if (idx === -1) throw new NotFoundError("Product not found");

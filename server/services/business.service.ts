@@ -1,7 +1,9 @@
 import { ConflictError, ValidationError, NotFoundError } from "../utils/errors.js";
 import { store } from "../database/store.js";
+import type { Patch } from "../database/store.js";
 import { notificationService } from "./notification.service.js";
-import type { Order, OrderStatus, User, OrderItem, ProductionJob, OrderStatusHistory } from "../database/types.js";
+import { publishLowStockAlert } from "./stock-alerts.js";
+import type { Order, OrderStatus, User, OrderItem, ProductionJob, OrderStatusHistory, NotificationPriority } from "../database/types.js";
 
 export class BusinessService {
   validateOrderStatusTransition(current: OrderStatus, next: OrderStatus): void {
@@ -57,7 +59,9 @@ export class BusinessService {
 
     for (const item of items) {
       if (item.quantity > 0) {
+        const previousStock = store.inventoryItems().find((i) => i.id === item.productId)?.physicalStock ?? 0;
         store.adjustInventory(item.productId, -item.quantity, item.unit || "unit", "PRODUCTION_CONSUMPTION", `Pre-reservation for ${order.id}`, changedBy, item.unitPrice, "Manufacturing reservation");
+        publishLowStockAlert(item.productId, previousStock, { userId: changedBy, role: changedBy, isAdmin: true });
       }
     }
 
@@ -65,7 +69,7 @@ export class BusinessService {
       eventTypeId: "OrderConfirmed" as const,
       title: `Order ${order.orderNumber} confirmed`,
       message: `Order #${order.orderNumber} has been confirmed by ${changedBy}.`,
-      priority: "MEDIUM",
+      priority: "MEDIUM" as NotificationPriority,
       entityType: "order",
       entityId: order.id,
       actionUrl: `/workspace/${order.id}`,
@@ -76,7 +80,7 @@ export class BusinessService {
 
     const updatedOrder = {
       ...order,
-      status: "CONFIRMED",
+      status: "CONFIRMED" as OrderStatus,
       updatedAt: now,
     };
 
@@ -107,7 +111,7 @@ export class BusinessService {
       createdAt: now,
       updatedAt: now,
     };
-    const updatedOrder = { ...order, status: "CANCELLED", updatedAt: now };
+    const updatedOrder = { ...order, status: "CANCELLED" as OrderStatus, updatedAt: now };
     store.createAuditLog({
       orderId: order.id,
       actor: changedBy,
@@ -134,7 +138,7 @@ export class BusinessService {
       createdAt: now,
       updatedAt: now,
     };
-    const updatedOrder = { ...order, status: "AWAITING_CONFIRMATION", updatedAt: now };
+    const updatedOrder = { ...order, status: "AWAITING_CONFIRMATION" as OrderStatus, updatedAt: now };
     store.createAuditLog({
       orderId: order.id,
       actor: changedBy,
@@ -173,6 +177,8 @@ export class BusinessService {
         orderId: job.orderId,
         reference: job.orderId,
         reservedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       });
     }
   }
@@ -186,7 +192,7 @@ export class BusinessService {
     job.status = "IN_PRODUCTION";
     job.stage = "PRODUCE";
     job.progress = 20;
-    store.updateProductionJob(jobId, job);
+    store.updateProductionJob(jobId, job as unknown as Patch);
     return job;
   }
 
@@ -199,13 +205,13 @@ export class BusinessService {
     job.status = "READY_FOR_QUALITY";
     job.stage = "QUALITY";
     job.progress = 80;
-    store.updateProductionJob(jobId, job);
+    store.updateProductionJob(jobId, job as unknown as Patch);
 
     const notificationEvent = {
       eventTypeId: "ProductionCompleted" as const,
       title: "Production completed",
       message: `Production job #${jobId} is complete and ready for quality check.`,
-      priority: "MEDIUM",
+      priority: "MEDIUM" as NotificationPriority,
       entityType: "production_job",
       entityId: jobId,
       actionUrl: `/workspace/production/jobs/${jobId}`,
@@ -243,12 +249,12 @@ export class BusinessService {
       job.status = "READY_FOR_DELIVERY";
       job.stage = "DELIVER";
       job.progress = 100;
-      store.updateProductionJob(jobId, job);
+      store.updateProductionJob(jobId, job as unknown as Patch);
       notificationService.publishEvent({
         eventTypeId: "QualityPassed" as const,
         title: "Quality check passed",
         message: `Quality check passed for order ${job.orderId}. Ready for delivery.`,
-        priority: "MEDIUM",
+        priority: "MEDIUM" as NotificationPriority,
         entityType: "production_job",
         entityId: jobId,
         actionUrl: `/workspace/production/jobs/${jobId}`,
@@ -259,12 +265,12 @@ export class BusinessService {
       job.status = "REWORK_REQUIRED";
       job.stage = "QUALITY";
       job.progress = 50;
-      store.updateProductionJob(jobId, job);
+      store.updateProductionJob(jobId, job as unknown as Patch);
       notificationService.publishEvent({
         eventTypeId: "QualityFailed" as const,
         title: "Quality check failed",
         message: `Quality check failed for order ${job.orderId}. Rework required.`,
-        priority: "HIGH",
+        priority: "HIGH" as NotificationPriority,
         entityType: "production_job",
         entityId: jobId,
         actionUrl: `/workspace/production/jobs/${jobId}`,
@@ -290,7 +296,9 @@ export class BusinessService {
     const items = store.orders().find((o) => o.id === job.orderId)?.items || [];
     const item = items.find((i) => i.productId === itemId);
     if (item) {
+      const previousStock = store.inventoryItems().find((i) => i.id === itemId)?.physicalStock ?? 0;
       store.adjustInventory(itemId, -quantity, unit, "WASTAGE", `Rework wastage for ${job.orderId}`, recordedBy, cost, `Wastage: ${reason}`);
+      publishLowStockAlert(itemId, previousStock, { userId: recordedBy, role: recordedBy, isAdmin: true });
     }
   }
 
@@ -307,7 +315,9 @@ export class BusinessService {
       const reservedQty = reserved.reduce((sum, r) => sum + r.quantity, 0);
       const consume = Math.min(reservedQty, item.quantity);
       if (consume <= 0) continue;
+      const previousStock = inventoryItem.physicalStock || 0;
       store.adjustInventory(inventoryItem.id, -consume, item.unit || "unit", "PRODUCTION_CONSUMPTION", `Consumption for ${job.orderId}`, userId, item.unitPrice, "Production consumption recorded");
+      publishLowStockAlert(inventoryItem.id, previousStock, { userId, role: userId, isAdmin: true });
       for (const r of reserved) {
         if (r.itemId === inventoryItem.id && r.orderId === job.orderId) {
           store.stockReservations().splice(store.stockReservations().indexOf(r), 1);
@@ -337,7 +347,7 @@ export class BusinessService {
     job.status = "QUALITY_CHECK";
     job.stage = "QUALITY";
     job.progress = 60;
-    store.updateProductionJob(jobId, job);
+    store.updateProductionJob(jobId, job as unknown as Patch);
 
     const order = store.orders().find((o) => o.id === job.orderId);
     if (order) {
@@ -345,7 +355,7 @@ export class BusinessService {
         eventTypeId: "ProductionStarted" as const,
         title: "Production recorded",
         message: `Production consumption recorded for order ${order.orderNumber}.`,
-        priority: "LOW",
+        priority: "LOW" as NotificationPriority,
         entityType: "production_job",
         entityId: jobId,
         actionUrl: `/workspace/production/jobs/${jobId}`,

@@ -71,17 +71,18 @@ export class AuthService {
     return session;
   }
 
-  logout(token: string): void {
-    SESSIONS.delete(token);
+  logout(token: string | null): void {
+    if (token) SESSIONS.delete(token);
   }
 
-  getCurrentSession(token: string): AuthSession | null {
+  getCurrentSession(token: string | null): AuthSession | null {
+    if (!token) return null;
     const session = SESSIONS.get(token);
     if (!session || !isSessionValid(session)) return null;
     return session;
   }
 
-  requireAuth(token: string): AuthSession {
+  requireAuth(token: string | null): AuthSession {
     const session = this.getCurrentSession(token);
     if (!session) {
       throw new UnauthorizedError("Authentication required");
@@ -89,7 +90,7 @@ export class AuthService {
     return session;
   }
 
-  requireRole(token: string, allowedRoles: string[]): AuthSession {
+  requireRole(token: string | null, allowedRoles: string[]): AuthSession {
     const session = this.requireAuth(token);
     if (!allowedRoles.includes(session.role)) {
       throw new ForbiddenError("Insufficient permissions for this action");
@@ -97,7 +98,7 @@ export class AuthService {
     return session;
   }
 
-  hasPermission(token: string, permission: string): boolean {
+  hasPermission(token: string | null, permission: string): boolean {
     const session = this.getCurrentSession(token);
     if (!session) return false;
     const rolePermissions = store.rolePermissionsForRole(session.role);
@@ -106,15 +107,15 @@ export class AuthService {
     return Boolean(permissionRecord);
   }
 
-  static getSession(token: string): AuthSession | null {
+  static getSession(token: string | null): AuthSession | null {
     return new AuthService().getCurrentSession(token);
   }
 
-  static requireAuth(token: string): AuthSession {
+  static requireAuth(token: string | null): AuthSession {
     return new AuthService().requireAuth(token);
   }
 
-  static requireRole(token: string, allowedRoles: string[]): AuthSession {
+  static requireRole(token: string | null, allowedRoles: string[]): AuthSession {
     return new AuthService().requireRole(token, allowedRoles);
   }
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  BookOpen, FileText, Globe, Pencil, Plus, Trash2, UserCog, Users, Eye, EyeOff,
+  ArrowRight, BookOpen, FileText, Globe, Pencil, Plus, Trash2, UserCog, Users, Eye, EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -9,16 +9,19 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge as Status } from "../data-table/StatusBadge";
 import { money } from "./data";
+import { ProductDialog } from "./module-table";
 import { useWorkspace } from "./store";
 import {
   listBlogCategories, createBlogCategory,
   listBlogPosts, createBlogPost, updateBlogPost, deleteBlogPost,
   listWebsiteUsers, createWebsiteUser, updateWebsiteUser, deleteWebsiteUser,
+  listCatalogueCategories, listCatalogueProducts,
   type ServerBlogCategory, type ServerBlogPost, type ServerWebsiteUser,
+  type ServerCatalogueCategory, type ServerCatalogueProduct,
 } from "@/lib/api";
 
 /**
- * ERP "Web App Management" page (E2).
+ * ERP "Site Management" page (E2).
  *
  * The single entry point for authoring the public website's content. Everything
  * written here flows through the ERP API → Postgres, and the website
@@ -39,7 +42,7 @@ function fmtDate(iso: string | null): string {
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-UG", { year: "numeric", month: "short", day: "numeric" });
 }
 
-export function WebAppManagement({ tab, onNotice }: { tab: string; onNotice: (s: string) => void }) {
+export function WebAppManagement({ tab, onNotice, onSignIn }: { tab: string; onNotice: (s: string) => void; onSignIn: () => void }) {
   const { connected } = useWorkspace();
 
   const [categories, setCategories] = useState<ServerBlogCategory[]>([]);
@@ -70,7 +73,7 @@ export function WebAppManagement({ tab, onNotice }: { tab: string; onNotice: (s:
     <div className="webapp">
       <div className="webapp-banner">
         <div>
-          <h2><Globe size={18}/> Web App Management</h2>
+          <h2><Globe size={18}/> Site Management</h2>
           <p className="text-muted-foreground text-xs">
             Author the Twin Cakery website from here. Content flows through the ERP to the database, and the
             website reflects it automatically.
@@ -113,7 +116,7 @@ export function WebAppManagement({ tab, onNotice }: { tab: string; onNotice: (s:
               void refresh();
             }}
           />
-          <ProductCataloguePane />
+          <ProductCataloguePane onNotice={onNotice} onSignIn={onSignIn} />
         </div>
       )}
 
@@ -216,29 +219,73 @@ function BlogPane({
 
 /* ── Product catalogue pane (entry into the website "Our Cakes") ─────────── */
 
-function ProductCataloguePane() {
+function ProductCataloguePane({ onNotice, onSignIn }: { onNotice: (s: string) => void; onSignIn: () => void }) {
+  const { connected } = useWorkspace();
+  const [products, setProducts] = useState<ServerCatalogueProduct[]>([]);
+  const [categories, setCategories] = useState<ServerCatalogueCategory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    const [p, c] = await Promise.all([listCatalogueProducts(), listCatalogueCategories()]);
+    setProducts(p);
+    setCategories(c);
+    setLoading(false);
+  }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const onWebsite = products.filter((p) => p.archived === false && p.active && p.catalogueVisible).length;
+  const catName = (id: string) => categories.find((c) => c.id === id)?.name ?? "Uncategorised";
+  const statusLabel = (p: ServerCatalogueProduct) =>
+    p.archived ? "Archived" : !p.active ? "Inactive" : p.catalogueVisible ? "Active" : "Hidden";
+
   return (
     <section className="panel webapp-pane">
       <div className="panel-heading">
         <div className="title-with-count">
           <h2><Globe size={16}/> Product catalogue</h2>
+          <span className="inline-count">{products.length}</span>
         </div>
+        <Button size="sm" onClick={() => (connected ? setCreating(true) : onSignIn())} title={connected ? "Add a product to the website" : "Sign in to add products"}>
+          <Plus size={14}/> New product
+        </Button>
       </div>
       <p className="text-muted-foreground text-xs webapp-note">
-        Products you enter in <strong>Product catalogue</strong> (SKU, category, price, visibility) appear on the
-        website’s <strong>“Our Cakes”</strong> page automatically — same database, no separate entry.
+        {loading ? "Loading catalogue…" : !connected
+          ? "Sign in to add products — this preview is read-only. The website’s “Our Cakes” page syncs from this catalogue."
+          : `${onWebsite} of ${products.length} product${products.length === 1 ? "" : "s"} showing on the website’s “Our Cakes” page. Add a product here and it publishes to the website automatically — same database, no separate entry.`}
       </p>
+      {!loading && products.length === 0 && (
+        <div className="webapp-callout">
+          <strong>No products yet</strong>
+          <p className="text-muted-foreground text-xs">Use <em>New product</em> above to add the first cake to the website.</p>
+        </div>
+      )}
+      <div className="webapp-list">
+        {products.slice(0, 5).map((p) => (
+          <div className="webapp-item" key={p.id}>
+            <div className="webapp-item-main">
+              <strong>{p.name}</strong>
+              <small>{catName(p.categoryId)} · {p.sku}</small>
+            </div>
+            <Status value={statusLabel(p)} />
+            <span className="amount-cell">{money(p.basePrice)}</span>
+          </div>
+        ))}
+      </div>
       <div className="webapp-cta">
-        <Button asChild><a href="/workspace/catalogue">Open Product catalogue <Globe size={14}/></a></Button>
+        <Button asChild variant="outline">
+          <a href="/workspace/catalogue">Manage full catalogue <ArrowRight size={14}/></a>
+        </Button>
       </div>
-      <div className="webapp-callout">
-        <strong>How it flows</strong>
-        <ol>
-          <li>Enter products &amp; blog posts here in the ERP.</li>
-          <li>The backend writes them to the shared database.</li>
-          <li>The website reads the live data and updates instantly.</li>
-        </ol>
-      </div>
+      <ProductDialog
+        open={creating}
+        product={null}
+        categories={categories}
+        onOpenChange={setCreating}
+        onSaved={(msg) => { onNotice(msg); void refresh(); }}
+      />
     </section>
   );
 }

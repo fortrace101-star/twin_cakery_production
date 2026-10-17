@@ -101,6 +101,18 @@ Seed additions: reminder perms (`customer_reminders.read/create/update`), staff 
 
 ## 7. Phase F — Hardening + handover
 
+### 7.1 Request logging (locked spec)
+
+**One log line per HTTP request** — exactly five fields, nothing more:
+
+1. **source** — always `http`
+2. **endpoint** — the TypeScript route path (`req.originalUrl`), e.g. `/api/v1/catalogue/products`. **NEVER** the SQL query text (SQL is noisy and can leak schema/PII into logs).
+3. **method** — HTTP method (GET / POST / PUT / PATCH / DELETE)
+4. **response time** — e.g. `3.3ms`
+5. **response code** — e.g. `200`
+
+Implemented in `server/index.ts` (`logger.request` in `server/utils/logger.ts`); the `pg` pool (`server/database/db.ts`) stays silent. Format: `{ source: 'http', endpoint: '...', method: 'GET', time: '3.3ms', status: 200 }`.
+
 Security §35 all routers, audit §34 coverage, pagination §33 everywhere, vitest critical path (confirm→produce→QC→deliver→pay, cancel, perms), docs (`README/AGENTS/roadmap`), runbook (`db:migrate/seed`, creds rotation, URLs).
 Updated-doc hardening: RBAC checks on salary/remuneration + customer-reminder endpoints (Admin-only, rule 30); snapshot-immutability audit (orders history + recipe snapshots never rewritten, rule 27); notification leak tests (supplier costs, private notes, salary never leak to non-authorized roles, §27 leak rules); reminder "internal-only" test (no outbound contact fired automatically).
 

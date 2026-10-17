@@ -1,14 +1,14 @@
 export const modules = [
-  { id: 'crm', label: 'Customers & CRM', icon: 'Users', group: 'WORKSPACE', tabs: ['Customers', 'Inquiries', 'Interactions', 'Feedback'] },
-  { id: 'sales', label: 'Sales & orders', icon: 'ShoppingBag', group: 'WORKSPACE', tabs: ['Orders', 'Quotations', 'Sales analytics'] },
+  { id: 'crm', label: 'Customers & CRM', icon: 'Users', group: 'WORKSPACE', tabs: ['Customers', 'Occasions', 'Inquiries', 'Interactions', 'Feedback'] },
+  { id: 'sales', label: 'Sales & orders', icon: 'ShoppingBag', group: 'WORKSPACE', tabs: ['Orders', 'Order history', 'Quotations', 'Sales analytics'] },
   { id: 'catalogue', label: 'Product catalogue', icon: 'CakeSlice', group: 'WORKSPACE', tabs: ['Products', 'Categories', 'Product types', 'Variants'] },
-  { id: 'webapp', label: 'Web App Management', icon: 'Globe', group: 'WORKSPACE', tabs: ['Overview', 'Blog posts', 'Website users'] },
+  { id: 'webapp', label: 'Site Management', icon: 'Globe', group: 'WORKSPACE', tabs: ['Overview', 'Blog posts', 'Website users'] },
   { id: 'production', label: 'Production', icon: 'ChefHat', group: 'OPERATIONS', tabs: ['Schedule', 'Jobs', 'Quality control', 'Production costs'] },
   { id: 'inventory', label: 'Inventory', icon: 'Boxes', group: 'OPERATIONS', tabs: ['Stock', 'Reservations', 'Transactions', 'Adjustments', 'Alerts'] },
   { id: 'purchasing', label: 'Purchasing', icon: 'Truck', group: 'OPERATIONS', tabs: ['Purchase orders', 'Suppliers', 'Requirements', 'Goods received'] },
   { id: 'delivery', label: 'Deliveries', icon: 'MapPin', group: 'OPERATIONS', tabs: ['Upcoming', 'Dispatch', 'Completed'] },
   { id: 'finance', label: 'Finance', icon: 'Wallet', group: 'BUSINESS', tabs: ['Payments', 'Expenses', 'Profitability', 'Reports'] },
-  { id: 'analytics', label: 'Analytics', icon: 'ChartNoAxesCombined', group: 'BUSINESS', tabs: ['Overview', 'Sales trends', 'Customers', 'Product performance'] },
+  { id: 'analytics', label: 'Analytics', icon: 'ChartNoAxesCombined', group: 'BUSINESS', tabs: ['Overview', 'Order history', 'Sales trends', 'Customers', 'Product performance'] },
   { id: 'administration', label: 'Settings', icon: 'Settings', group: 'BUSINESS', tabs: ['Business settings', 'Users', 'Roles', 'Permissions', 'Audit log'] },
 ] as const;
 export type Order = { id: string; customer: string; initials: string; product: string; options: string; date: string; time: string; amount: number; status: string; payment: string; delivery: string; channel: string; };
@@ -28,21 +28,190 @@ export const stock = [
   { name: 'Fresh eggs', sku: 'ING-005', category: 'Fresh ingredients', quantity: 90, unit: 'pcs', min: 30, cost: 18, status: 'In stock' },
   { name: 'Whipping cream', sku: 'ING-006', category: 'Dairy', quantity: 8, unit: 'L', min: 4, cost: 650, status: 'In stock' },
 ];
-export const money = (amount: number) => 'UGX ' + amount.toLocaleString('en-UG', { maximumFractionDigits: 0 });
-import { toneOf } from "../../lib/theme-tokens";
-export function tone(status: string) {
-  // Single source: design-system status vocabulary (erp_design.md C2-C4).
-  return toneOf(status);
+import { orderStageTone } from "../../lib/theme-tokens";
+/* ── CRM: occasions (customer events shown on the Occasions tab) ─────── */
+
+export type Occasion = { id: string; customer: string; type: string; date: string; recurrence: string };
+
+/** Sample occasions shown when the workspace is not connected to the API. */
+export const initialOccasions: Occasion[] = [
+  { id: 'OCC-001', customer: 'Sarah Mwangi', type: 'Birthday', date: '2026-10-18', recurrence: 'ANNUAL' },
+  { id: 'OCC-002', customer: 'David Ochieng', type: 'Wedding anniversary', date: '2026-10-24', recurrence: 'ANNUAL' },
+  { id: 'OCC-003', customer: 'Faith Akinyi', type: 'Birthday', date: '2026-10-31', recurrence: 'MONTHLY' },
+  { id: 'OCC-004', customer: 'Grace Wanjiku', type: 'Birthday', date: '2026-11-02', recurrence: 'ANNUAL' },
+  { id: 'OCC-005', customer: 'James Kamau', type: 'Graduation', date: '2026-11-06', recurrence: 'NONE' },
+  { id: 'OCC-006', customer: 'Sarah Mwangi', type: 'Corporate tasting day', date: '2026-11-13', recurrence: 'ANNUAL' },
+  { id: 'OCC-007', customer: 'Peter Njoroge', type: 'Baby shower', date: '2026-12-03', recurrence: 'NONE' },
+];
+
+export type OccasionPeriod = 'Month' | 'Week' | 'Custom';
+
+export type OccasionGroup = { key: string; label: string; items: Occasion[] };
+
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Parse a YYYY-MM-DD string as a LOCAL date (avoids the UTC off-by-one). */
+function localDate(iso: string): Date {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
 }
+
+/** Format a YYYY-MM-DD string as "18 Oct 2026" (no timezone involved). */
+export function formatOccasionDate(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  return `${Number(d)} ${MONTH_SHORT[Number(m) - 1] ?? ''} ${y}`;
+}
+
+/**
+ * Group occasions for the CRM "Occasions" tab. Month (the default) buckets by
+ * calendar month ("October 2026"); Week buckets by Monday-start week ("Week of
+ * 12 Oct 2026"); Custom keeps only items inside [from, to] (inclusive,
+ * YYYY-MM-DD) and buckets by day ("Sun 18 Oct 2026"). Groups and items are
+ * always sorted ascending by date; invalid dates are dropped.
+ */
+export function groupOccasions(occasions: Occasion[], period: OccasionPeriod = 'Month', range?: { from: string; to: string }): OccasionGroup[] {
+  const dated = occasions
+    .filter((o) => /^\d{4}-\d{2}-\d{2}$/.test(o.date))
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date) || a.customer.localeCompare(b.customer));
+  const groups = new Map<string, OccasionGroup>();
+  for (const o of dated) {
+    const dt = localDate(o.date);
+    let key: string;
+    let label: string;
+    if (period === 'Week') {
+      const monday = new Date(dt);
+      monday.setDate(dt.getDate() - ((dt.getDay() + 6) % 7));
+      key = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+      label = `Week of ${monday.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+    } else if (period === 'Custom') {
+      if (range && (o.date < range.from || o.date > range.to)) continue;
+      key = o.date;
+      label = dt.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+    } else {
+      key = o.date.slice(0, 7);
+      label = dt.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+    }
+    const group = groups.get(key) ?? { key, label, items: [] };
+    group.items.push(o);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
+export function tone(status: string) {
+  // Single source: order-stage hues first, then the design-system status
+  // vocabulary (erp_design.md C2-C4). Never map a stage colour here by hand —
+  // ORDER_STAGE_TONES in theme-tokens.ts is the one place that decides.
+  return orderStageTone(status);
+}
+export const money = (amount: number) => 'UGX ' + amount.toLocaleString('en-UG', { maximumFractionDigits: 0 });
 
 // Terminal order statuses: an order that has reached one of these is no longer
 // "active" (it drops out of the working/active lists) but is retained for
 // history, analytics and the audit trail. Keep this the single source of truth
 // so the active-order surfaces (dashboard, sales Orders tab, delivery) never drift.
+// Their dedicated home in the UI is Sales > "Order history" (terminal orders only).
 export const TERMINAL_ORDER_STATUSES = ["Completed", "Cancelled"] as const;
+// Stage palette — the 7 display stages each get their OWN hue so the
+// breakdown reads as seven distinct steps rather than three pastels repeated.
+// Kept in sync with ORDER_STAGE_TONES in theme-tokens.ts (badges + order-row
+// tints read from there); these two tables add the legend class and donut fill.
+const ORDER_STAGE_HUES: Record<OrderBreakdownStatus, string> = {
+  "Pending confirmation": "amber",
+  Confirmed: "violet",
+  "In production": "green",
+  Ready: "teal",
+  "Out for delivery": "orange",
+  "Awaiting pickup": "rose",
+  Completed: "blue",
+};
+
+// Legend swatch class per status (see .legend-* in styles.css).
+const ORDER_BREAKDOWN_SWATCH: Record<OrderBreakdownStatus, string> = ORDER_STAGE_HUES;
+
+// Donut arc fill per status. Kept as CSS vars so light/dark themes both work.
+const ORDER_BREAKDOWN_ARC: Record<OrderBreakdownStatus, string> = {
+  "Pending confirmation": "var(--peach-soft)",
+  Confirmed: "var(--violet-soft)",
+  "In production": "var(--green-soft)",
+  Ready: "var(--teal-soft)",
+  "Out for delivery": "var(--orange-soft)",
+  "Awaiting pickup": "var(--rose-soft)",
+  Completed: "var(--blue-soft)",
+};
 
 export function isActiveOrder(order: Pick<Order, "status">): boolean {
   return !TERMINAL_ORDER_STATUSES.includes(order.status as (typeof TERMINAL_ORDER_STATUSES)[number]);
+}
+
+// ---------------------------------------------------------------------------
+// Order breakdown (dashboard donut + sidebar badge)
+// ---------------------------------------------------------------------------
+// The dashboard donut and the sidebar "Sales & orders" badge used to show a
+// hard-coded 24 that was disconnected from the data (the real active count is
+// 5). Both now derive from this single helper so they can never disagree, and
+// so they follow the same active-order rule as the order tables (terminal
+// statuses are excluded, but stay available via the explicit status filter).
+// The Order breakdown card shows EVERY stage of the pipeline (including the
+// terminal Completed stage) so the full lifecycle is visible at a glance.
+export const ORDER_BREAKDOWN_STATUSES = [
+  "Pending confirmation",
+  "Confirmed",
+  "In production",
+  "Ready",
+  "Out for delivery",
+  "Awaiting pickup",
+  "Completed",
+] as const;
+export type OrderBreakdownStatus = (typeof ORDER_BREAKDOWN_STATUSES)[number];
+
+export type OrderBreakdownSegment = { status: OrderBreakdownStatus; count: number };
+export type OrderBreakdown = { total: number; segments: OrderBreakdownSegment[] };
+
+export function orderBreakdown(orders: Order[]): OrderBreakdown {
+  // Count every order across the full pipeline (not just active ones) so the
+  // breakdown reflects all order stages, including the terminal Completed stage.
+  const segments = ORDER_BREAKDOWN_STATUSES.map((status) => ({
+    status,
+    count: orders.filter((o) => o.status === status).length,
+  }));
+  const total = segments.reduce((sum, s) => sum + s.count, 0);
+  return { total, segments };
+}
+
+export function breakdownSwatchClass(status: string): string {
+  return ORDER_BREAKDOWN_SWATCH[status as OrderBreakdownStatus] ?? "violet";
+}
+
+// Label used in the donut legend (shorter than the raw status where useful).
+export function breakdownLabel(status: string): string {
+  return status === "Ready" ? "Ready to deliver" : status;
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+// Builds the conic-gradient for the donut: one arc per non-empty status, with a
+// thin card-coloured separator between arcs. Falls back to an empty ring when
+// there are no active orders.
+export function donutGradient(breakdown: OrderBreakdown): string {
+  const shown = breakdown.segments.filter((s) => s.count > 0);
+  if (breakdown.total <= 0 || shown.length === 0) {
+    return "conic-gradient(var(--card) 0deg 360deg)";
+  }
+  const gap = 4; // degrees of separator between arcs
+  const usable = Math.max(360 - gap * shown.length, 1);
+  const stops: string[] = [];
+  let angle = 0;
+  for (const segment of shown) {
+    const sweep = (segment.count / breakdown.total) * usable;
+    stops.push(`${ORDER_BREAKDOWN_ARC[segment.status] ?? "var(--muted)"} ${round2(angle)}deg ${round2(angle + sweep)}deg`);
+    angle += sweep;
+    stops.push(`var(--card) ${round2(angle)}deg ${round2(angle + gap)}deg`);
+    angle += gap;
+  }
+  if (angle < 359.9) stops.push(`var(--card) ${round2(angle)}deg 360deg`);
+  return `conic-gradient(${stops.join(",")})`;
 }
 export type GridRow = { id: string; name: string; detail: string; secondary: string; value: string; status: string };
 export function moduleRows(module: string, tab: string, orders: Order[]): GridRow[] {

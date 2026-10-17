@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
 import { NotFoundError } from "../utils/errors.js";
 
@@ -17,7 +17,7 @@ router.get("/catalogue", (req, res) => {
 });
 
 router.get("/products/:id", (req, res) => {
-  const product = store.db.catalogue?.products?.find((p) => p.id === req.params.id);
+  const product = store.db.catalogue?.products?.find((p) => p.id === String(req.params.id));
   if (!product) throw new NotFoundError("Product not found");
   const categories = store.db.catalogue?.categories || [];
   const category = categories.find((c) => c.id === product.categoryId);
@@ -44,7 +44,7 @@ router.get("/blog", (req, res) => {
 });
 
 router.get("/blog/:slug", (req, res) => {
-  const post = store.blogPostBySlug(req.params.slug);
+  const post = store.blogPostBySlug(String(req.params.slug));
   if (!post) throw new NotFoundError("Post not found");
   const category = post.categoryId ? store.blogCategory(post.categoryId) : undefined;
   res.json({ ...post, category: category?.name ?? "" });

@@ -1,0 +1,8 @@
+NOTICE:  column "cost" of relation "inventory_items" already exists, skipping
+Invoke-RestMethod : {"error":"Failed to persist changes"}
+At C:\Users\manue\Desktop\twin_cakery\erp\server\_e3_gate.ps1:75 char:10
++ $order = Invoke-RestMethod -Method Post -Uri "$base/api/v1/orders" -H ...
++          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidOperation: (System.Net.HttpWebRequest:HttpWebRequest) [Invoke-RestMethod], WebExc 
+   eption
+    + FullyQualifiedErrorId : WebCmdletWebResponseException,Microsoft.PowerShell.Commands.InvokeRestMethodCommand

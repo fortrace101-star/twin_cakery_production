@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 
@@ -166,5 +168,23 @@ describe("DataTable", () => {
   it("applies the density class", () => {
     render(<DataTable columns={columns} rows={rows} rowKey={(r) => r.id} density="compact" />);
     expect(document.querySelector("table")?.className).toContain("dt-compact");
+  });
+});
+
+describe("styles.css order-stage token locks", () => {
+  const css = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8");
+
+  it("locks the contrast-validated teal accent pair (light + dark)", () => {
+    // #2A7A8F on #F1F8FA = 4.57:1 (light) · #6FC6D9 on #0F323A = 6.99:1 (dark) — WCAG AA.
+    expect(css).toContain("--teal-soft: oklch(.974 .008 217);");
+    expect(css).toContain("--teal-ink: oklch(.5405 .0821 218.7);");
+    expect(css).toContain("--teal-soft: oklch(.296 .042 215.5);");
+    expect(css).toContain("--teal-ink: oklch(.779 .088 213.5);");
+  });
+
+  it("defines a stage-nav tone for every status tone", () => {
+    for (const tone of ["gray", "amber", "green", "blue", "red", "violet", "teal", "orange", "rose"]) {
+      expect(css).toContain(`.stage-nav-btn.tone-${tone} {`);
+    }
   });
 });

@@ -1,46 +1,31 @@
 /**
- * Tiny structured logger for the ERP backend.
+ * Single-line request log with exactly five fields and nothing more.
+ * SQL text is never logged. No external dependencies.
  *
- * Emits one line per event with an ISO timestamp, a level and a scope tag so
- * logs can be grepped by area (`http`, `db`, `server`, …). Metadata is appended
- * as compact JSON when provided. No external dependencies — the server runs
- * from tsx and must not depend on frontend packages.
+ * Spec (IMPLEMENTATION_PLAN §7.1): one log line per HTTP request —
+ * source, endpoint, method, response time, response code. Nothing more.
  */
 
-type LogLevel = "INFO" | "WARN" | "ERROR";
+export type LogScope = "http" | "server" | "store" | "db";
 
-const BOOT_TIME = Date.now();
-
-function timestamp(): string {
-  return new Date().toISOString();
+export interface RequestLog {
+  source: "http";
+  endpoint: string;
+  method: string;
+  time: string;
+  status: number;
 }
 
-function sinceBoot(): string {
-  return `+${((Date.now() - BOOT_TIME) / 1000).toFixed(3)}s`;
-}
-
-function safeStringify(value: unknown): string {
-  try {
-    return JSON.stringify(value, (_key, v) => {
-      if (typeof v === "bigint") return v.toString();
-      if (v instanceof Error) return { name: v.name, message: v.message };
-      return v;
-    });
-  } catch {
-    return String(value);
-  }
-}
-
-function emit(level: LogLevel, scope: string, message: string, meta?: unknown): void {
-  const suffix = meta === undefined ? "" : ` ${safeStringify(meta)}`;
-  const line = `${timestamp()} ${sinceBoot()} ${level.padEnd(5)} [${scope}] ${message}${suffix}`;
-  if (level === "ERROR") console.error(line);
-  else if (level === "WARN") console.warn(line);
-  else console.log(line);
+function fmt(log: RequestLog): string {
+  return (
+    `{ source: '${log.source}', endpoint: '${log.endpoint}', ` +
+    `method: '${log.method}', time: '${log.time}', status: ${log.status} }`
+  );
 }
 
 export const logger = {
-  info: (scope: string, message: string, meta?: unknown): void => emit("INFO", scope, message, meta),
-  warn: (scope: string, message: string, meta?: unknown): void => emit("WARN", scope, message, meta),
-  error: (scope: string, message: string, meta?: unknown): void => emit("ERROR", scope, message, meta),
+  request: (log: RequestLog): void => console.log(fmt(log)),
+  boot: (message: string): void => console.log(message),
+  failure: (scope: Exclude<LogScope, "http">, message: string): void =>
+    console.error(`[${scope}] ${message.replace(/'/g, "")}`),
 };

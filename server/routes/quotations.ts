@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
 import { rbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
@@ -7,7 +7,7 @@ import { NotFoundError } from "../utils/errors.js";
 const router = Router();
 const authService = new AuthService();
 
-const required = (perm: string) => (req, res, next) => {
+const required = (perm: string): RequestHandler => (req, res, next) => {
   try {
     const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     rbacService.requirePermission(session.userId, perm);
@@ -50,13 +50,13 @@ router.post("/", required("quotations.create"), (req, res) => {
 });
 
 router.get("/:id", required("quotations.view"), (req, res) => {
-  const quotation = store.quotations().find((q) => q.id === req.params.id);
+  const quotation = store.quotations().find((q) => q.id === String(req.params.id));
   if (!quotation) throw new NotFoundError("Quotation not found");
   res.json(quotation);
 });
 
 router.patch("/:id", required("quotations.edit"), (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const quotation = store.quotations().find((q) => q.id === id);
   if (!quotation) throw new NotFoundError("Quotation not found");
   const patch = req.body || {};
@@ -66,7 +66,7 @@ router.patch("/:id", required("quotations.edit"), (req, res) => {
 });
 
 router.post("/:id/send", required("quotations.accept"), (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const quotation = store.quotations().find((q) => q.id === id);
   if (!quotation) throw new NotFoundError("Quotation not found");
   const updated = store.sendQuotation(id);
@@ -76,7 +76,7 @@ router.post("/:id/send", required("quotations.accept"), (req, res) => {
 });
 
 router.post("/:id/accept", required("quotations.accept"), (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const quotation = store.quotations().find((q) => q.id === id);
   if (!quotation) throw new NotFoundError("Quotation not found");
   const updated = store.acceptQuotation(id);

@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, Request, RequestHandler } from "express";
 import { store } from "../database/store.js";
 import { rbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
@@ -17,7 +17,7 @@ import type { CustomerEventReminder } from "../database/types.js";
 const router = Router();
 const authService = new AuthService();
 
-const required = (perm: string) => (req, res, next) => {
+const required = (perm: string): RequestHandler => (req, res, next) => {
   try {
     const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     rbacService.requirePermission(session.userId, perm);
@@ -30,7 +30,7 @@ const required = (perm: string) => (req, res, next) => {
 };
 
 /** Authenticated staff id (userId) for auditing contactedBy. */
-function actor(req): string {
+function actor(req: Request): string {
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   return session?.userId ?? "";
 }
@@ -55,7 +55,7 @@ router.get("/", required("customers.view"), (req, res) => {
 /** PATCH /customer-reminders/:id/contacted — staff acted; records outcome and rolls to the next occurrence. */
 router.patch("/:id/contacted", required("customers.interact"), (req, res) => {
   const { outcome, followUpNotes } = req.body || {};
-  const updated = store.markReminderContacted(req.params.id, {
+  const updated = store.markReminderContacted(String(req.params.id), {
     contactedBy: actor(req),
     outcome: outcome ?? "",
     followUpNotes: followUpNotes ?? "",
@@ -66,7 +66,7 @@ router.patch("/:id/contacted", required("customers.interact"), (req, res) => {
 
 /** PATCH /customer-reminders/:id/dismiss — close this occurrence with no follow-up. */
 router.patch("/:id/dismiss", required("customers.interact"), (req, res) => {
-  const updated = store.dismissReminder(req.params.id);
+  const updated = store.dismissReminder(String(req.params.id));
   if (!updated) throw new NotFoundError("Reminder not found");
   res.json(withCustomer(updated));
 });

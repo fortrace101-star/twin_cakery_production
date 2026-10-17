@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
 import { rbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
@@ -7,7 +7,7 @@ import { ConflictError, NotFoundError } from "../utils/errors.js";
 const router = Router();
 const authService = new AuthService();
 
-const required = (perm: string) => (req, res, next) => {
+const required = (perm: string): RequestHandler => (req, res, next) => {
   try {
     const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     rbacService.requirePermission(session.userId, perm);
@@ -57,20 +57,20 @@ router.post("/", required("orders.create"), (req, res) => {
 });
 
 router.get("/:id", required("orders.view"), (req, res) => {
-  const order = store.orders().find((o) => o.id === req.params.id);
+  const order = store.orders().find((o) => o.id === String(req.params.id));
   if (!order) throw new NotFoundError("Order not found");
   res.json(order);
 });
 
 router.get("/:id/history", required("orders.view"), (req, res) => {
-  const order = store.orders().find((o) => o.id === req.params.id);
+  const order = store.orders().find((o) => o.id === String(req.params.id));
   if (!order) throw new NotFoundError("Order not found");
   const history = store.db.orderStatusHistory as import("../database/types.js").OrderStatusHistory[];
   res.json(history.filter((h) => h.orderId === order.id));
 });
 
 router.patch("/:id", required("orders.confirm"), (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const order = store.orders().find((o) => o.id === id);
   if (!order) throw new NotFoundError("Order not found");
   const patch = req.body || {};
@@ -80,7 +80,7 @@ router.patch("/:id", required("orders.confirm"), (req, res) => {
 });
 
 router.post("/:id/confirm", required("orders.confirm"), (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const order = store.orders().find((o) => o.id === id);
   if (!order) throw new NotFoundError("Order not found");
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
@@ -92,7 +92,7 @@ router.post("/:id/confirm", required("orders.confirm"), (req, res) => {
 });
 
 router.post("/:id/cancel", required("orders.cancel"), (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const order = store.orders().find((o) => o.id === id);
   if (!order) throw new NotFoundError("Order not found");
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
@@ -113,7 +113,7 @@ router.post("/:id/cancel", required("orders.cancel"), (req, res) => {
  * Cancelled orders are not eligible templates (409).
  */
 router.post("/:id/repeat", required("orders.create"), (req, res) => {
-  const original = store.findOrder(req.params.id);
+  const original = store.findOrder(String(req.params.id));
   if (!original) throw new NotFoundError("Order not found");
   if (original.status === "CANCELLED") throw new ConflictError("Cancelled orders cannot be repeated");
   const body = req.body || {};
@@ -130,7 +130,7 @@ router.post("/:id/repeat", required("orders.create"), (req, res) => {
         recipeVersion: item.recipeVersion,
       }));
   const subtotal = body.subtotal !== undefined ? Number(body.subtotal)
-    : items.reduce((sum, i) => sum + Number(i.total ?? 0), 0);
+    : items.reduce((sum: number, i: { total?: number | string | null }) => sum + Number(i.total ?? 0), 0);
   const deliveryCharge = Number(body.deliveryCharge ?? original.deliveryCharge);
   const discount = Number(body.discount ?? original.discount);
   const taxAmount = Number(body.taxAmount ?? original.taxAmount);

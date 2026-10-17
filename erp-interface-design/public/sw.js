@@ -12,7 +12,7 @@
  * Bump CACHE_VERSION on each deploy to retire old caches.
  */
 
-const CACHE_VERSION = "twin-cakery-v1";
+const CACHE_VERSION = "twin-cakery-v2";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const ASSET_CACHE = `${CACHE_VERSION}-assets`;
 

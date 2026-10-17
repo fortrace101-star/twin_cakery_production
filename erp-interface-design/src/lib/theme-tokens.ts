@@ -42,7 +42,16 @@ export const layout = {
 } as const;
 
 /* ---------- Status vocabulary (erp_design.md C2-C4 — LOCKED) ---------- */
-export type StatusTone = "green" | "blue" | "red" | "amber" | "violet" | "gray";
+export type StatusTone =
+  | "green"
+  | "blue"
+  | "red"
+  | "amber"
+  | "violet"
+  | "gray"
+  | "teal"
+  | "orange"
+  | "rose";
 
 /** Fixed mapping of status word -> tone. Never colour body text with these. */
 export const statusTones: Record<StatusTone, readonly string[]> = {
@@ -52,6 +61,14 @@ export const statusTones: Record<StatusTone, readonly string[]> = {
   amber: ["Pending", "Partially paid", "Awaiting dispatch", "Awaiting pickup", "Pending confirmation"],
   violet: ["Confirmed", "Accepted"],
   gray: ["Draft", "Inactive", "Cancelled", "Queued", "Baking", "Decorating", "Packing"],
+  // Order-pipeline extension tones (used via explicit `tone` prop /
+  // `orderStageTone()` below so the locked vocabulary above never shifts).
+  // Registries stay empty on purpose: `toneOf()` only resolves the six
+  // locked tones, so listing words here would imply a mapping that never
+  // fires. Stage -> tone lives in `ORDER_STAGE_TONES` (same file).
+  teal: [],
+  orange: [],
+  rose: [],
 };
 
 /** Reverse lookup: status word -> tone (falls back to amber for unknowns). */
@@ -60,4 +77,50 @@ export function toneOf(status: string): StatusTone {
     if (statusTones[tone].includes(status)) return tone;
   }
   return "amber";
+}
+
+/**
+ * Order-pipeline stage colours (dashboard "Order breakdown", order tables).
+ * The 7 display stages collapse the backend's 14 statuses; each stage gets its
+ * own distinct hue (amber, violet, green, teal, orange, rose, blue) so badges,
+ * donut arcs, legend swatches and order-row tints can never share a colour.
+ * Stage words resolve here FIRST, then fall back to the locked `toneOf`
+ * vocabulary — so `statusTones` above keeps its test-locked semantics.
+ */
+export const ORDER_STAGE_TONES = {
+  "Pending confirmation": "amber",
+  Confirmed: "violet",
+  "In production": "green",
+  Ready: "teal",
+  "Out for delivery": "orange",
+  "Awaiting pickup": "rose",
+  Completed: "blue",
+} as const satisfies Record<string, StatusTone>;
+
+export function orderStageTone(status: string): StatusTone {
+  return ORDER_STAGE_TONES[status as keyof typeof ORDER_STAGE_TONES] ?? toneOf(status);
+}
+
+/**
+ * Pipeline ORDER of the 7 display stages (index = progress position). Keys are
+ * exactly the keys of ORDER_STAGE_TONES above in flow order — the vertical
+ * progress stepper on each order row renders strictly from this list, so the
+ * two can never drift.
+ */
+export const ORDER_STAGE_PIPELINE = [
+  "Pending confirmation",
+  "Confirmed",
+  "In production",
+  "Ready",
+  "Out for delivery",
+  "Awaiting pickup",
+  "Completed",
+] as const satisfies readonly (keyof typeof ORDER_STAGE_TONES)[];
+
+/** Stage word that has a fixed position on the pipeline. */
+export type OrderStage = (typeof ORDER_STAGE_PIPELINE)[number];
+
+/** Pipeline position of a status word; -1 when off-pipeline (e.g. Cancelled). */
+export function orderStageIndex(status: string): number {
+  return ORDER_STAGE_PIPELINE.indexOf(status as OrderStage);
 }

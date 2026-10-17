@@ -1,4 +1,4 @@
-import { toneOf, type StatusTone } from "@/lib/theme-tokens";
+import { orderStageTone, type StatusTone } from "@/lib/theme-tokens";
 
 /**
  * Shared status badge — `erp_design.md` X2 / DashboardDesignPattern §5:
@@ -7,7 +7,9 @@ import { toneOf, type StatusTone } from "@/lib/theme-tokens";
  * `styles.css` applies unchanged.
  */
 export function StatusBadge({ value, tone }: { value: string; tone?: StatusTone }) {
-  const resolved = tone ?? toneOf(value);
+  // Order-stage words win first (distinct hue per pipeline stage); everything
+  // else resolves through the locked toneOf vocabulary unchanged.
+  const resolved = tone ?? orderStageTone(value);
   return (
     <span className={`status status-${resolved}`}>
       <span aria-hidden="true" />

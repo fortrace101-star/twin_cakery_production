@@ -119,6 +119,7 @@ export class RbacService {
       roleId,
       permissionId,
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
   }
 

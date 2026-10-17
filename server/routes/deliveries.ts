@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
 import { rbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
@@ -7,7 +7,7 @@ import { NotFoundError } from "../utils/errors.js";
 const router = Router();
 const authService = new AuthService();
 
-const required = (perm: string) => (req, res, next) => {
+const required = (perm: string): RequestHandler => (req, res, next) => {
   try {
     const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     rbacService.requirePermission(session.userId, perm);
@@ -48,7 +48,7 @@ router.post("/", required("deliveries.create"), (req, res) => {
 });
 
 router.post("/:id/dispatch", required("deliveries.dispatch"), (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   const delivery = store.updateDelivery(id, { status: "OUT_FOR_DELIVERY", actualDispatchTime: new Date().toISOString(), updatedAt: new Date().toISOString() });
@@ -58,7 +58,7 @@ router.post("/:id/dispatch", required("deliveries.dispatch"), (req, res) => {
 });
 
 router.post("/:id/complete", required("deliveries.complete"), (req, res) => {
-  const { id } = req.params;
+  const id = String(req.params.id);
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   const delivery = store.updateDelivery(id, { status: "DELIVERED", actualDeliveryDate: new Date().toISOString(), updatedAt: new Date().toISOString() });

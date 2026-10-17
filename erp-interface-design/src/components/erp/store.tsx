@@ -85,8 +85,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   // server `id` (e.g. `TC-1048` → `ord-1048`) when writing status changes.
   const serverOrdersRef = useRef<ServerOrder[]>([]);
   const aliveRef = useRef(true);
-  useEffect(() => () => {
-    aliveRef.current = false;
+  useEffect(() => {
+    // Re-arm on every mount. Under React StrictMode the component mounts,
+    // simulated-unmounts (cleanup fires → aliveRef=false), then remounts. If
+    // we only ever set false in cleanup, the ref stays false forever after the
+    // StrictMode remount, so signIn() would bail at its `!aliveRef.current`
+    // guard and silently skip setUser() — the button "reverts" with no error.
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
   }, []);
 
   const refresh = useCallback(async () => {

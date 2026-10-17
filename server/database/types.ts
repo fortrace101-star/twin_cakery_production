@@ -151,6 +151,7 @@ export interface OrderItem extends BaseEntity {
   discount: number;
   total: number;
   recipeVersion: string | null;
+  unit?: string;
 }
 
 export interface OrderStatusHistory extends BaseEntity {
@@ -193,7 +194,7 @@ export interface ProductionJob extends BaseEntity {
   recipeVersion: string;
   requiredBy: string | null;
   requiredAt: string | null;
-  status: "PENDING" | "SCHEDULED" | "IN_PRODUCTION" | "READY_FOR_QUALITY" | "COMPLETED" | "CANCELLED";
+  status: "PENDING" | "SCHEDULED" | "READY_FOR_PRODUCTION" | "IN_PRODUCTION" | "READY_FOR_QUALITY" | "QUALITY_CHECK" | "READY_FOR_DELIVERY" | "REWORK_REQUIRED" | "COMPLETED" | "CANCELLED";
   stage: "PLAN" | "REVIEW" | "CHECK_RECIPE" | "CHECK_INVENTORY" | "RESERVE" | "SHORTAGE" | "PURCHASE" | "PRODUCE" | "QUALITY" | "DELIVER" | "DONE";
   progress: number;
   notes: string;
@@ -259,6 +260,7 @@ export interface InventoryItem extends BaseEntity {
   unit: string;
   reorderLevel: number;
   supplierId: string;
+  cost: number;
   lastUpdated: string;
 }
 
@@ -336,6 +338,7 @@ export interface PurchaseOrder extends BaseEntity {
 }
 
 export interface GoodsReceiptItem extends BaseEntity {
+  goodsReceiptId: string;
   poItemId: string;
   quantity: number;
   unit: string;

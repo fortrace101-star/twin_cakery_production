@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+dist-server/
+
+# Logs
+logs
+*.log
+
+# Env
+.env
+.env.local
+
+# Server file-store fallback (Postgres is the source of truth)
+server/data/store.json
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+
+# Local dev scaffolding (diagnostic scripts & captured output)
+_*.ps1
+_*.log
+_*.cjs
+_*.txt
+usercount.json
+
+# Wrangler / Cloudflare
+.wrangler/
+.dev.vars

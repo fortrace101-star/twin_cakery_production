@@ -1,4 +1,5 @@
 import { store } from "../database/store.js";
+import type { Patch } from "../database/store.js";
 import type {
   Notification,
   NotificationRecipient,
@@ -20,6 +21,7 @@ export type NotificationEventType =
   | "FeedbackRecorded"
   | "PaymentReceived"
   | "StockShortageDetected"
+  | "LowStockAlert"
   | "ProductionStarted"
   | "ProductionCompleted"
   | "GoodsReceived"
@@ -103,6 +105,12 @@ const TEMPLATES: Record<NotificationEventType, { [K in NotificationChannel_]: { 
     WHATSAPP: { title: "Stock shortage", message: "Stock shortage detected for production." },
     EMAIL: { title: "Stock shortage", message: "Stock shortage detected. Review inventory." },
     SMS: { title: "Stock shortage", message: "Stock shortage detected." },
+  },
+  LowStockAlert: {
+    IN_APP: { title: "Low stock alert", message: "An ingredient has fallen to or below its reorder level. Review stock and raise a purchase requirement." },
+    WHATSAPP: { title: "Low stock alert", message: "An ingredient is running low. Consider reordering soon." },
+    EMAIL: { title: "Low stock alert", message: "An ingredient has fallen to or below its reorder level. Review inventory and raise a purchase requirement." },
+    SMS: { title: "Low stock alert", message: "Stock alert: an ingredient is below its reorder level." },
   },
   ProductionStarted: {
     IN_APP: { title: "Production started", message: "A production job has started." },
@@ -200,6 +208,7 @@ const ROLES_FOR_EVENT: Record<NotificationEventType, string[]> = {
   FeedbackRecorded: ["Admin / Proprietor", "Production Manager", "Sales Manager"],
   PaymentReceived: ["Admin / Proprietor", "Finance"],
   StockShortageDetected: ["Admin / Proprietor", "Production Manager", "Sales Manager"],
+  LowStockAlert: ["Admin / Proprietor", "Production Manager"],
   ProductionStarted: ["Production Manager", "Admin / Proprietor", "Sales Manager"],
   ProductionCompleted: ["Production Manager", "Admin / Proprietor"],
   GoodsReceived: ["Production Manager", "Admin / Proprietor", "Finance"],
@@ -244,7 +253,7 @@ export class NotificationService {
           updatedAt: new Date().toISOString(),
         };
         this.templates.push(template);
-        store.createNotificationTemplate(template);
+        store.createNotificationTemplate(template as unknown as Patch);
       });
     });
   }
@@ -255,7 +264,7 @@ export class NotificationService {
 
   private notifyUser(user: User, event: NotificationEvent, channel: NotificationChannel_): NotificationRecipient {
     const template = this.findTemplate(event.eventTypeId, channel);
-    if (!template) return { id: "", notificationId: "", userId: user.id, deliveryChannel: channel, deliveredAt: null, readAt: null, failedAt: null, failureReason: null, createdAt: "" };
+    if (!template) return { id: "", notificationId: "", userId: user.id, deliveryChannel: channel, deliveredAt: null, readAt: null, failedAt: null, failureReason: null, createdAt: "", updatedAt: "" };
     const title = template.titleTemplate;
     const message = template.messageTemplate;
     const notification: Notification = store.createNotification({
@@ -279,8 +288,9 @@ export class NotificationService {
       failedAt: null,
       failureReason: null,
       createdAt: notification.createdAt,
+      updatedAt: notification.createdAt,
     };
-    store.createNotificationRecipient(recipient);
+    store.createNotificationRecipient(recipient as unknown as Patch);
     return recipient;
   }
 
