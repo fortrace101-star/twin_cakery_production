@@ -1,9 +1,9 @@
 export type Status =
   | "DRAFT" | "SENT" | "NEGOTIATION" | "ACCEPTED" | "REJECTED" | "EXPIRED" | "CANCELLED" | "CONVERTED"
   | "INQUIRY" | "QUOTATION" | "AWAITING_CONFIRMATION" | "CONFIRMED" | "PRODUCTION_REVIEW" | "READY_FOR_PRODUCTION"
-  | "IN_PRODUCTION" | "QUALITY_CHECK" | "REWORK_REQUIRED" | "READY_FOR_DELIVERY" | "OUT_FOR_DELIVERY"
-  | "AWAITING_PICKUP" | "COMPLETED" | "CANCELLED" | "UNPAID" | "PARTIALLY_PAID" | "PAID" | "REFUNDED" | "OVERPAID"
-  | "PENDING" | "READY_FOR_DISPATCH" | "OUT_FOR_DELIVERY" | "DELIVERED" | "AWAITING_PICKUP" | "PICKED_UP" | "FAILED"
+  | "IN_PRODUCTION" | "QUALITY_CHECK" | "REWORK_REQUIRED" | "READY_FOR_DELIVERY" | "IN_TRANSIT"
+  | "AWAITING_COLLECTION" | "COMPLETED_DELIVERED" | "CANCELLED" | "UNPAID" | "PARTIALLY_PAID" | "PAID" | "REFUNDED" | "OVERPAID"
+  | "PENDING" | "READY_FOR_DISPATCH" | "IN_TRANSIT" | "COMPLETED_DELIVERED" | "AWAITING_COLLECTION" | "PICKED_UP" | "FAILED"
   | "Low stock" | "In stock" | "Out of stock" | "Reorder required" | "Expiry risk" | "Unusual wastage" | "Significant price change"
   | "Active" | "Inactive" | "Archived" | "Pending" | "Open" | "Closed" | "Approved" | "Rejected" | "Sent" | "Received" | "Delivered" | "Failed";
 
@@ -11,13 +11,13 @@ export type Channel = "WhatsApp" | "Phone" | "Website" | "Walk-in" | "Internal" 
 export type PaymentMethod = "Cash" | "M-Pesa" | "Card" | "Bank transfer" | "Cheque";
 export type DeliveryType = "Home delivery" | "Pickup" | "Collection";
 export type PaymentStatus = "UNPAID" | "PARTIALLY_PAID" | "PAID" | "REFUNDED" | "OVERPAID";
-export type DeliveryStatus = "PENDING" | "READY_FOR_DISPATCH" | "OUT_FOR_DELIVERY" | "DELIVERED" | "AWAITING_PICKUP" | "PICKED_UP" | "FAILED";
+export type DeliveryStatus = "PENDING" | "READY_FOR_DISPATCH" | "IN_TRANSIT" | "COMPLETED_DELIVERED" | "AWAITING_COLLECTION" | "PICKED_UP" | "FAILED";
 export type InquiryStatus = "NEW" | "ASSIGNED" | "IN_PROGRESS" | "QUOTATION_SENT" | "RESOLVED" | "ESCALATED" | "CLOSED";
 export type QuotationStatus = "DRAFT" | "SENT" | "NEGOTIATION" | "ACCEPTED" | "REJECTED" | "EXPIRED" | "CANCELLED" | "CONVERTED";
 export type OrderStatus =
   | "INQUIRY" | "QUOTATION" | "AWAITING_CONFIRMATION" | "CONFIRMED" | "PRODUCTION_REVIEW" | "READY_FOR_PRODUCTION"
-  | "IN_PRODUCTION" | "QUALITY_CHECK" | "REWORK_REQUIRED" | "READY_FOR_DELIVERY" | "OUT_FOR_DELIVERY"
-  | "AWAITING_PICKUP" | "COMPLETED" | "CANCELLED";
+  | "IN_PRODUCTION" | "QUALITY_CHECK" | "REWORK_REQUIRED" | "READY_FOR_DELIVERY" | "IN_TRANSIT"
+  | "AWAITING_COLLECTION" | "COMPLETED_DELIVERED" | "CANCELLED";
 export type PaymentTransactionStatus = "PENDING" | "COMPLETED" | "FAILED" | "REFUNDED";
 export type GoodsReceiptStatus = "PENDING" | "COMPLETED" | "PARTIALLY_RECEIVED" | "CANCELLED";
 export type PurchaseOrderStatus = "DRAFT" | "SENT" | "ACCEPTED" | "PARTIALLY_RECEIVED" | "COMPLETED" | "CANCELLED";

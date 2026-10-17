@@ -51,7 +51,15 @@ router.post("/:id/dispatch", required("deliveries.dispatch"), (req, res) => {
   const id = String(req.params.id);
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
-  const delivery = store.updateDelivery(id, { status: "OUT_FOR_DELIVERY", actualDispatchTime: new Date().toISOString(), updatedAt: new Date().toISOString() });
+  const existing = store.findDelivery(id);
+  if (!existing) throw new NotFoundError("Delivery not found");
+  // Pickup/collection fulfilment never goes In Transit — those orders move
+  // straight from Awaiting Collection to Completed / Delivered (complete below).
+  const fulfilment = String(existing.type || "").toUpperCase();
+  if (fulfilment.includes("PICKUP") || fulfilment.includes("COLLECTION")) {
+    return res.status(409).json({ error: "Pickup collections complete directly — no In Transit step" });
+  }
+  const delivery = store.updateDelivery(id, { status: "IN_TRANSIT", actualDispatchTime: new Date().toISOString(), updatedAt: new Date().toISOString() });
   if (!delivery) throw new NotFoundError("Delivery not found");
   store.persist();
   res.json(delivery);
@@ -61,8 +69,48 @@ router.post("/:id/complete", required("deliveries.complete"), (req, res) => {
   const id = String(req.params.id);
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
-  const delivery = store.updateDelivery(id, { status: "DELIVERED", actualDeliveryDate: new Date().toISOString(), updatedAt: new Date().toISOString() });
+  const delivery = store.updateDelivery(id, { status: "COMPLETED_DELIVERED", actualDeliveryDate: new Date().toISOString(), updatedAt: new Date().toISOString() });
   if (!delivery) throw new NotFoundError("Delivery not found");
+  store.persist();
+  res.json(delivery);
+});
+
+router.get("/:id", required("deliveries.view"), (req, res) => {
+  const delivery = store.findDelivery(String(req.params.id));
+  if (!delivery) throw new NotFoundError("Delivery not found");
+  res.json(delivery);
+});
+
+router.post("/:id/cancel", required("deliveries.cancel"), (req, res) => {
+  const id = String(req.params.id);
+  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  if (!session) return res.status(401).json({ error: "Not authenticated" });
+  const existing = store.findDelivery(id);
+  if (!existing) throw new NotFoundError("Delivery not found");
+  const delivery = store.updateDelivery(id, { status: "FAILED", notes: existing.notes ? `Cancelled: ${existing.notes}` : "Cancelled by staff", updatedAt: new Date().toISOString() });
+  if (!delivery) throw new NotFoundError("Delivery not found");
+  store.persist();
+  res.json(delivery);
+});
+
+router.patch("/:id", required("deliveries.view"), (req, res) => {
+  const id = String(req.params.id);
+  const delivery = store.findDelivery(id);
+  if (!delivery) throw new NotFoundError("Delivery not found");
+  const { status, notes, scheduledAt, scheduledDate, scheduledTime, actualDispatchTime, actualDeliveryDate, deliveryPerson, deliveryFee, customerConfirmation, type } = req.body || {};
+  const patched = { ...(req.body || {}) };
+  if (status !== undefined) delivery.status = String(status) as import("../database/types.js").DeliveryStatus;
+  if (notes !== undefined) delivery.notes = String(notes);
+  if (scheduledAt !== undefined) delivery.scheduledAt = scheduledAt;
+  if (scheduledDate !== undefined) delivery.scheduledDate = scheduledDate;
+  if (scheduledTime !== undefined) delivery.scheduledTime = scheduledTime;
+  if (actualDispatchTime !== undefined) delivery.actualDispatchTime = actualDispatchTime;
+  if (actualDeliveryDate !== undefined) delivery.actualDeliveryDate = actualDeliveryDate;
+  if (deliveryPerson !== undefined) delivery.deliveryPerson = deliveryPerson;
+  if (deliveryFee !== undefined) delivery.deliveryFee = Number(deliveryFee);
+  if (customerConfirmation !== undefined) delivery.customerConfirmation = customerConfirmation;
+  if (type !== undefined) delivery.type = String(type) as import("../database/types.js").DeliveryType_;
+  delivery.updatedAt = new Date().toISOString();
   store.persist();
   res.json(delivery);
 });

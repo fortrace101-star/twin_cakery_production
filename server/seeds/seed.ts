@@ -26,9 +26,9 @@ const PERMS = [
   "production.quality_check","production.record_wastage",
   "inventory.view","inventory.adjust","inventory.reserve","inventory.consume",
   "purchasing.view","purchasing.create","purchasing.approve","purchasing.receive",
-  "finance.view","finance.record_payment","finance.record_expense",
+  "finance.view","finance.record_payment","finance.record_expense","finance.view_reports",
   "payments.view","payments.record",
-  "deliveries.view","deliveries.create","deliveries.dispatch","deliveries.complete",
+  "deliveries.view","deliveries.create","deliveries.dispatch","deliveries.complete","deliveries.cancel",
   "feedback.view","feedback.create","feedback.resolve",
   "users.manage","roles.manage","settings.manage","audit.view",
   "catalogue.view","catalogue.create","catalogue.edit","catalogue.archive",
@@ -160,7 +160,7 @@ export async function seed(): Promise<void> {
     ["ord-1046","TC-1046","cust-grace","prod-vanilla","24 pieces · Vanilla · Corporate",2400,"CONFIRMED","PAID","PENDING","2026-10-07 13:00","Phone"],
     ["ord-1045","TC-1045","cust-james","prod-wedding","3 tiers · Vanilla & lemon",18000,"IN_PRODUCTION","PARTIALLY_PAID","PENDING","2026-10-08 09:00","Walk-in"],
     ["ord-1044","TC-1044","cust-faith","prod-carrot","1 kg · Cream cheese frosting",3200,"AWAITING_CONFIRMATION","UNPAID","PENDING","2026-10-08 14:00","WhatsApp"],
-    ["ord-1043","TC-1043","cust-peter","prod-choccup","12 pieces · Chocolate",1800,"COMPLETED","PAID","DELIVERED","2026-10-09 10:30","Website"],
+    ["ord-1043","TC-1043","cust-peter","prod-choccup","12 pieces · Chocolate",1800,"COMPLETED_DELIVERED","PAID","COMPLETED_DELIVERED","2026-10-09 10:30","Website"],
   ] as const;
   for (const [id, num, cust, prod, variant, total, status, pay, del, at, channel] of SEED_ORDERS) {
     const paid = pay === "UNPAID" ? 0 : pay === "PARTIALLY_PAID" ? total / 2 : total;

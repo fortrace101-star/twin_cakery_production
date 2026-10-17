@@ -17,10 +17,13 @@ export class BusinessService {
       IN_PRODUCTION: ["QUALITY_CHECK", "CANCELLED"],
       QUALITY_CHECK: ["READY_FOR_DELIVERY", "REWORK_REQUIRED", "CANCELLED"],
       REWORK_REQUIRED: ["QUALITY_CHECK", "CANCELLED"],
-      READY_FOR_DELIVERY: ["OUT_FOR_DELIVERY", "CANCELLED"],
-      OUT_FOR_DELIVERY: ["AWAITING_PICKUP", "CANCELLED"],
-      AWAITING_PICKUP: ["COMPLETED", "CANCELLED"],
-      COMPLETED: [],
+      // Fulfilment branch: every order becomes Awaiting Collection first.
+      // Pickup/collection orders complete straight from there; home-delivery
+      // orders go In Transit first, then complete (mirrors routes/deliveries.ts).
+      READY_FOR_DELIVERY: ["AWAITING_COLLECTION", "CANCELLED"],
+      AWAITING_COLLECTION: ["IN_TRANSIT", "COMPLETED_DELIVERED", "CANCELLED"],
+      IN_TRANSIT: ["COMPLETED_DELIVERED", "CANCELLED"],
+      COMPLETED_DELIVERED: [],
       CANCELLED: [],
     };
     if (!allowed[current].includes(next)) {

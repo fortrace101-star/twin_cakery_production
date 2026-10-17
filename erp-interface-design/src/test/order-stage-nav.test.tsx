@@ -31,7 +31,7 @@ function renderDialog(order: Order) {
 }
 
 const inProd = initialOrders.find((o) => o.status === "In production")!; // TC-1048 · idx 2
-const completed = initialOrders.find((o) => o.status === "Completed")!; // TC-1043 · idx 6 (end)
+const completed = initialOrders.find((o) => o.status === "Completed / Delivered")!; // TC-1043 · idx 6 (end)
 const cancelled = { ...initialOrders[0]!, id: "TC-0000", status: "Cancelled" }; // off-pipeline
 
 function currentStepLabel(): string | undefined {
@@ -50,9 +50,9 @@ describe("OrderDialog stage strip (Phase E5)", () => {
 
   it("auto-targets the next stage and tones nav buttons by their TARGET stage", () => {
     renderDialog(inProd);
-    // Auto target = Ready → Next hops ahead to Out for delivery (orange).
-    expect(screen.getByRole("button", { name: "Next: Out for delivery" }).className).toContain("tone-orange");
-    expect(screen.getByRole("button", { name: "Previous: In production" }).className).toContain("tone-green");
+    // Auto target = Ready → Next hops ahead to Awaiting Collection (amber).
+    expect(screen.getByRole("button", { name: "Next: Awaiting Collection" }).className).toContain("tone-amber");
+    expect(screen.getByRole("button", { name: "Previous: In production" }).className).toContain("tone-violet");
     expect(screen.getByRole("button", { name: "Update status" })).toBeEnabled();
     // Walk backwards one step at a time — navigation follows the TARGET.
     fireEvent.click(screen.getByRole("button", { name: /^Previous/ }));
@@ -60,11 +60,11 @@ describe("OrderDialog stage strip (Phase E5)", () => {
     expect(screen.getByRole("button", { name: "Update status" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Next: Ready" }).className).toContain("tone-teal");
     fireEvent.click(screen.getByRole("button", { name: /^Previous/ }));
-    expect(screen.getByRole("button", { name: "Previous: Pending confirmation" }).className).toContain("tone-amber");
+    expect(screen.getByRole("button", { name: "Previous: Pending confirmation" }).className).toContain("tone-green");
     expect(screen.getByRole("button", { name: "Update status" })).toBeEnabled();
     // Walk forwards again — steps accumulate across clicks.
     fireEvent.click(screen.getByRole("button", { name: /^Next/ }));
-    expect(screen.getByRole("button", { name: "Previous: Confirmed" }).className).toContain("tone-violet");
+    expect(screen.getByRole("button", { name: "Previous: Confirmed" }).className).toContain("tone-blue");
     // Target is back on the store's current stage → submit locked again.
     expect(screen.getByRole("button", { name: "Update status" })).toBeDisabled();
     // The strip always shows the STORE's current stage as the step.
@@ -75,7 +75,7 @@ describe("OrderDialog stage strip (Phase E5)", () => {
     renderDialog(completed);
     expect(currentStepLabel()).toContain("Completed");
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Previous: Awaiting pickup" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Previous: In Transit" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Update status" })).toBeDisabled();
   });
 

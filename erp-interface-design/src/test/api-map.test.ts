@@ -44,7 +44,9 @@ describe("orderStatusEnum", () => {
     expect(orderStatusEnum("Confirmed")).toBe("CONFIRMED");
     expect(orderStatusEnum("In production")).toBe("IN_PRODUCTION");
     expect(orderStatusEnum("Ready")).toBe("READY_FOR_DELIVERY");
-    expect(orderStatusEnum("Completed")).toBe("DELIVERED");
+    expect(orderStatusEnum("Awaiting Collection")).toBe("AWAITING_COLLECTION");
+    expect(orderStatusEnum("In Transit")).toBe("IN_TRANSIT");
+    expect(orderStatusEnum("Completed / Delivered")).toBe("COMPLETED_DELIVERED");
     expect(orderStatusEnum("Cancelled")).toBe("CANCELLED");
     expect(orderStatusEnum("Nonsense")).toBe("AWAITING_CONFIRMATION");
   });

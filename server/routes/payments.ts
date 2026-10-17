@@ -3,6 +3,7 @@ import { store } from "../database/store.js";
 import { rbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
+import { makeId } from "../utils/make-id.js";
 
 const router = Router();
 const authService = new AuthService();
@@ -20,16 +21,124 @@ const required = (perm: string): RequestHandler => (req, res, next) => {
 };
 
 router.get("/", required("payments.view"), (req, res) => {
-  res.json(store.payments());
+  const payments = store.payments();
+  const orderId = req.query.orderId as string | undefined;
+  let list = payments;
+  if (orderId) list = list.filter((p) => p.orderId === orderId);
+  res.json(list);
 });
+
+// ── M-Pesa STK push simulator (E4) ─────────────────────────────────────────
+// The store is the source of truth for recorded payments; Safaricom is never
+// reached. The frontend presses "Pay with M-Pesa" and we hand back the same
+// shape the sandbox STK push returns (the mock "Pasa" simulator).
+// 1. POST /payments { orderId, amount, method: "M-Pesa", receivedBy, notes }
+//    -> 201 { ...payment, stagedPush: { ...mock STK push ... } }
+//    `reference` is the simulation ticket (MCA-YYYYMMDD-XXXXXX) - the
+//    simulator stamps one when the caller omits it. stagedPush.CheckoutRequestID
+//    is the payment id, so the frontend confirms with
+//    POST /payments/:id/callback.
+// 2. POST /payments/:id/callback { resultCode, resultDesc, ... }
+//    -> simulates the customer confirming (0) or aborting (!=0). 0 => order
+//    marked PAID and an in-app notification is fired.
+
+function buildStkPushResponse(paymentId: string, orderId: string, amount: number, receivedBy: string | null): Record<string, unknown> {
+  const phone =
+    receivedBy && store.db.users.find((u) => u.id === receivedBy)?.phone
+      ? store.db.users.find((u) => u.id === receivedBy)!.phone
+      : "256700000000";
+  void orderId;
+  return {
+    MerchantRequestID: makeId("REQ"),
+    CheckoutRequestID: paymentId,
+    ResponseDescription: "Success. Continue to checkout",
+    CustomerMessage: "Success. Continue to checkout",
+    CallBackURL: `${process.env.APP_BASE_URL || "http://localhost:4000"}/api/v1/payments/${paymentId}/callback`,
+    ResultCode: 0,
+    ResultDesc: "Success",
+    MerchantRequestTime: new Date().toISOString(),
+    Amount: amount,
+    Phone: phone,
+    BillRefNumber: "",
+  };
+}
 
 router.post("/", required("payments.record"), (req, res) => {
   const { orderId, amount, method, reference, receivedBy, notes } = req.body || {};
   if (!orderId || amount === undefined) return res.status(400).json({ error: "orderId and amount are required" });
-  const payment = store.paymentsReceived(orderId, amount, method || "Cash", reference || "", receivedBy || "admin");
-  if (!payment) throw new NotFoundError("Order not found");
+
+  let ref = String(reference || "");
+  if (method === "M-Pesa" && !ref) {
+    ref = `MCA-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+  }
+
+  const payment = store.createPayment({
+    orderId,
+    amount: Number(amount),
+    method: method || "Cash",
+    reference: ref,
+    receivedBy: receivedBy || "admin",
+    notes: notes || "",
+  });
+
+  const order = store.db.orders.find((o) => o.id === orderId);
+  if (order) {
+    if (order.paymentStatus === "UNPAID") order.paymentStatus = "PARTIALLY_PAID";
+    else if (order.paymentStatus === "PAID") order.paymentStatus = "OVERPAID";
+    order.updatedAt = new Date().toISOString();
+  }
   store.persist();
-  res.status(201).json(payment);
+
+  res.status(201).json({
+    ...payment,
+    stagedPush: method === "M-Pesa" ? buildStkPushResponse(payment.id, orderId, Number(amount), receivedBy) : null,
+  });
+});
+
+router.post("/:id/callback", required("payments.record"), (req, res) => {
+  const id = String(req.params.id);
+  const payment = store.db.payments.find((p) => p.id === id);
+  if (!payment) throw new NotFoundError("Payment not found");
+
+  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const actor = session?.userId ?? "admin";
+  const body = req.body || {};
+  const resultCode = Number(body.resultCode);
+  const order = store.db.orders.find((o) => o.id === payment.orderId);
+
+  if (resultCode === 0) {
+    if (order && order.paymentStatus !== "PAID") {
+      order.paymentStatus = "PAID";
+      order.updatedAt = new Date().toISOString();
+    }
+    store.createNotification({
+      eventTypeId: "PaymentReceived",
+      title: "Payment received",
+      message: `M-Pesa payment of USh ${Number(payment.amount).toLocaleString("en-UG")} recorded against order ${payment.orderId} (reference ${payment.reference}).`,
+      priority: "HIGH",
+      entityType: "payment",
+      entityId: id,
+      actionUrl: "/workspace/finance#payments",
+      deepLink: null,
+      createdBy: actor,
+    });
+    store.persist();
+  } else {
+    store.createNotification({
+      eventTypeId: "PaymentReceived",
+      title: "M-Pesa payment failed",
+      message: `Stub callback for payment ${id} returned resultCode ${resultCode}: ${body.resultDesc || "unknown reason"}. Check the reference and retry.`,
+      priority: "MEDIUM",
+      entityType: "payment",
+      entityId: id,
+      actionUrl: "/workspace/finance#payments",
+      deepLink: null,
+      createdBy: actor,
+    });
+    store.persist();
+  }
+
+  res.json({ ok: true, payment: { ...payment, status: resultCode === 0 ? "COMPLETED" : "FAILED" } });
 });
 
 export default router;

@@ -28,7 +28,7 @@ describe("status vocabulary (erp_design.md C2-C4 — locked)", () => {
     // Disambiguated words (must resolve to exactly one tone — see overlap guard below)
     expect(toneOf("Active")).toBe("green");
     expect(toneOf("Awaiting dispatch")).toBe("amber");
-    expect(toneOf("Awaiting pickup")).toBe("amber");
+    expect(toneOf("Partially paid")).toBe("amber");
     expect(toneOf("Baking")).toBe("gray");
     expect(toneOf("Out of stock")).toBe("red");
   });
@@ -174,12 +174,14 @@ describe("DataTable", () => {
 describe("styles.css order-stage token locks", () => {
   const css = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8");
 
-  it("locks the contrast-validated teal accent pair (light + dark)", () => {
-    // #2A7A8F on #F1F8FA = 4.57:1 (light) · #6FC6D9 on #0F323A = 6.99:1 (dark) — WCAG AA.
-    expect(css).toContain("--teal-soft: oklch(.974 .008 217);");
-    expect(css).toContain("--teal-ink: oklch(.5405 .0821 218.7);");
-    expect(css).toContain("--teal-soft: oklch(.296 .042 215.5);");
-    expect(css).toContain("--teal-ink: oklch(.779 .088 213.5);");
+  it("locks the stage tone pairs derived from the exact stage HEXes (light + dark)", () => {
+    // Ready stage: #65A30D lime — solid anchor + AA-verified soft/ink pairs
+    // (5.31:1 light, 8.91:1 dark — see the contrast table in styles.css).
+    expect(css).toContain("--teal-solid: #65A30D;");
+    expect(css).toContain("--teal-soft: color-mix(in oklch, #65A30D 20%, white);");
+    expect(css).toContain("--teal-ink: color-mix(in oklch, #65A30D 73%, black);");
+    expect(css).toContain("--teal-soft: oklch(0.30 0.048 132);");
+    expect(css).toContain("--teal-ink: color-mix(in oklch, #65A30D 40%, white);");
   });
 
   it("defines a stage-nav tone for every status tone", () => {

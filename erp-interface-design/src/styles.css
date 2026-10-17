@@ -105,24 +105,34 @@
   --lime: oklch(.72 .13 78);
   --lime-soft: oklch(.94 .05 88);
   /* Order-stage palette: one hue per pipeline stage (theme-tokens.ts
-     ORDER_STAGE_TONES). Softs are tints for badge/row backgrounds, inks are
-     the darkened text colour on top of them (AA on the soft). */
-  --blue-soft: oklch(.92 .055 235);
-  --blue-ink: oklch(.42 .11 245);
-  --peach-soft: oklch(.92 .07 78);
-  --amber-ink: oklch(.46 .12 62);
-  --violet-soft: oklch(.92 .05 300);
-  --violet-ink: oklch(.44 .15 300);
-  --green-soft: oklch(.92 .06 155);
-  --green-ink: oklch(.38 .11 155);
+     ORDER_STAGE_TONES). Each stage is anchored on its exact HEX (--*-solid,
+     theme-independent) with a pastel soft (badge/row background, AA-verified
+     dark ink on top) and a bright dark-theme ink. Pair contrasts (light ink on
+     soft / dark ink on soft): green 5.05, blue 7.72, violet 6.67, teal 5.31,
+     amber 5.38, orange 5.26, rose 7.95 (dark: all >= 6.79) — WCAG AA. */
+  --green-solid: #0F9D58; /* Pending confirmation */
+  --green-soft: color-mix(in oklch, #0F9D58 20%, white);
+  --green-ink: color-mix(in oklch, #0F9D58 78%, black);
+  --blue-solid: #1D4ED8; /* Confirmed */
+  --blue-soft: color-mix(in oklch, #1D4ED8 20%, white);
+  --blue-ink: color-mix(in oklch, #1D4ED8 78%, black);
+  --violet-solid: #9333EA; /* In production */
+  --violet-soft: color-mix(in oklch, #9333EA 20%, white);
+  --violet-ink: color-mix(in oklch, #9333EA 78%, black);
+  --teal-solid: #65A30D; /* Ready */
+  --teal-soft: color-mix(in oklch, #65A30D 20%, white);
+  --teal-ink: color-mix(in oklch, #65A30D 73%, black);
+  --peach-solid: #EAB308; /* Awaiting Collection */
+  --peach-soft: color-mix(in oklch, #EAB308 20%, white);
+  --amber-ink: color-mix(in oklch, #EAB308 63%, black);
+  --orange-solid: #06B6D4; /* In Transit */
+  --orange-soft: color-mix(in oklch, #06B6D4 20%, white);
+  --orange-ink: color-mix(in oklch, #06B6D4 68%, black);
+  --rose-solid: #166534; /* Completed / Delivered */
+  --rose-soft: color-mix(in oklch, #166534 20%, white);
+  --rose-ink: color-mix(in oklch, #166534 78%, black);
   --red-soft: oklch(.93 .04 25);
   --red-ink: oklch(.48 .17 25);
-  --teal-soft: oklch(.974 .008 217);
-  --teal-ink: oklch(.5405 .0821 218.7);
-  --orange-soft: oklch(.92 .07 55);
-  --orange-ink: oklch(.45 .12 50);
-  --rose-soft: oklch(.93 .045 10);
-  --rose-ink: oklch(.48 .16 10);
   --chart-revenue: oklch(.76 .12 76);
   --chart-expense: oklch(.86 .015 85);
   /* transparent-logo plate: the logo PNG has no background, so on dark
@@ -173,23 +183,24 @@
   --brand-ink: oklch(.9 .06 90);
   --lime: oklch(.8 .13 80);
   --lime-soft: oklch(.33 .05 78);
-  --blue-soft: oklch(.3 .045 245);
-  --blue-ink: oklch(.78 .09 240);
-  --peach-soft: oklch(.34 .05 70);
-  --amber-ink: oklch(.82 .11 75);
-  --violet-soft: oklch(.31 .05 300);
-  --violet-ink: oklch(.8 .11 300);
-  --green-soft: oklch(.3 .045 155);
-  --green-ink: oklch(.8 .12 155);
+  --blue-soft: oklch(0.30 0.048 264);
+  --blue-ink: color-mix(in oklch, #1D4ED8 40%, white);
+  --peach-soft: oklch(0.30 0.048 86);
+  --amber-ink: color-mix(in oklch, #EAB308 40%, white);
+  --violet-soft: oklch(0.30 0.048 302);
+  --violet-ink: color-mix(in oklch, #9333EA 40%, white);
+  --green-soft: oklch(0.30 0.048 154);
+  --green-ink: color-mix(in oklch, #0F9D58 40%, white);
   --red-soft: oklch(.3 .05 25);
   --red-ink: oklch(.8 .14 25);
-  /* Dark counterparts of the order-stage hues: deep tinted plates, bright ink. */
-  --teal-soft: oklch(.296 .042 215.5);
-  --teal-ink: oklch(.779 .088 213.5);
-  --orange-soft: oklch(.32 .055 55);
-  --orange-ink: oklch(.84 .11 62);
-  --rose-soft: oklch(.32 .045 10);
-  --rose-ink: oklch(.84 .11 10);
+  /* Dark counterparts of the order-stage hues: deep tinted plates, bright inks.
+     (--*-solid exact HEXs live in :root and are theme-independent.) */
+  --teal-soft: oklch(0.30 0.048 132);
+  --teal-ink: color-mix(in oklch, #65A30D 40%, white);
+  --orange-soft: oklch(0.30 0.048 215);
+  --orange-ink: color-mix(in oklch, #06B6D4 40%, white);
+  --rose-soft: oklch(0.30 0.048 151);
+  --rose-ink: color-mix(in oklch, #166534 40%, white);
   --chart-revenue: oklch(.8 .13 80);
   --chart-expense: oklch(.52 .05 235);
   --shadow-popover: 0 8px 32px oklch(0 0 0 / .55);
@@ -375,14 +386,14 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .donut-legend i {width:6px;height:6px;display:inline-block;border-radius:2px;}
 .donut-legend strong {font-size:16px;font-weight:550;padding-left:10px;}
 .legend-lime {background:var(--chart-revenue);}
-.legend-blue {background:var(--blue-soft);}
-.legend-green {background:var(--green-soft);}
-.legend-violet {background:var(--violet-soft);}
-.legend-peach {background:var(--peach-soft);}
-.legend-amber {background:var(--peach-soft);}
-.legend-teal {background:var(--teal-soft);}
-.legend-orange {background:var(--orange-soft);}
-.legend-rose {background:var(--rose-soft);}
+.legend-blue {background:var(--blue-solid);}
+.legend-green {background:var(--green-solid);}
+.legend-violet {background:var(--violet-solid);}
+.legend-peach {background:var(--peach-solid);}
+.legend-amber {background:var(--peach-solid);}
+.legend-teal {background:var(--teal-solid);}
+.legend-orange {background:var(--orange-solid);}
+.legend-rose {background:var(--rose-solid);}
 .operations-grid {display:grid;grid-template-columns:minmax(0,1.85fr) minmax(0,1fr);gap:24px;margin-bottom:24px;}
 .title-with-count {display:flex;align-items:center;gap:8px;}
 .title-with-count>span,.inline-count {background:var(--muted);font-size:11px;font-weight:500;padding:2px 6px;border-radius:4px;}
@@ -429,13 +440,13 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .order-stepper li.step-done {color:var(--step-color);}
 .order-stepper .step-node {width:10px;height:10px;border-radius:50%;border:1.5px solid color-mix(in oklch,var(--muted-foreground) 55%,transparent);box-sizing:border-box;}
 .order-stepper li.step-current .step-node {width:11px;height:11px;border:0;background:var(--step-color);box-shadow:0 0 0 3px color-mix(in oklch,var(--step-color) 18%,transparent);}
-.order-stepper.tone-green {--step-color:var(--green-ink);}
-.order-stepper.tone-blue {--step-color:var(--blue-ink);}
-.order-stepper.tone-violet {--step-color:var(--violet-ink);}
-.order-stepper.tone-amber {--step-color:var(--amber-ink);}
-.order-stepper.tone-teal {--step-color:var(--teal-ink);}
-.order-stepper.tone-orange {--step-color:var(--orange-ink);}
-.order-stepper.tone-rose {--step-color:var(--rose-ink);}
+.order-stepper.tone-green {--step-color:var(--green-solid);}
+.order-stepper.tone-blue {--step-color:var(--blue-solid);}
+.order-stepper.tone-violet {--step-color:var(--violet-solid);}
+.order-stepper.tone-amber {--step-color:var(--peach-solid);}
+.order-stepper.tone-teal {--step-color:var(--teal-solid);}
+.order-stepper.tone-orange {--step-color:var(--orange-solid);}
+.order-stepper.tone-rose {--step-color:var(--rose-solid);}
 .order-stepper.tone-red {--step-color:var(--red-ink);}
 .order-stepper.tone-gray {--step-color:var(--muted-foreground);}
 

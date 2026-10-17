@@ -2,15 +2,15 @@ import { describe, expect, it } from "vitest";
 import { isActiveOrder, modules, TERMINAL_ORDER_STATUSES, initialOrders, type Order } from "@/components/erp/data";
 
 describe("isActiveOrder", () => {
-  it("treats Completed and Cancelled as terminal (not active)", () => {
-    expect(TERMINAL_ORDER_STATUSES).toContain("Completed");
+  it("treats Completed / Delivered and Cancelled as terminal (not active)", () => {
+    expect(TERMINAL_ORDER_STATUSES).toContain("Completed / Delivered");
     expect(TERMINAL_ORDER_STATUSES).toContain("Cancelled");
-    expect(isActiveOrder({ status: "Completed" })).toBe(false);
+    expect(isActiveOrder({ status: "Completed / Delivered" })).toBe(false);
     expect(isActiveOrder({ status: "Cancelled" })).toBe(false);
   });
 
   it("treats every non-terminal status as active", () => {
-    for (const status of ["Pending confirmation", "Confirmed", "In production", "Ready", "Awaiting dispatch"]) {
+    for (const status of ["Pending confirmation", "Confirmed", "In production", "Ready", "Awaiting Collection", "In Transit", "Awaiting dispatch"]) {
       expect(isActiveOrder({ status })).toBe(true);
     }
   });
@@ -21,18 +21,18 @@ describe("active-order list (history retained, not active)", () => {
   const activeByDefault = (orders: Order[]) => orders.filter((o) => isActiveOrder(o));
 
   it("drops completed orders from the active list but keeps them in the source", () => {
-    const completed = initialOrders.filter((o) => o.status === "Completed");
-    expect(completed.length).toBeGreaterThan(0); // TC-1043 is Completed in the sample data
+    const completed = initialOrders.filter((o) => o.status === "Completed / Delivered");
+    expect(completed.length).toBeGreaterThan(0); // TC-1043 is Completed / Delivered in the sample data
 
     const active = activeByDefault(initialOrders);
     // Completed order(s) are gone from the active list...
-    expect(active.some((o) => o.status === "Completed")).toBe(false);
+    expect(active.some((o) => o.status === "Completed / Delivered")).toBe(false);
     // ...but still present in the full set for history/analytics.
-    expect(initialOrders.some((o) => o.status === "Completed")).toBe(true);
+    expect(initialOrders.some((o) => o.status === "Completed / Delivered")).toBe(true);
   });
 
-  it("keeps an explicit Completed filter able to surface the historical order", () => {
-    const statusFilter = "Completed";
+  it("keeps an explicit Completed / Delivered filter able to surface the historical order", () => {
+    const statusFilter = "Completed / Delivered";
     const explicit = initialOrders.filter((o) => o.status === statusFilter);
     expect(explicit.length).toBeGreaterThan(0);
   });
@@ -46,7 +46,7 @@ describe("Order history tab (sales > Order history)", () => {
   it("shows every terminal order and no active ones", () => {
     const history = historyView(initialOrders);
     expect(history.length).toBeGreaterThan(0);
-    expect(history.some((o) => o.status === "Completed")).toBe(true); // TC-1043
+    expect(history.some((o) => o.status === "Completed / Delivered")).toBe(true); // TC-1043
     expect(history.every((o) => !isActiveOrder(o))).toBe(true);
     expect(history.some((o) => isActiveOrder(o))).toBe(false);
   });
@@ -59,7 +59,7 @@ describe("Order history tab (sales > Order history)", () => {
 
   it("offers every terminal status as a history filter option", () => {
     // Mirrors the workspace history-tab status select options.
-    const historyOptions = ["All statuses", "Completed", "Cancelled"];
+    const historyOptions = ["All statuses", "Completed / Delivered", "Cancelled"];
     for (const status of TERMINAL_ORDER_STATUSES) expect(historyOptions).toContain(status);
   });
 

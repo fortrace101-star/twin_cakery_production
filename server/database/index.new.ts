@@ -341,11 +341,26 @@ export async function loadCache(): Promise<void> {
       }
     }
 
+    // One-shot status rename mapping (2026-10): rows persisted with the
+    // retired order/delivery status names are translated at load time.
+    const LEGACY_ORDER_STATUS: Record<string, string> = {
+      OUT_FOR_DELIVERY: "IN_TRANSIT",
+      AWAITING_PICKUP: "AWAITING_COLLECTION",
+      COMPLETED: "COMPLETED_DELIVERED",
+    };
+    const LEGACY_DELIVERY_STATUS: Record<string, string> = {
+      OUT_FOR_DELIVERY: "IN_TRANSIT",
+      AWAITING_PICKUP: "AWAITING_COLLECTION",
+      DELIVERED: "COMPLETED_DELIVERED",
+    };
+
     // sales: orders + items, quotations + items
     cache.orders = (await load<Order>("orders")) ?? [];
     cache.orderItems = (await load<OrderItem>("order_items")) ?? [];
     for (const o of cache.orders) {
       o.items = cache.orderItems.filter((i) => i.orderId === o.id);
+      o.status = (LEGACY_ORDER_STATUS[o.status] ?? o.status) as Order["status"];
+      o.deliveryStatus = (LEGACY_DELIVERY_STATUS[o.deliveryStatus] ?? o.deliveryStatus) as Order["deliveryStatus"];
     }
     cache.quotations = (await load<Quotation>("quotations")) ?? [];
     cache.quotationItems = (await load<QuotationItem>("quotation_items")) ?? [];
@@ -409,6 +424,9 @@ export async function loadCache(): Promise<void> {
     cache.inquiries = (await load<Inquiry>("inquiries")) ?? [];
     cache.payments = (await load<Payment>("payments")) ?? [];
     cache.deliveries = (await load<Delivery>("deliveries")) ?? [];
+    for (const d of cache.deliveries) {
+      d.status = (LEGACY_DELIVERY_STATUS[d.status] ?? d.status) as Delivery["status"];
+    }
     cache.notifications = (await load<Notification>("notifications")) ?? [];
     cache.notificationRecipients = (await load<NotificationRecipient>("notification_recipients")) ?? [];
     cache.notificationPreferences = (await load<NotificationPreference>("notification_preferences")) ?? [];
@@ -420,6 +438,10 @@ export async function loadCache(): Promise<void> {
     cache.userRoles = (await load<UserRole>("user_roles")) ?? [];
     cache.rolePermissions = (await load<RolePermission>("role_permissions")) ?? [];
     cache.orderStatusHistory = (await load<OrderStatusHistory>("order_status_history")) ?? [];
+    for (const h of cache.orderStatusHistory) {
+      h.previousStatus = (LEGACY_ORDER_STATUS[h.previousStatus] ?? h.previousStatus) as OrderStatusHistory["previousStatus"];
+      h.newStatus = (LEGACY_ORDER_STATUS[h.newStatus] ?? h.newStatus) as OrderStatusHistory["newStatus"];
+    }
     cache.customerFeedback = (await load<CustomerFeedback>("customer_feedback")) ?? [];
     cache.orderSnapshots = (await load<OrderCustomerSnapshot>("order_customer_snapshots")) ?? [];
     cache.customerEvents = (await load<CustomerEvent>("customer_events")) ?? [];

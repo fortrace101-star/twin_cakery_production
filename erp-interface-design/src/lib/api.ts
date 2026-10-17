@@ -152,12 +152,15 @@ export interface ServerDelivery {
   type: string;
   destination: string;
   status: string;
+  scheduledAt: string | null;
   scheduledDate: string | null;
   scheduledTime: string | null;
+  actualDispatchTime: string | null;
   actualDeliveryDate: string | null;
   deliveryPerson: string | null;
   deliveryFee: number;
   notes: string;
+  customerConfirmation: string | null;
 }
 
 export interface ServerProduct {
@@ -209,8 +212,15 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
   QUALITY_CHECK: "Quality check",
   REWORK_REQUIRED: "Rework required",
   READY_FOR_DELIVERY: "Ready",
-  OUT_FOR_DELIVERY: "Out for delivery",
-  DELIVERED: "Completed",
+  AWAITING_COLLECTION: "Awaiting Collection",
+  IN_TRANSIT: "In Transit",
+  DELIVERED: "Completed / Delivered",
+  COMPLETED_DELIVERED: "Completed / Delivered",
+  // Legacy enum values persisted before the 2026-10 status rename — rendered
+  // with the new labels so old rows never surface the retired wording.
+  OUT_FOR_DELIVERY: "In Transit",
+  AWAITING_PICKUP: "Awaiting Collection",
+  COMPLETED: "Completed / Delivered",
   INVOICED: "Invoiced",
   CLOSED: "Closed",
   CANCELLED: "Cancelled",
@@ -227,9 +237,9 @@ const PAYMENT_STATUS_LABELS: Record<string, string> = {
 const DELIVERY_STATUS_LABELS: Record<string, string> = {
   PENDING: "Pending",
   READY_FOR_DISPATCH: "Ready for dispatch",
-  OUT_FOR_DELIVERY: "Out for delivery",
-  DELIVERED: "Delivered",
-  AWAITING_PICKUP: "Awaiting pickup",
+  IN_TRANSIT: "In Transit",
+  DELIVERED: "Completed / Delivered",
+  AWAITING_COLLECTION: "Awaiting Collection",
   PICKED_UP: "Picked up",
   FAILED: "Failed",
 };
@@ -257,8 +267,9 @@ const ORDER_STATUS_ENUMS: Record<string, string> = {
   "Quality check": "QUALITY_CHECK",
   "Rework required": "REWORK_REQUIRED",
   Ready: "READY_FOR_DELIVERY",
-  "Out for delivery": "OUT_FOR_DELIVERY",
-  Completed: "DELIVERED",
+  "Awaiting Collection": "AWAITING_COLLECTION",
+  "In Transit": "IN_TRANSIT",
+  "Completed / Delivered": "COMPLETED_DELIVERED",
   Invoiced: "INVOICED",
   Closed: "CLOSED",
   Cancelled: "CANCELLED",
@@ -394,9 +405,6 @@ export async function listProducts(): Promise<ServerProduct[]> {
 }
 export async function listOrders(): Promise<ServerOrder[]> {
   return safe(() => request<ServerOrder[]>("/orders"), []);
-}
-export async function listDeliveries(): Promise<ServerDelivery[]> {
-  return safe(() => request<ServerDelivery[]>("/deliveries"), []);
 }
 export async function listAudit(limit = 100): Promise<ServerAuditLog[]> {
   return safe(() => request<ServerAuditLog[]>(`/rbac/audit?limit=${limit}`), []);
@@ -1018,3 +1026,258 @@ export function createPurchaseOrder(input: ServerPurchaseOrderInput): Promise<Se
   return safe(() => request<ServerPurchaseOrder>("/purchasing/orders", { method: "POST", body: input }), null);
 }
 
+
+/* -- E4: finance / payments / expenses / deliveries / notifications (client) --
+
+The store's MemoryStore is the source of truth for these records; these hooks
+are the typed front door to the Express routes. All mutating calls degrade to
+null/falsy fallbacks so the UI can fall back to sample data when offline.
+*/
+
+export type PaymentMethod = "Cash" | "M-Pesa" | "Card" | "Bank transfer" | "Cheque";
+export type NotificationPriority = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type NotificationChannel_ = "IN_APP" | "WHATSAPP" | "EMAIL" | "SMS";
+
+export interface ServerPayment {
+  id: string;
+  orderId: string;
+  amount: number;
+  method: PaymentMethod;
+  date: string;
+  reference: string;
+  receivedBy: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ServerExpenseCategory {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ServerExpense {
+  id: string;
+  categoryId: string;
+  amount: number;
+  date: string;
+  paymentMethod: PaymentMethod;
+  reference: string;
+  description: string;
+  attachment: string | null;
+  recordedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ServerNotification {
+  id: string;
+  eventTypeId: string;
+  title: string;
+  message: string;
+  priority: NotificationPriority;
+  entityType: string;
+  entityId: string;
+  actionUrl: string | null;
+  deepLink: string | null;
+  createdAt: string;
+  createdBy: string | null;
+  readAt: string | null;
+  deliveryStatus: "PENDING" | "DELIVERED" | "FAILED" | "SKIPPED";
+  failureReason: string | null;
+}
+
+export interface ServerNotificationPreference {
+  id: string;
+  userId: string;
+  eventTypeId: string;
+  channel: NotificationChannel_;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/* -- E4: payments ---------------------------------------------------------- */
+
+export async function listPayments(orderId?: string): Promise<ServerPayment[]> {
+  const q = orderId ? `?orderId=${encodeURIComponent(orderId)}` : "";
+  return safe(() => request<ServerPayment[]>(`/payments${q}`), []);
+}
+
+export async function recordPayment(payload: {
+  orderId: string;
+  amount: number;
+  method?: string;
+  reference?: string;
+  receivedBy?: string;
+  notes?: string;
+}): Promise<ServerPayment & { stagedPush: Record<string, unknown> | null } | null> {
+  return safe(() =>
+    request<ServerPayment & { stagedPush: Record<string, unknown> | null }>("/payments", { method: "POST", body: payload }),
+    null,
+  );
+}
+
+export async function recordPaymentCallback(paymentId: string, payload: {
+  resultCode: number;
+  resultDesc?: string;
+  merchantRequestID?: string;
+  checkoutRequestID?: string;
+  amount?: number;
+  orderId?: string;
+  billRefNumber?: string;
+}): Promise<{ ok: boolean; payment: ServerPayment & { status: string } } | null> {
+  return safe(() =>
+    request<{ ok: boolean; payment: ServerPayment & { status: string } }>(`/payments/${paymentId}/callback`, { method: "POST", body: payload }),
+    null,
+  );
+}
+
+/* -- E4: expenses + categories ---------------------------------------------- */
+
+export async function listExpenses(category?: string): Promise<ServerExpense[]> {
+  const q = category ? `?category=${encodeURIComponent(category)}` : "";
+  return safe(() => request<ServerExpense[]>(`/expenses${q}`), []);
+}
+
+export async function listExpenseCategories(q?: string): Promise<ServerExpenseCategory[]> {
+  const query = q ? `?name=${encodeURIComponent(q)}` : "";
+  return safe(() => request<ServerExpenseCategory[]>(`/expense-categories${query}`), []);
+}
+
+export async function getExpense(id: string): Promise<ServerExpense | null> {
+  return safe(() => request<ServerExpense>(`/expenses/${id}`), null);
+}
+
+export async function createExpense(payload: {
+  categoryId: string;
+  amount: number;
+  date?: string;
+  paymentMethod?: string;
+  reference?: string;
+  description?: string;
+  attachment?: string | null;
+  recordedBy?: string;
+}): Promise<ServerExpense | null> {
+  return safe(() => request<ServerExpense>("/expenses", { method: "POST", body: payload }), null);
+}
+
+export async function updateExpense(
+  id: string,
+  payload: Partial<Pick<ServerExpense, "amount" | "date" | "paymentMethod" | "reference" | "description" | "attachment" | "recordedBy">>,
+): Promise<ServerExpense | null> {
+  return safe(() => request<ServerExpense>(`/expenses/${id}`, { method: "PATCH", body: payload }), null);
+}
+
+export async function deleteExpense(id: string): Promise<{ ok: boolean } | null> {
+  return safe(() => request<{ ok: boolean }>(`/expenses/${id}`, { method: "DELETE" }), null);
+}
+
+export interface FinanceReport {
+  period: "day" | "week" | "month" | "year";
+  revenue: number;
+  paymentsReceived: number;
+  outstandingPayments: number;
+  directCosts: number;
+  expenses: number;
+  grossProfit: number;
+  netOperatingResult: number;
+  cashMovement: number;
+}
+
+export async function listFinanceReports(period = "month"): Promise<FinanceReport | null> {
+  const q = period ? `?period=${encodeURIComponent(period)}` : "";
+  return safe(() => request<FinanceReport>(`/finance/reports${q}`), null);
+}
+
+export async function createExpenseCategory(name: string): Promise<ServerExpenseCategory | null> {
+  return safe(() => request<ServerExpenseCategory>("/expense-categories", { method: "POST", body: { name } }), null);
+}
+
+
+/* -- E4: deliveries --------------------------------------------------------- */
+
+export async function listDeliveries(status?: string): Promise<ServerDelivery[]> {
+  const q = status ? `?status=${encodeURIComponent(status)}` : "";
+  return safe(() => request<ServerDelivery[]>(`/deliveries${q}`), []);
+}
+
+export async function getDelivery(id: string): Promise<ServerDelivery | null> {
+  return safe(() => request<ServerDelivery>(`/deliveries/${id}`), null);
+}
+
+export async function createDelivery(payload: {
+  orderId: string;
+  type?: string;
+  destination: string;
+  scheduledAt?: string | null;
+  scheduledDate?: string | null;
+  scheduledTime?: string | null;
+  actualDispatchTime?: string | null;
+  actualDeliveryDate?: string | null;
+  deliveryPerson?: string | null;
+  deliveryFee?: number;
+  status?: string;
+  notes?: string;
+  customerConfirmation?: string | null;
+}): Promise<ServerDelivery | null> {
+  return safe(() => request<ServerDelivery>("/deliveries", { method: "POST", body: payload }), null);
+}
+
+export async function updateDelivery(
+  id: string,
+  payload: Partial<Pick<ServerDelivery, "status" | "notes" | "scheduledAt" | "scheduledDate" | "scheduledTime" | "actualDispatchTime" | "actualDeliveryDate" | "deliveryPerson" | "deliveryFee" | "customerConfirmation" | "type">>,
+): Promise<ServerDelivery | null> {
+  return safe(() => request<ServerDelivery>(`/deliveries/${id}`, { method: "PATCH", body: payload }), null);
+}
+
+
+export async function dispatchDelivery(id: string): Promise<ServerDelivery | null> {
+  return safe(() => request<ServerDelivery>(`/deliveries/${id}/dispatch`, { method: "POST" }), null);
+}
+
+export async function completeDelivery(id: string): Promise<ServerDelivery | null> {
+  return safe(() => request<ServerDelivery>(`/deliveries/${id}/complete`, { method: "POST" }), null);
+}
+
+export async function cancelDelivery(id: string): Promise<ServerDelivery | null> {
+  return safe(() => request<ServerDelivery>(`/deliveries/${id}/cancel`, { method: "POST" }), null);
+}
+
+/* -- E4: notifications ------------------------------------------------------ */
+
+export async function listNotifications(limit = 50): Promise<ServerNotification[]> {
+  return safe(() => request<ServerNotification[]>(`/notifications?limit=${limit}`), []);
+}
+
+export async function markAsRead(notificationId: string, userId?: string): Promise<boolean> {
+  const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+  return safe(() => request<boolean>(`/notifications/${notificationId}/read${q}`), false);
+}
+
+export async function markAllAsRead(userId?: string): Promise<number> {
+  const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+  return safe(() => request<number>(`/notifications/mark-all-read${q}`), 0);
+}
+
+export async function getUnreadCount(userId?: string): Promise<number> {
+  const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+  return safe(() => request<number>(`/notifications/unread-count${q}`), 0);
+}
+
+export async function getNotificationPreferences(userId?: string): Promise<ServerNotificationPreference[]> {
+  const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+  return safe(() => request<ServerNotificationPreference[]>(`/notifications/preferences${q}`), []);
+}
+
+export async function updateNotificationPreferences(
+  userId: string,
+  payload: { eventTypeId: string; channel: string; enabled: boolean },
+): Promise<ServerNotificationPreference | null> {
+  return safe(() =>
+    request<ServerNotificationPreference>("/notifications/preferences", { method: "PATCH", body: { userId, eventTypeId: payload.eventTypeId, channel: payload.channel } }),
+    null,
+  );
+}

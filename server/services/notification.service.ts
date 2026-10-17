@@ -30,6 +30,9 @@ export type NotificationEventType =
   | "QualityPassed"
   | "DeliveryDue"
   | "DeliveryDispatched"
+  | "DeliveryCompleted"
+  | "ExpenseCreated"
+  | "ExpenseApproved"
   | "OrderCancelled"
   | "OrderRejected"
   | "SettingsUpdated"
@@ -155,10 +158,28 @@ const TEMPLATES: Record<NotificationEventType, { [K in NotificationChannel_]: { 
     SMS: { title: "Delivery due", message: "Delivery due today." },
   },
   DeliveryDispatched: {
-    IN_APP: { title: "Delivery dispatched", message: "A delivery has been dispatched." },
-    WHATSAPP: { title: "Delivery dispatched", message: "Order {{orderNumber}} dispatched." },
-    EMAIL: { title: "Delivery dispatched", message: "Your order has been dispatched." },
-    SMS: { title: "Delivery dispatched", message: "Order dispatched." },
+    IN_APP: { title: "Delivery dispatched", message: "Order {{orderNumber}} has been dispatched to the customer." },
+    WHATSAPP: { title: "Delivery dispatched", message: "Your order {{orderNumber}} is on its way." },
+    EMAIL: { title: "Delivery dispatched", message: "Your order {{orderNumber}} has been dispatched. Tracking details will follow." },
+    SMS: { title: "Delivery dispatched", message: "Your order {{orderNumber}} has been dispatched." },
+  },
+  DeliveryCompleted: {
+    IN_APP: { title: "Delivery completed", message: "Order {{orderNumber}} has been delivered. Please leave feedback." },
+    WHATSAPP: { title: "Delivery completed", message: "Your order {{orderNumber}} has been delivered." },
+    EMAIL: { title: "Delivery completed", message: "Your order {{orderNumber}} has been delivered. We hope you enjoyed it!" },
+    SMS: { title: "Delivery completed", message: "Your order {{orderNumber}} is delivered. Thanks!" },
+  },
+  ExpenseCreated: {
+    IN_APP: { title: "Expense recorded", message: "A new expense has been recorded ({{amount}}). Review it in Finance." },
+    WHATSAPP: { title: "Expense recorded", message: "New expense recorded: {{amount}}." },
+    EMAIL: { title: "Expense recorded", message: "A new expense of {{amount}} was recorded." },
+    SMS: { title: "Expense recorded", message: "Expense recorded: {{amount}}." },
+  },
+  ExpenseApproved: {
+    IN_APP: { title: "Expense approved", message: "Expense {{expenseId}} was approved for payment." },
+    WHATSAPP: { title: "Expense approved", message: "Expense {{expenseId}} approved." },
+    EMAIL: { title: "Expense approved", message: "Expense {{expenseId}} was approved." },
+    SMS: { title: "Expense approved", message: "Expense {{expenseId}} approved." },
   },
   OrderCancelled: {
     IN_APP: { title: "Order cancelled", message: "An order has been cancelled." },
@@ -217,6 +238,9 @@ const ROLES_FOR_EVENT: Record<NotificationEventType, string[]> = {
   QualityPassed: ["Production Manager"],
   DeliveryDue: ["Production Manager", "Customer Service Representative"],
   DeliveryDispatched: ["Production Manager", "Admin / Proprietor"],
+  DeliveryCompleted: ["Production Manager", "Admin / Proprietor"],
+  ExpenseCreated: ["Admin / Proprietor", "Finance"],
+  ExpenseApproved: ["Admin / Proprietor", "Finance"],
   OrderCancelled: ["Admin / Proprietor"],
   OrderRejected: ["Admin / Proprietor"],
   SettingsUpdated: ["Admin / Proprietor"],

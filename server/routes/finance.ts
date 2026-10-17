@@ -36,25 +36,11 @@ router.post("/payments", required("payments.record"), (req, res) => {
   res.status(201).json(payment);
 });
 
-router.get("/expenses", required("finance.view"), (req, res) => {
-  const expenses = store.db.expenses as import("../database/types.js").Expense[];
-  const category = req.query.category as string | undefined;
-  let list = expenses;
-  if (category) list = list.filter((e) => e.categoryId === category);
-  res.json(list);
-});
-
-router.post("/expenses", required("finance.record_expense"), (req, res) => {
-  const { categoryId, amount, date, paymentMethod, reference, description, attachment, recordedBy } = req.body || {};
-  if (!categoryId || amount === undefined) return res.status(400).json({ error: "categoryId and amount are required" });
-  const expense = store.createExpense({ categoryId, amount, date: date || new Date().toISOString(), paymentMethod: paymentMethod || "Cash", reference: reference || "", description: description || "", attachment: attachment || null, recordedBy: recordedBy || "admin" });
-  store.persist();
-  res.status(201).json(expense);
-});
-
-router.get("/expense-categories", required("finance.view"), (req, res) => {
-  res.json(store.db.expenseCategories as import("../database/types.js").ExpenseCategory[]);
-});
+// ── Profitability report (E4) ────────────────────────────────────────────
+// NOTE: expense CRUD lives in routes/expenses.ts (mounted at /expenses +
+// /expense-categories). This router is mounted at /finance and only serves
+// the aggregated report — the frontend calls GET /finance/reports?period=…
+// (see listFinanceReports in erp-interface-design/src/lib/api.ts).
 
 router.get("/reports", required("finance.view_reports"), (req, res) => {
   const period = (req.query.period as "day" | "week" | "month" | "year") || "month";

@@ -44,16 +44,16 @@ export function Workspace({module='dashboard'}: {module?:string}) {
  // The active-order surfaces (dashboard "Recent orders" + Sales "Orders" tab +
 // CSV export) default to *active* orders only: completed/cancelled orders drop
 // out of the working list but remain available for history/analytics. Selecting
-// a specific status in the filter (including "Completed") still shows exactly that.
+// a specific status in the filter (including "Completed / Delivered") still shows exactly that.
  const matchesSearch=(o:Order)=>`${o.id} ${o.customer} ${o.product}`.toLowerCase().includes(search.toLowerCase());
  const filtered=orders.filter(o=>matchesSearch(o) && (statusFilter==='All statuses' ? isActiveOrder(o) : o.status===statusFilter));
- // Sales > "Order history": terminal orders only (Completed + Cancelled) — the
+ // Sales > "Order history": terminal orders only (Completed / Delivered + Cancelled) — the
  // dedicated home for history/analytics; shared search + status filter still apply.
  const historyFiltered=orders.filter(o=>matchesSearch(o) && !isActiveOrder(o) && (statusFilter==='All statuses' || o.status===statusFilter));
  // Rows on screen right now (history vs working list): drives the table, its
  // counts and the CSV export so they can never disagree.
  const visibleOrders=showHistory?historyFiltered:filtered;
- const statusOptions=showHistory?['All statuses','Completed','Cancelled']:['All statuses','Pending confirmation','Confirmed','In production','Ready','Completed','Cancelled'];
+ const statusOptions=showHistory?['All statuses','Completed / Delivered','Cancelled']:['All statuses','Pending confirmation','Confirmed','In production','Ready','Awaiting Collection','In Transit','Completed / Delivered','Cancelled'];
  function exportData(){const csv=['Order,Customer,Product,Amount,Order status,Payment status,Delivery status',...visibleOrders.map(o=>[o.id,o.customer,o.product,o.amount,o.status,o.payment,o.delivery].map(x=>'"'+String(x).replaceAll('"','""')+'"').join(','))].join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='twin-cakery-orders.csv';a.click();URL.revokeObjectURL(a.href);setNotice('Order export downloaded');}
  return <div className={`workspace ${collapsed?'sidebar-collapsed':''}`}>
   <Sidebar module={module} setTab={setTab} setSearch={setSearch} setStatusFilter={setStatusFilter} setHelp={setHelp} user={user} connected={connected} signOut={signOut} setLoginOpen={setLoginOpen} activeOrders={orders.filter(isActiveOrder).length}/>

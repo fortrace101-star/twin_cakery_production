@@ -6,6 +6,10 @@ dist/
 dist-ssr/
 dist-server/
 
+server/node_modules
+erp-interface-design/node_modules
+sweet-moments-cakery/node_modules
+
 # Logs
 logs
 *.log

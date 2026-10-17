@@ -58,7 +58,7 @@ export const statusTones: Record<StatusTone, readonly string[]> = {
   green: ["Paid", "Ready", "Completed", "Delivered", "In stock", "Approved", "Active", "Passed"],
   blue: ["In production", "Sent", "Dispatched"],
   red: ["Low stock", "Unpaid", "Rejected", "Out of stock", "Error"],
-  amber: ["Pending", "Partially paid", "Awaiting dispatch", "Awaiting pickup", "Pending confirmation"],
+  amber: ["Pending", "Partially paid", "Awaiting dispatch", "Pending confirmation"],
   violet: ["Confirmed", "Accepted"],
   gray: ["Draft", "Inactive", "Cancelled", "Queued", "Baking", "Decorating", "Packing"],
   // Order-pipeline extension tones (used via explicit `tone` prop /
@@ -82,19 +82,22 @@ export function toneOf(status: string): StatusTone {
 /**
  * Order-pipeline stage colours (dashboard "Order breakdown", order tables).
  * The 7 display stages collapse the backend's 14 statuses; each stage gets its
- * own distinct hue (amber, violet, green, teal, orange, rose, blue) so badges,
+ * own distinct hue (green, blue, violet, teal, amber, orange, rose) so badges,
  * donut arcs, legend swatches and order-row tints can never share a colour.
+ * The exact stage HEX values (#0F9D58, #1D4ED8, #9333EA, #65A30D, #EAB308,
+ * #06B6D4, #166534) live in styles.css as the --*-solid / --*-soft / --*-ink
+ * token families derived from each stage's base hex.
  * Stage words resolve here FIRST, then fall back to the locked `toneOf`
  * vocabulary — so `statusTones` above keeps its test-locked semantics.
  */
 export const ORDER_STAGE_TONES = {
-  "Pending confirmation": "amber",
-  Confirmed: "violet",
-  "In production": "green",
+  "Pending confirmation": "green",
+  Confirmed: "blue",
+  "In production": "violet",
   Ready: "teal",
-  "Out for delivery": "orange",
-  "Awaiting pickup": "rose",
-  Completed: "blue",
+  "Awaiting Collection": "amber",
+  "In Transit": "orange",
+  "Completed / Delivered": "rose",
 } as const satisfies Record<string, StatusTone>;
 
 export function orderStageTone(status: string): StatusTone {
@@ -112,9 +115,9 @@ export const ORDER_STAGE_PIPELINE = [
   "Confirmed",
   "In production",
   "Ready",
-  "Out for delivery",
-  "Awaiting pickup",
-  "Completed",
+  "Awaiting Collection",
+  "In Transit",
+  "Completed / Delivered",
 ] as const satisfies readonly (keyof typeof ORDER_STAGE_TONES)[];
 
 /** Stage word that has a fixed position on the pipeline. */
