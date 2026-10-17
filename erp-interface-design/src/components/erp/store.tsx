@@ -19,6 +19,7 @@ import {
   createCustomerApi,
   findProductByName,
   orderStatusEnum,
+  paymentStatusEnum,
   login,
   logout,
   me,
@@ -48,8 +49,11 @@ type WorkspaceContextValue = {
   authError: string;
   signIn: (username: string, password: string) => Promise<boolean>;
   signOut: () => void;
-  addOrder: (order: Order) => void;
-  updateOrder: (id: string, status: string, reason: string) => void;
+  addOrder: (order: Order, phone?: string) => void;
+  /** Records the order stage and (optionally) its payment status in one write. */
+  updateOrder: (id: string, status: string, payment?: string) => void;
+  /** Documents the post-delivery CRM follow-up for a completed order. */
+  completeFollowUp: (id: string) => void;
   refresh: () => void;
 };
 
@@ -156,13 +160,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setAudit([]);
   }, []);
 
-  const addOrder = useCallback((order: Order) => {
+  const addOrder = useCallback((order: Order, phone?: string) => {
     // Optimistic insert so the newly-opened detail dialog resolves immediately.
     setOrders((prev) => [order, ...prev]);
     void (async () => {
       try {
         let customer = await findCustomerByName(order.customer);
-        if (!customer) customer = await createCustomerApi(order.customer);
+        // Customers outside the CRM list are registered right here — with the
+        // phone number captured on the new-order form.
+        if (!customer) customer = await createCustomerApi(order.customer, phone);
         if (!customer) return;
         const product = await findProductByName(order.product);
         const requiredAt = order.date ? `${order.date}T10:00:00` : null;
@@ -182,7 +188,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           requiredAt,
           notes: `${order.options} · ${order.channel}`.trim(),
           status: orderStatusEnum(order.status),
-          paymentStatus: "UNPAID",
+          paymentStatus: paymentStatusEnum(order.payment) as ServerOrder["paymentStatus"],
           deliveryStatus: "PENDING",
           createdBy: "",
         });
@@ -192,14 +198,37 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const updateOrder = useCallback((id: string, status: string, _reason: string) => {
+  const updateOrder = useCallback((id: string, status: string, payment?: string) => {
     // Optimistic label update so the dialog/table reflects the change instantly.
-    setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status } : o)));
+    setOrders((prev) =>
+      prev.map((o) => (o.id === id ? { ...o, status, ...(payment ? { payment } : {}) } : o)),
+    );
     void (async () => {
       try {
         const server = serverOrdersRef.current.find((o) => (o.orderNumber || o.id) === id);
         if (!server) return;
-        await updateOrderApi(server.id, { status: orderStatusEnum(status) });
+        await updateOrderApi(server.id, {
+          status: orderStatusEnum(status),
+          ...(payment ? { paymentStatus: paymentStatusEnum(payment) } : {}),
+        });
+      } catch {
+        /* Non-fatal: the optimistic change stays for this session. */
+      }
+    })();
+  }, []);
+
+  const completeFollowUp = useCallback((id: string) => {
+    // Documenting the follow-up stamps the order; the CRM sidebar badge and the
+    // bell notifications disappear the moment every completed order is stamped.
+    const now = new Date().toISOString();
+    setOrders((prev) =>
+      prev.map((o) => (o.id === id ? { ...o, followUpCompletedAt: now } : o)),
+    );
+    void (async () => {
+      try {
+        const server = serverOrdersRef.current.find((o) => (o.orderNumber || o.id) === id);
+        if (!server) return;
+        await updateOrderApi(server.id, { followUpCompletedAt: now });
       } catch {
         /* Non-fatal: the optimistic change stays for this session. */
       }
@@ -217,6 +246,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     signOut,
     addOrder,
     updateOrder,
+    completeFollowUp,
     refresh,
   };
 

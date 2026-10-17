@@ -60,6 +60,16 @@ describe("App routing", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders the dedicated FinanceView at /workspace/finance", async () => {
+    // Regression guard: Finance renders the dedicated payments/expenses/reports
+    // view — not the generic module table.
+    renderAt("/workspace/finance");
+    expect(await screen.findByRole("heading", { name: "Payments" })).toBeInTheDocument();
+    expect(screen.getByText(/Record and review payments against orders/)).toBeInTheDocument();
+    // Unsettled order payments are listed with their status badge (sample data).
+    expect(await screen.findByText("#TC-1044")).toBeInTheDocument();
+  });
+
   it("renders the CRM two-pane (list + conversation) at /workspace/crm", async () => {
     // Regression guard: CRM is the one non-table module (erp-design-system.md §5).
     // The two-pane branch must be reachable — a stray generic-table `return` above it

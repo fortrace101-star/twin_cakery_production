@@ -59,7 +59,7 @@ export const statusTones: Record<StatusTone, readonly string[]> = {
   blue: ["In production", "Sent", "Dispatched"],
   red: ["Low stock", "Unpaid", "Rejected", "Out of stock", "Error"],
   amber: ["Pending", "Partially paid", "Awaiting dispatch", "Pending confirmation"],
-  violet: ["Confirmed", "Accepted"],
+  violet: ["Confirmed", "Accepted", "Processing"],
   gray: ["Draft", "Inactive", "Cancelled", "Queued", "Baking", "Decorating", "Packing"],
   // Order-pipeline extension tones (used via explicit `tone` prop /
   // `orderStageTone()` below so the locked vocabulary above never shifts).

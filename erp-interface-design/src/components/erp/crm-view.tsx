@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { CalendarDays, Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { CalendarDays, Check, Search } from "lucide-react";
 import { StatusBadge as Status } from "@/components/data-table/StatusBadge";
 import { formatOccasionDate, groupOccasions, initialOccasions, type GridRow, type Occasion, type OccasionPeriod } from "./data";
 import { listCustomers, listCustomerEvents } from "@/lib/api";
@@ -20,18 +21,23 @@ export function CrmView({
   search,
   setSearch,
   connected,
+  followUps,
+  onCompleteFollowUp,
 }: {
   tab: string;
   contacts: GridRow[];
   search: string;
   setSearch: (s: string) => void;
   connected: boolean;
+  followUps?: { id: string; customer: string }[] | undefined;
+  onCompleteFollowUp?: ((id: string) => void) | undefined;
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   // The Occasions tab is a cross-customer calendar view, not the two-pane
   // conversation UI — short-circuit here so workspace/module-table stay unaware.
   if (tab === "Occasions") return <OccasionsView connected={connected} />;
   const active = contacts.find((c) => c.id === activeId) ?? contacts[0] ?? null;
+  const pendingFollowUps = followUps?.filter((f) => f.customer === active?.name) ?? [];
   const thread = [
     "Thanks for choosing Twin Cakery Bakery! How can we help with this order?",
     "Noted — the team will follow up shortly.",
@@ -111,10 +117,19 @@ export function CrmView({
                 ))}
               </div>
               <CustomerE1Panels name={active.name} connected={connected} />
-              <div className="crm-detail-foot">
-                <span>{active.secondary}</span>
-                <strong>{active.value}</strong>
-              </div>
+              {pendingFollowUps.length > 0 ? (
+                <div className="crm-detail-foot">
+                  <span>{pendingFollowUps.length} completed order{pendingFollowUps.length === 1 ? '' : 's'} awaiting follow-up</span>
+                  <Button variant="secondary" size="sm" onClick={() => pendingFollowUps.forEach((f) => onCompleteFollowUp?.(f.id))}>
+                    <Check size={14}/> Document follow-up
+                  </Button>
+                </div>
+              ) : (
+                <div className="crm-detail-foot">
+                  <span>{active.secondary}</span>
+                  <strong>{active.value}</strong>
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -43,32 +43,44 @@ describe("OrderDialog stage strip (Phase E5)", () => {
     renderDialog(inProd);
     const list = screen.getByRole("list", { name: "Order pipeline stages" });
     expect(list.className).toContain("order-stage-strip");
-    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    // Stage navigation is never a dropdown — the only combobox is payment recording.
+    expect(screen.getAllByRole("combobox").filter((c) => c.textContent?.includes("In production"))).toHaveLength(0);
     expect(screen.getAllByRole("listitem")).toHaveLength(ORDER_STAGE_PIPELINE.length);
     expect(currentStepLabel()).toContain("In production");
   });
 
-  it("auto-targets the next stage and tones nav buttons by their TARGET stage", () => {
+  it("opens on the ACTIVE stage and only advances when Next is clicked", () => {
     renderDialog(inProd);
-    // Auto target = Ready → Next hops ahead to Awaiting Collection (amber).
-    expect(screen.getByRole("button", { name: "Next: Awaiting Collection" }).className).toContain("tone-amber");
-    expect(screen.getByRole("button", { name: "Previous: In production" }).className).toContain("tone-violet");
-    expect(screen.getByRole("button", { name: "Update status" })).toBeEnabled();
-    // Walk backwards one step at a time — navigation follows the TARGET.
-    fireEvent.click(screen.getByRole("button", { name: /^Previous/ }));
-    // Target is now In production (= current stage) → submit locked.
-    expect(screen.getByRole("button", { name: "Update status" })).toBeDisabled();
+    // Nothing pre-advances: the target equals the active stage on open.
+    expect(currentStepLabel()).toContain("In production");
+    expect(screen.getByRole("button", { name: "Previous: Confirmed" }).className).toContain("tone-blue");
     expect(screen.getByRole("button", { name: "Next: Ready" }).className).toContain("tone-teal");
+    expect(screen.getByRole("button", { name: "Update status" })).toBeDisabled();
+    // Manual step forward — the target moves one stage, submit unlocks.
+    fireEvent.click(screen.getByRole("button", { name: /^Next/ }));
+    expect(screen.getByRole("button", { name: "Previous: In production" }).className).toContain("tone-violet");
+    expect(screen.getByRole("button", { name: "Next: Awaiting Collection" }).className).toContain("tone-amber");
+    expect(screen.getByRole("button", { name: "Update status" })).toBeEnabled();
+    // Navigation follows the TARGET, so steps accumulate across clicks.
+    fireEvent.click(screen.getByRole("button", { name: /^Previous/ }));
+    expect(screen.getByRole("button", { name: "Update status" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: /^Previous/ }));
     expect(screen.getByRole("button", { name: "Previous: Pending confirmation" }).className).toContain("tone-green");
+    expect(screen.getByRole("button", { name: "Next: In production" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Update status" })).toBeEnabled();
-    // Walk forwards again — steps accumulate across clicks.
-    fireEvent.click(screen.getByRole("button", { name: /^Next/ }));
-    expect(screen.getByRole("button", { name: "Previous: Confirmed" }).className).toContain("tone-blue");
-    // Target is back on the store's current stage → submit locked again.
-    expect(screen.getByRole("button", { name: "Update status" })).toBeDisabled();
     // The strip always shows the STORE's current stage as the step.
     expect(currentStepLabel()).toContain("In production");
+  });
+
+  it("records the payment status on the modal, with no reason-for-change field", () => {
+    renderDialog(inProd);
+    expect(screen.queryByLabelText(/reason for change/i)).not.toBeInTheDocument();
+    const select = screen.getByRole("combobox", { name: "Payment status" }) as HTMLSelectElement;
+    expect(select.value).toBe("Partially paid"); // TC-1048 · Partially paid
+    expect(screen.getByRole("button", { name: "Update status" })).toBeDisabled();
+    // Recording a payment status alone (no stage move) unlocks the update.
+    fireEvent.change(select, { target: { value: "Processing" } });
+    expect(screen.getByRole("button", { name: "Update status" })).toBeEnabled();
   });
 
   it("locks both nav buttons and submit at the pipeline end (Completed)", () => {

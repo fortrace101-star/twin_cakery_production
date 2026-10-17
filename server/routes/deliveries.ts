@@ -2,6 +2,7 @@ import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
 import { rbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
+import { businessService } from "../services/business.service.js";
 import { NotFoundError } from "../utils/errors.js";
 
 const router = Router();
@@ -71,6 +72,13 @@ router.post("/:id/complete", required("deliveries.complete"), (req, res) => {
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   const delivery = store.updateDelivery(id, { status: "COMPLETED_DELIVERED", actualDeliveryDate: new Date().toISOString(), updatedAt: new Date().toISOString() });
   if (!delivery) throw new NotFoundError("Delivery not found");
+  // Delivered means delivered: close the order out and raise the CRM follow-up
+  // (badge + admin notification) unless it is already completed.
+  const order = store.orders().find((o) => o.id === delivery.orderId);
+  if (order && order.status !== "COMPLETED_DELIVERED") {
+    const updated = store.updateOrder(order.id, { status: "COMPLETED_DELIVERED", deliveryStatus: "DELIVERED", followUpCompletedAt: null });
+    if (updated) businessService.requestCustomerFollowUp(updated, session.userId);
+  }
   store.persist();
   res.json(delivery);
 });

@@ -2,6 +2,7 @@ import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
 import { rbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
+import { businessService } from "../services/business.service.js";
 import { ConflictError, NotFoundError } from "../utils/errors.js";
 
 const router = Router();
@@ -74,7 +75,15 @@ router.patch("/:id", required("orders.confirm"), (req, res) => {
   const order = store.orders().find((o) => o.id === id);
   if (!order) throw new NotFoundError("Order not found");
   const patch = req.body || {};
+  const wasCompleted = order.status === "COMPLETED_DELIVERED";
   const updated = store.updateOrder(id, patch);
+  if (updated && !wasCompleted && updated.status === "COMPLETED_DELIVERED") {
+    // Fresh completion: any stale flag is cleared and the admin is asked to
+    // follow up (badge on Customers & CRM until documented).
+    updated.followUpCompletedAt = null;
+    const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+    businessService.requestCustomerFollowUp(updated, session?.userId ?? "system");
+  }
   store.persist();
   res.json(updated);
 });

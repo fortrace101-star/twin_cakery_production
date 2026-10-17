@@ -100,6 +100,37 @@ export class BusinessService {
     return { order: updatedOrder, history, job };
   }
 
+  /**
+   * Post-delivery customer follow-up (CRM). Raised the moment an order reaches
+   * Completed / Delivered: an in-app notification asks the admin to follow up,
+   * and the Customers & CRM module shows a sidebar badge until the follow-up is
+   * documented (orders.followUpCompletedAt stamped via PATCH /orders/:id).
+   */
+  requestCustomerFollowUp(order: Order, changedBy: string): void {
+    const customer = store.customers().find((c) => c.id === order.customerId);
+    const name = customer?.name ?? order.orderNumber;
+    const notification = store.createNotification({
+      eventTypeId: "OrderCompleted",
+      title: "Customer follow-up requested",
+      message: `Order ${order.orderNumber} for ${name} is Completed / Delivered. Follow up with the customer and document it in Customers & CRM.`,
+      priority: "MEDIUM",
+      entityType: "order",
+      entityId: order.id,
+      actionUrl: "/workspace/crm",
+      deepLink: "/workspace/crm",
+      createdBy: changedBy,
+    });
+    // Deliver the request in-app to every admin (proprietor) account.
+    for (const admin of store.users().filter((u) => u.isAdmin)) {
+      store.createNotificationRecipient({
+        notificationId: notification.id,
+        userId: admin.id,
+        deliveryChannel: "IN_APP",
+        createdAt: notification.createdAt,
+      });
+    }
+  }
+
   cancelOrder(order: Order, changedBy: string, reason: string): { order: Order; history: OrderStatusHistory } {
     this.validateOrderStatusTransition(order.status, "CANCELLED");
     const now = new Date().toISOString();

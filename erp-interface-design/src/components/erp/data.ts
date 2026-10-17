@@ -2,7 +2,7 @@ export const modules = [
   { id: 'crm', label: 'Customers & CRM', icon: 'Users', group: 'WORKSPACE', tabs: ['Customers', 'Occasions', 'Inquiries', 'Interactions', 'Feedback'] },
   { id: 'sales', label: 'Sales & orders', icon: 'ShoppingBag', group: 'WORKSPACE', tabs: ['Orders', 'Order history', 'Quotations', 'Sales analytics'] },
   { id: 'catalogue', label: 'Product catalogue', icon: 'CakeSlice', group: 'WORKSPACE', tabs: ['Products', 'Categories', 'Product types', 'Variants'] },
-  { id: 'webapp', label: 'Site Management', icon: 'Globe', group: 'WORKSPACE', tabs: ['Overview', 'Blog posts', 'Website users'] },
+  { id: 'webapp', label: 'Site Management', icon: 'Globe', group: 'WORKSPACE', tabs: ['Overview', 'Product catalog', 'Website users'] },
   { id: 'production', label: 'Production', icon: 'ChefHat', group: 'OPERATIONS', tabs: ['Schedule', 'Jobs', 'Quality control', 'Production costs'] },
   { id: 'inventory', label: 'Inventory', icon: 'Boxes', group: 'OPERATIONS', tabs: ['Stock', 'Reservations', 'Transactions', 'Adjustments', 'Alerts'] },
   { id: 'purchasing', label: 'Purchasing', icon: 'Truck', group: 'OPERATIONS', tabs: ['Purchase orders', 'Suppliers', 'Requirements', 'Goods received'] },
@@ -11,7 +11,7 @@ export const modules = [
   { id: 'analytics', label: 'Analytics', icon: 'ChartNoAxesCombined', group: 'BUSINESS', tabs: ['Overview', 'Order history', 'Sales trends', 'Customers', 'Product performance'] },
   { id: 'administration', label: 'Settings', icon: 'Settings', group: 'BUSINESS', tabs: ['Business settings', 'Users', 'Roles', 'Permissions', 'Audit log'] },
 ] as const;
-export type Order = { id: string; customer: string; initials: string; product: string; options: string; date: string; time: string; amount: number; status: string; payment: string; delivery: string; channel: string; };
+export type Order = { id: string; customer: string; initials: string; product: string; options: string; date: string; time: string; amount: number; status: string; payment: string; delivery: string; channel: string; followUpCompletedAt?: string | null; };
 export const initialOrders: Order[] = [
   { id: 'TC-1048', customer: 'Sarah Mwangi', initials: 'SM', product: 'Chocolate celebration cake', options: '2 kg · Chocolate · Birthday', date: '2026-10-07', time: '10:00 AM', amount: 4500, status: 'In production', payment: 'Partially paid', delivery: 'Pending', channel: 'WhatsApp' },
   { id: 'TC-1047', customer: 'David Ochieng', initials: 'DO', product: 'Red velvet cake', options: '1.5 kg · Red velvet · Anniversary', date: '2026-10-07', time: '11:30 AM', amount: 3800, status: 'Ready', payment: 'Paid', delivery: 'Awaiting dispatch', channel: 'Website' },

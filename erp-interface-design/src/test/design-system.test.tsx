@@ -29,6 +29,7 @@ describe("status vocabulary (erp_design.md C2-C4 — locked)", () => {
     expect(toneOf("Active")).toBe("green");
     expect(toneOf("Awaiting dispatch")).toBe("amber");
     expect(toneOf("Partially paid")).toBe("amber");
+    expect(toneOf("Processing")).toBe("violet");
     expect(toneOf("Baking")).toBe("gray");
     expect(toneOf("Out of stock")).toBe("red");
   });
@@ -188,5 +189,17 @@ describe("styles.css order-stage token locks", () => {
     for (const tone of ["gray", "amber", "green", "blue", "red", "violet", "teal", "orange", "rose"]) {
       expect(css).toContain(`.stage-nav-btn.tone-${tone} {`);
     }
+  });
+
+  it("keeps modal status colours as flat fills and the gradients on the order rows", () => {
+    // Update-status modal + badges: solid status fills, never gradients.
+    expect(css).toContain(".status-green {background:var(--green-soft);color:var(--green-ink);}");
+    expect(css).toContain(".status-amber {background:var(--peach-soft);color:var(--amber-ink);}");
+    expect(css).toContain(".order-stage-strip li.is-current {background:var(--stage-tone-soft);");
+    expect(css).toContain(".stage-nav-btn {background:var(--stage-tone-soft);");
+    expect(css).toContain(".order-status-grid>div {padding:9px 10px;border-radius:8px;border:1px solid color-mix(in oklch,var(--tile-tone,var(--border)) 25%,var(--border));background:var(--tile-tone-soft,var(--muted));}");
+    expect(css).toContain(".payments-processing.tone-violet {border-color:color-mix(in oklch,var(--violet-ink) 30%,var(--border));background:var(--violet-soft);");
+    // Gradients belong to the order rows (previous design language).
+    expect(css).toContain(".orders-table tbody tr.order-row-tint {--row-tint:var(--muted);background:linear-gradient(to right,var(--row-tint)");
   });
 });

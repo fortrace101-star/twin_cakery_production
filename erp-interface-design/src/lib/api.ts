@@ -140,10 +140,12 @@ export interface ServerOrder {
   requiredAt: string | null;
   notes: string;
   status: string;
-  paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PAID" | "REFUNDED" | "OVERPAID";
+  paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PROCESSING" | "PAID" | "REFUNDED" | "OVERPAID";
   deliveryStatus: string;
   createdBy: string;
   deliveredAt: string | null;
+  /** Stamped when the post-delivery CRM follow-up has been done & documented. */
+  followUpCompletedAt?: string | null;
 }
 
 export interface ServerDelivery {
@@ -229,6 +231,7 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
 const PAYMENT_STATUS_LABELS: Record<string, string> = {
   UNPAID: "Unpaid",
   PARTIALLY_PAID: "Partial",
+  PROCESSING: "Processing",
   PAID: "Paid",
   REFUNDED: "Refunded",
   OVERPAID: "Overpaid",
@@ -279,6 +282,21 @@ export function orderStatusEnum(label: string): string {
   return ORDER_STATUS_ENUMS[label] ?? "AWAITING_CONFIRMATION";
 }
 
+const PAYMENT_STATUS_ENUMS: Record<string, string> = {
+  Unpaid: "UNPAID",
+  "Partially paid": "PARTIALLY_PAID",
+  Partial: "PARTIALLY_PAID",
+  Processing: "PROCESSING",
+  Paid: "PAID",
+  Refunded: "REFUNDED",
+  Overpaid: "OVERPAID",
+};
+
+/** Reverse UI payment label → server enum (payment writes from the order modal). */
+export function paymentStatusEnum(label: string): string {
+  return PAYMENT_STATUS_ENUMS[label] ?? "UNPAID";
+}
+
 /* ── Server → UI order mapping ─────────────────────────────────────────── */
 
 export interface UiOrder {
@@ -294,6 +312,8 @@ export interface UiOrder {
   payment: string;
   delivery: string;
   channel: string;
+  /** Post-delivery CRM follow-up: null/undefined = still pending on completed orders. */
+  followUpCompletedAt?: string | null;
 }
 
 function initialsOf(name: string): string {
@@ -340,6 +360,7 @@ export function toUiOrder(
     payment: paymentStatusLabel(order.paymentStatus),
     delivery: deliveryStatusLabel(order.deliveryStatus),
     channel,
+    followUpCompletedAt: order.followUpCompletedAt ?? null,
   };
 }
 
@@ -420,8 +441,10 @@ export async function findCustomerByName(name: string): Promise<ServerCustomer |
   const list = await safe(() => request<ServerCustomer[]>(`/customers?name=${encodeURIComponent(name)}`), []);
   return list[0] ?? null;
 }
-export async function createCustomerApi(name: string): Promise<ServerCustomer | null> {
-  return safe(() => request<ServerCustomer>("/customers", { method: "POST", body: { name } }), null);
+export async function createCustomerApi(name: string, phone?: string): Promise<ServerCustomer | null> {
+  // Phone is optional here so callers that only know a name still work; the
+  // new-order dialog always passes it for customers outside the CRM list.
+  return safe(() => request<ServerCustomer>("/customers", { method: "POST", body: { name, ...(phone ? { phone } : {}) } }), null);
 }
 export async function findProductByName(name: string): Promise<ServerProduct | null> {
   const list = await safe(() => request<ServerProduct[]>(`/catalogue/products?name=${encodeURIComponent(name)}`), []);

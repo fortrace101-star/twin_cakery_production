@@ -439,6 +439,7 @@ export class MemoryStore {
       inquiryId: mapStr(input.inquiryId),
       createdBy: String(input.createdBy ?? ""),
       deliveredAt: mapDate(input.deliveredAt),
+      followUpCompletedAt: mapDate(input.followUpCompletedAt),
       createdAt: now,
       updatedAt: now,
     };
@@ -468,7 +469,7 @@ export class MemoryStore {
     applyPatch(order, patch, [
       "orderNumber", "customerId", "salespersonId", "subtotal", "discount", "deliveryCharge",
       "taxAmount", "total", "requiredBy", "requiredAt", "notes", "status", "paymentStatus",
-      "deliveryStatus", "quotationId", "inquiryId", "createdBy", "deliveredAt",
+      "deliveryStatus", "quotationId", "inquiryId", "createdBy", "deliveredAt", "followUpCompletedAt",
     ]);
     // Keep the UNIQUE(order_number) constraint safe even when the patch swaps
     // in a number that another order already holds.

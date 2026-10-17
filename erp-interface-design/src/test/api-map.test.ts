@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toUiOrder, orderStatusEnum, orderStatusLabel } from "@/lib/api";
+import { toUiOrder, orderStatusEnum, orderStatusLabel, paymentStatusEnum, paymentStatusLabel } from "@/lib/api";
 import type { ServerCustomer, ServerOrder, ServerProduct } from "@/lib/api";
 
 const customer = { id: "cust-sarah", name: "Sarah Mwangi" } as unknown as ServerCustomer;
@@ -53,5 +53,20 @@ describe("orderStatusEnum", () => {
 
   it("round-trips labels", () => {
     expect(orderStatusLabel(orderStatusEnum("In production"))).toBe("In production");
+  });
+});
+
+describe("paymentStatusEnum", () => {
+  it("maps the modal's payment labels to server enums (incl. Processing)", () => {
+    expect(paymentStatusEnum("Unpaid")).toBe("UNPAID");
+    expect(paymentStatusEnum("Partially paid")).toBe("PARTIALLY_PAID");
+    expect(paymentStatusEnum("Partial")).toBe("PARTIALLY_PAID");
+    expect(paymentStatusEnum("Processing")).toBe("PROCESSING");
+    expect(paymentStatusEnum("Paid")).toBe("PAID");
+    expect(paymentStatusEnum("Nonsense")).toBe("UNPAID");
+  });
+
+  it("renders the Processing enum back as its UI label", () => {
+    expect(paymentStatusLabel("PROCESSING")).toBe("Processing");
   });
 });

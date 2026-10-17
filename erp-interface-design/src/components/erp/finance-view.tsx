@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, Pencil, Plus, Trash2 } from "lucide-react";
+import { Check, Clock3, Pencil, Plus, Trash2 } from "lucide-react";
 import { useWorkspace } from "./store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { money } from "./data";
+import { StatusBadge as Status } from "../data-table/StatusBadge";
+import { orderStageTone } from "@/lib/theme-tokens";
 import {
   listPayments,
   recordPayment,
@@ -19,7 +21,11 @@ import {
 import type { ServerExpense, ServerExpenseCategory, ServerPayment, FinanceReport } from "@/lib/api";
 
 export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
-  const { user } = useWorkspace();
+  const { user, orders } = useWorkspace();
+  // Order payments recorded as "Processing" on the order modal are surfaced here;
+  // every unsettled order is also listed with its payment status below.
+  const processingOrders = orders.filter((o) => o.payment === "Processing");
+  const outstandingOrders = orders.filter((o) => o.payment !== "Paid");
   const [tab, setTab] = useState("Payments");
   const [payments, setPayments] = useState<ServerPayment[]>([]);
   const [expenses, setExpenses] = useState<ServerExpense[]>([]);
@@ -200,6 +206,15 @@ export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
       {tab === "Payments" && (
         <section className="panel">
           <div className="panel-heading"><h2>Payments</h2><p>Record and review payments against orders.</p></div>
+          {processingOrders.length > 0 && (
+            <div className="payments-processing tone-violet" role="status">
+              <Clock3 size={16} />
+              <div>
+                <strong>{processingOrders.length} order payment{processingOrders.length === 1 ? "" : "s"} processing</strong>
+                <span>{processingOrders.map((o) => o.id).join(", ")} — funds are being confirmed; they clear to Paid once received.</span>
+              </div>
+            </div>
+          )}
           <div className="form-grid">
             <div className="form-field"><Label htmlFor="pay-order">Order</Label><Input id="pay-order" value={orderId} onChange={(e) => setOrderId(e.target.value)} placeholder="TC-1044" /></div>
             <div className="form-field"><Label htmlFor="pay-amount">Amount (USh)</Label><Input id="pay-amount" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="50000" /></div>
@@ -215,7 +230,7 @@ export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
             </div>
           )}
           <div className="table-wrap">
-            <table className="table data">
+            <table className="orders-table">
               <thead><tr><th>Order</th><th>Amount</th><th>Method</th><th>Reference</th><th>Date</th><th>Received by</th></tr></thead>
               <tbody>
                 {payments.map((p) => (
@@ -229,6 +244,25 @@ export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
                   </tr>
                 ))}
                 {payments.length === 0 && <tr><td colSpan={6} className="empty">No payments yet</td></tr>}
+              </tbody>
+            </table>
+          </div>
+
+          <h3 className="text-sm font-semibold" style={{ marginTop: 20 }}>Order payment status</h3>
+          <div className="table-wrap">
+            <table className="orders-table">
+              <thead><tr><th>Order</th><th>Customer</th><th>Product</th><th>Total</th><th>Payment status</th></tr></thead>
+              <tbody>
+                {outstandingOrders.map((o) => (
+                  <tr key={o.id} className={`order-row-tint tone-${orderStageTone(o.payment)}`}>
+                    <td><strong className="product-name">#{o.id}</strong></td>
+                    <td>{o.customer}</td>
+                    <td>{o.product}</td>
+                    <td className="num-col"><span className="amount-cell">{money(o.amount)}</span></td>
+                    <td><Status value={o.payment} /></td>
+                  </tr>
+                ))}
+                {outstandingOrders.length === 0 && <tr><td colSpan={5} className="empty">All order payments are settled</td></tr>}
               </tbody>
             </table>
           </div>
@@ -253,7 +287,7 @@ export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
               : <Button variant="secondary" onClick={openCreate}><Plus size={16}/>New expense</Button>}
           </div>
           <div className="table-wrap">
-            <table className="table data">
+            <table className="orders-table">
               <thead><tr>{headings.map((h) => <th key={h}>{h}</th>)}</tr></thead>
               <tbody>
                 {expenses.map((e) => (
@@ -289,7 +323,7 @@ export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
           ) : null}
           {reports && (
             <div className="table-wrap">
-              <table className="table data">
+              <table className="orders-table">
                 <thead><tr><th>Line</th><th>Value (USh)</th></tr></thead>
                 <tbody>
                   <tr><td>Revenue (subtotal + tax + delivery)</td><td className="num">{money(reports.revenue)}</td></tr>

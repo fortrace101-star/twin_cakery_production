@@ -412,6 +412,8 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .orders-table thead {background:var(--background);border-top:1px solid var(--border);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:2;}
 .orders-table th {padding:11px 13px;font-size:11px;font-weight:500;color:var(--muted-foreground);}
 .orders-table th.num-col {text-align:right;}
+.orders-table td.num-col {text-align:right;}
+.orders-table td.num {text-align:right;font-variant-numeric:tabular-nums;}
 .orders-table th:first-child,.orders-table td:first-child {padding-left:20px;}
 .orders-table td {padding:14px 12px;font-size:12px;font-variant-numeric:tabular-nums;border-bottom:1px solid var(--border);}
 .orders-table tbody tr {cursor:pointer;}
@@ -478,6 +480,14 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .stage-nav-btn.tone-rose {--stage-tone:var(--rose-ink);--stage-tone-soft:var(--rose-soft);}
 .stage-nav-btn.tone-red {--stage-tone:var(--red-ink);--stage-tone-soft:var(--red-soft);}
 .stage-nav-btn.tone-gray {--stage-tone:var(--muted-foreground);--stage-tone-soft:var(--muted);}
+/* Finance → Payments: the "order payments are being processed" callout above the
+   rows, filled with the Processing status colour (gradients belong to order rows). */
+.payments-processing {display:flex;align-items:flex-start;gap:10px;padding:11px 14px;border-radius:8px;border:1px solid var(--border);background:var(--muted);margin:0 0 14px;color:var(--muted-foreground);}
+.payments-processing strong {display:block;font-size:12px;color:var(--foreground);margin-bottom:2px;}
+.payments-processing span {font-size:11px;line-height:1.45;}
+.payments-processing svg {flex-shrink:0;margin-top:1px;}
+.payments-processing.tone-violet {border-color:color-mix(in oklch,var(--violet-ink) 30%,var(--border));background:var(--violet-soft);color:var(--violet-ink);}
+.payments-processing.tone-violet strong {color:var(--violet-ink);}
 
 /* Phase E5 — CRM Occasions tab: cross-customer grouped occasion lists. */
 .occasions-panel {display:flex;flex-direction:column;gap:14px;}
@@ -593,6 +603,18 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .order-detail-product strong {font-size:12px;}
 .order-status-grid {display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:5px 0;}
 .order-status-grid small {display:block;letter-spacing:1px;color:var(--muted-foreground);font-size:11px;margin-bottom:9px;}
+/* Order-modal status tiles: every tile's plate is a flat fill of the status tone
+   it reports — gradients belong to the order rows, not the modal. */
+.order-status-grid>div {padding:9px 10px;border-radius:8px;border:1px solid color-mix(in oklch,var(--tile-tone,var(--border)) 25%,var(--border));background:var(--tile-tone-soft,var(--muted));}
+.order-status-grid>div.tone-green {--tile-tone:var(--green-ink);--tile-tone-soft:var(--green-soft);}
+.order-status-grid>div.tone-blue {--tile-tone:var(--blue-ink);--tile-tone-soft:var(--blue-soft);}
+.order-status-grid>div.tone-violet {--tile-tone:var(--violet-ink);--tile-tone-soft:var(--violet-soft);}
+.order-status-grid>div.tone-red {--tile-tone:var(--red-ink);--tile-tone-soft:var(--red-soft);}
+.order-status-grid>div.tone-amber {--tile-tone:var(--amber-ink);--tile-tone-soft:var(--peach-soft);}
+.order-status-grid>div.tone-teal {--tile-tone:var(--teal-ink);--tile-tone-soft:var(--teal-soft);}
+.order-status-grid>div.tone-orange {--tile-tone:var(--orange-ink);--tile-tone-soft:var(--orange-soft);}
+.order-status-grid>div.tone-rose {--tile-tone:var(--rose-ink);--tile-tone-soft:var(--rose-soft);}
+.order-status-grid>div.tone-gray {--tile-tone:var(--muted-foreground);--tile-tone-soft:var(--muted);}
 .detail-meta {display:flex;flex-wrap:wrap;gap:10px;border-bottom:1px solid var(--border);padding-bottom:15px;color:var(--muted-foreground);font-size:11px;}
 .detail-meta>span {display:flex;align-items:center;gap:7px;}
 .toast {position:fixed;bottom:25px;right:25px;z-index:80;background:var(--primary);color:var(--primary-foreground);box-shadow:var(--shadow-toast);border-radius:6px;padding:10px 12px 10px 17px;display:flex;gap:10px;align-items:center;font-size:12px;max-width:calc(100% - 30px);}
