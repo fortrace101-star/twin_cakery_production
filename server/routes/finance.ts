@@ -47,34 +47,40 @@ router.get("/reports", required("finance.view_reports"), (req, res) => {
   const orders = store.orders();
   const payments = store.payments();
   const expenses = store.db.expenses as import("../database/types.js").Expense[];
+  const productionCosts = store.productionCosts();
   const now = new Date();
+  const inPeriod = (iso: string): boolean => {
+    const d = new Date(iso);
+    if (period === "day") return d.toDateString() === now.toDateString();
+    if (period === "week") return d.getTime() >= now.getTime() - 7 * 86400000;
+    if (period === "year") return d.getFullYear() === now.getFullYear();
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  };
   let revenue = 0;
   let paymentsReceived = 0;
-  let directCosts = 0;
   let expenseAmount = 0;
+  let directCosts = 0;
   for (const o of orders) {
-    const orderDate = new Date(o.createdAt);
-    if (period === "day" && orderDate.getDate() !== now.getDate()) continue;
-    if (period === "week" && orderDate.getTime() < now.getTime() - 7 * 86400000) continue;
-    if (period === "year" && orderDate.getFullYear() !== now.getFullYear()) continue;
-    const subtotal = o.subtotal || 0;
-    const tax = o.taxAmount || 0;
-    const deliveryCharge = o.deliveryCharge || 0;
-    revenue += subtotal + tax + deliveryCharge;
-    const paid = payments.filter((p) => p.orderId === o.id).reduce((s, p) => s + p.amount, 0);
-    paymentsReceived += paid;
+    if (o.status === "CANCELLED") continue;
+    if (!inPeriod(o.createdAt)) continue;
+    revenue += (o.subtotal || 0) + (o.taxAmount || 0) + (o.deliveryCharge || 0) - (o.discount || 0);
   }
-  for (const e of expenses) {
-    const expenseDate = new Date(e.date);
-    if (period === "day" && expenseDate.getDate() !== now.getDate()) continue;
-    if (period === "week" && expenseDate.getTime() < now.getTime() - 7 * 86400000) continue;
-    if (period === "year" && expenseDate.getFullYear() !== now.getFullYear()) continue;
-    expenseAmount += e.amount;
+  for (const p of payments) if (inPeriod(p.date)) paymentsReceived += p.amount || 0;
+  for (const e of expenses) if (inPeriod(e.date)) expenseAmount += e.amount || 0;
+  // Direct order costs (spec §13): production/ingredient cost recorded against
+  // jobs. Operating expenses are the expenses ledger. Gross = revenue − direct;
+  // Net = gross − operating. Previously expenses were counted twice.
+  for (const c of productionCosts) if (inPeriod(c.createdAt)) directCosts += c.total || 0;
+  // Outstanding balance (spec §14) is a snapshot across ALL open orders, not
+  // filtered by period: order total minus everything paid against it.
+  let outstandingPayments = 0;
+  for (const o of orders) {
+    if (o.status === "CANCELLED" || o.paymentStatus === "PAID" || o.paymentStatus === "REFUNDED") continue;
+    const paid = payments.filter((p) => p.orderId === o.id).reduce((s, p) => s + (p.amount || 0), 0);
+    outstandingPayments += Math.max(0, (o.total || 0) - paid);
   }
-  directCosts = expenseAmount;
   const grossProfit = revenue - directCosts;
   const netOperatingResult = grossProfit - expenseAmount;
-  const outstandingPayments = payments.filter((p) => p.orderId && store.orders().find((o) => o.id === p.orderId)?.paymentStatus !== "PAID").reduce((s, p) => s + p.amount, 0);
   res.json({ period, revenue, paymentsReceived, outstandingPayments, directCosts, expenses: expenseAmount, grossProfit, netOperatingResult, cashMovement: paymentsReceived - expenseAmount });
 });
 

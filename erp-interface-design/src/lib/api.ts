@@ -242,6 +242,9 @@ const DELIVERY_STATUS_LABELS: Record<string, string> = {
   READY_FOR_DISPATCH: "Ready for dispatch",
   IN_TRANSIT: "In Transit",
   DELIVERED: "Completed / Delivered",
+  // Current DeliveryStatus enum on the server (server/database/types.ts) —
+  // same meaning as the legacy DELIVERED value the deliveries route writes.
+  COMPLETED_DELIVERED: "Completed / Delivered",
   AWAITING_COLLECTION: "Awaiting Collection",
   PICKED_UP: "Picked up",
   FAILED: "Failed",
@@ -314,6 +317,9 @@ export interface UiOrder {
   channel: string;
   /** Post-delivery CRM follow-up: null/undefined = still pending on completed orders. */
   followUpCompletedAt?: string | null;
+  /** Amount paid so far, summed from the server payment ledger — drives the
+      resolved payment status and the outstanding balance. */
+  paidAmount?: number;
 }
 
 function initialsOf(name: string): string {
@@ -341,12 +347,23 @@ export function toUiOrder(
   order: ServerOrder,
   customersById: Record<string, ServerCustomer>,
   productsById: Record<string, ServerProduct>,
+  /** Sum of the server payment ledger for this order (bracketed "amount paid"). */
+  paidAmount?: number,
 ): UiOrder {
   const customer = customersById[order.customerId]?.name ?? order.customerId;
   const item = order.items?.[0];
   const product = (item && productsById[item.productId]?.name) || "Custom order";
   const { date, time } = splitDateTime(order.requiredAt);
   const channel = (order.notes?.split(" · ").pop() || "Direct").trim();
+  const statusLabel = orderStatusLabel(order.status);
+  // Completed orders always read as delivered, even when the delivery record
+  // still lags behind (the stage was moved from Sales, not the Deliveries
+  // module). In-flight and Cancelled orders fall through to the delivery row.
+  const delivery =
+    statusLabel === "Completed / Delivered"
+      ? "Completed / Delivered"
+      : deliveryStatusLabel(order.deliveryStatus);
+  const cappedPaid = paidAmount != null && paidAmount > 0 ? Math.min(order.total, paidAmount) : 0;
   return {
     id: order.orderNumber || order.id,
     customer,
@@ -356,11 +373,12 @@ export function toUiOrder(
     date,
     time,
     amount: order.total,
-    status: orderStatusLabel(order.status),
+    status: statusLabel,
     payment: paymentStatusLabel(order.paymentStatus),
-    delivery: deliveryStatusLabel(order.deliveryStatus),
+    delivery,
     channel,
     followUpCompletedAt: order.followUpCompletedAt ?? null,
+    ...(cappedPaid > 0 ? { paidAmount: cappedPaid } : {}),
   };
 }
 

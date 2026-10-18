@@ -12,9 +12,11 @@ import {
   listCustomers,
   listProducts,
   listAudit,
+  listPayments,
   toUiOrder,
   createOrderApi,
   updateOrderApi,
+  recordPayment,
   findCustomerByName,
   createCustomerApi,
   findProductByName,
@@ -50,8 +52,8 @@ type WorkspaceContextValue = {
   signIn: (username: string, password: string) => Promise<boolean>;
   signOut: () => void;
   addOrder: (order: Order, phone?: string) => void;
-  /** Records the order stage and (optionally) its payment status in one write. */
-  updateOrder: (id: string, status: string, payment?: string) => void;
+  /** Records the order stage and (optionally) its payment status & paid amount in one write. */
+  updateOrder: (id: string, status: string, payment?: string, paidDelta?: number) => void;
   /** Documents the post-delivery CRM follow-up for a completed order. */
   completeFollowUp: (id: string) => void;
   refresh: () => void;
@@ -102,19 +104,30 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [customers, products, serverOrders, logs] = await Promise.all([
+    const [customers, products, serverOrders, logs, payments] = await Promise.all([
       listCustomers(),
       listProducts(),
       listOrders(),
       listAudit(100),
+      listPayments(),
     ]);
     if (!aliveRef.current) return;
     serverOrdersRef.current = serverOrders;
     const customersById = byId(customers as ServerCustomer[]);
     const productsById = byId(products as ServerProduct[]);
+    // Sum the real payment ledger per server order id so the bracketed
+    // "amount paid" reflects every payment ever recorded (any device, any
+    // session) — not just the ones made in this session. GET /payments
+    // degrades to [] (permission/network), which simply omits the brackets.
+    const paidByOrderId: Record<string, number> = {};
+    for (const p of payments) {
+      if (p.orderId) paidByOrderId[p.orderId] = (paidByOrderId[p.orderId] ?? 0) + (p.amount || 0);
+    }
     if (serverOrders.length) {
       setOrders(
-        (serverOrders as ServerOrder[]).map((o) => toUiOrder(o, customersById, productsById)),
+        (serverOrders as ServerOrder[]).map((o) =>
+          toUiOrder(o, customersById, productsById, paidByOrderId[o.id]),
+        ),
       );
     } else {
       setOrders(initialOrders);
@@ -198,24 +211,36 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const updateOrder = useCallback((id: string, status: string, payment?: string) => {
+  const updateOrder = useCallback((id: string, status: string, payment?: string, paidDelta?: number) => {
     // Optimistic label update so the dialog/table reflects the change instantly.
+    // A recorded payment also accumulates into paidAmount (capped at the total)
+    // so the bracketed "amount paid" on the table and modal stays truthful.
+    // Reaching "Completed / Delivered" flips the delivery column too — the
+    // order has been handed over, so it must read as delivered everywhere.
+    const delivered = status === "Completed / Delivered";
     setOrders((prev) =>
-      prev.map((o) => (o.id === id ? { ...o, status, ...(payment ? { payment } : {}) } : o)),
+      prev.map((o) => (o.id === id ? { ...o, status, ...(payment ? { payment } : {}), ...(delivered ? { delivery: "Completed / Delivered" } : {}), ...(paidDelta && paidDelta > 0 ? { paidAmount: Math.min(o.amount, (o.paidAmount ?? 0) + paidDelta) } : {}) } : o)),
     );
     void (async () => {
       try {
         const server = serverOrdersRef.current.find((o) => (o.orderNumber || o.id) === id);
         if (!server) return;
+        if (paidDelta && paidDelta > 0) {
+          // Land the payment in the server ledger (POST /payments) so it
+          // survives refreshes; the server derives PARTIALLY_PAID/PAID from
+          // the ledger (spec §14), which refresh() then re-reads.
+          await recordPayment({ orderId: server.id, amount: paidDelta, method: "Cash", receivedBy: user?.id ?? "" });
+        }
         await updateOrderApi(server.id, {
           status: orderStatusEnum(status),
           ...(payment ? { paymentStatus: paymentStatusEnum(payment) } : {}),
+          ...(delivered ? { deliveryStatus: "COMPLETED_DELIVERED" } : {}),
         });
       } catch {
         /* Non-fatal: the optimistic change stays for this session. */
       }
     })();
-  }, []);
+  }, [user]);
 
   const completeFollowUp = useCallback((id: string) => {
     // Documenting the follow-up stamps the order; the CRM sidebar badge and the

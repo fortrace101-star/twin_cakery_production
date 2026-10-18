@@ -37,6 +37,31 @@ describe("toUiOrder", () => {
     expect(ui.customer).toBe("cust-sarah");
     expect(ui.product).toBe("Custom order");
   });
+
+  it("reads a completed order as delivered even when the delivery row lags", () => {
+    const completed = { ...order, status: "COMPLETED_DELIVERED", deliveryStatus: "PENDING" } as unknown as ServerOrder;
+    const ui = toUiOrder(completed, { "cust-sarah": customer }, { "prod-choc": product });
+    expect(ui.status).toBe("Completed / Delivered");
+    expect(ui.delivery).toBe("Completed / Delivered");
+  });
+
+  it("maps the COMPLETED_DELIVERED delivery enum to the delivered label", () => {
+    const delivered = { ...order, deliveryStatus: "COMPLETED_DELIVERED" } as unknown as ServerOrder;
+    const ui = toUiOrder(delivered, { "cust-sarah": customer }, { "prod-choc": product });
+    expect(ui.delivery).toBe("Completed / Delivered");
+  });
+
+  it("surfaces the payment-ledger sum as paidAmount, capped at the order total", () => {
+    const ui = toUiOrder(order, { "cust-sarah": customer }, { "prod-choc": product }, 1500);
+    expect(ui.paidAmount).toBe(1500);
+    const overpaid = toUiOrder(order, { "cust-sarah": customer }, { "prod-choc": product }, 99999);
+    expect(overpaid.paidAmount).toBe(4500);
+  });
+
+  it("omits paidAmount when the ledger has nothing recorded", () => {
+    const ui = toUiOrder(order, { "cust-sarah": customer }, { "prod-choc": product });
+    expect(ui.paidAmount).toBeUndefined();
+  });
 });
 
 describe("orderStatusEnum", () => {

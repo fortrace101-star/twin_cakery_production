@@ -25,6 +25,7 @@ import type {
   OrderItem,
   OrderStatusHistory,
   Payment,
+  PaymentStatus,
   Permission,
   ProductionConsumption,
   ProductionCost,
@@ -582,10 +583,34 @@ export class MemoryStore {
       updatedAt: now,
     };
     this.db.payments.push(payment);
-    if (order.paymentStatus === "UNPAID") order.paymentStatus = "PARTIALLY_PAID";
-    order.updatedAt = now;
+    this.recomputePaymentStatus(orderId);
     this.db.persist();
     return payment;
+  }
+
+  /**
+   * Recompute an order's payment status from the actual payment ledger
+   * (spec §14: "Outstanding balance must be calculated server-side").
+   * UNPAID → PARTIALLY_PAID → PAID → OVERPAID derives from sum(payments)
+   * vs order.total; REFUNDED is manual and never overwritten.
+   */
+  recomputePaymentStatus(orderId: string): PaymentStatus | undefined {
+    const order = this.db.orders.find((o) => o.id === orderId);
+    if (!order) return undefined;
+    if (order.paymentStatus === "REFUNDED") return order.paymentStatus;
+    const paid = this.db.payments
+      .filter((p) => p.orderId === orderId)
+      .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    const total = Number(order.total) || 0;
+    let next: PaymentStatus;
+    if (paid <= 0) next = "UNPAID";
+    else if (total <= 0) next = "PAID"; // no priced total — any money received settles it
+    else if (paid < total) next = "PARTIALLY_PAID";
+    else if (paid > total) next = "OVERPAID";
+    else next = "PAID";
+    order.paymentStatus = next;
+    order.updatedAt = new Date().toISOString();
+    return next;
   }
 
   // ---- production ----

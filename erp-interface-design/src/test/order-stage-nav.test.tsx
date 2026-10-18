@@ -43,8 +43,8 @@ describe("OrderDialog stage strip (Phase E5)", () => {
     renderDialog(inProd);
     const list = screen.getByRole("list", { name: "Order pipeline stages" });
     expect(list.className).toContain("order-stage-strip");
-    // Stage navigation is never a dropdown — the only combobox is payment recording.
-    expect(screen.getAllByRole("combobox").filter((c) => c.textContent?.includes("In production"))).toHaveLength(0);
+    // Stage navigation is never a dropdown — the modal has no comboboxes at all.
+    expect(screen.queryAllByRole("combobox")).toHaveLength(0);
     expect(screen.getAllByRole("listitem")).toHaveLength(ORDER_STAGE_PIPELINE.length);
     expect(currentStepLabel()).toContain("In production");
   });
@@ -72,14 +72,17 @@ describe("OrderDialog stage strip (Phase E5)", () => {
     expect(currentStepLabel()).toContain("In production");
   });
 
-  it("records the payment status on the modal, with no reason-for-change field", () => {
+  it("resolves the payment status from the amount paid — read-only, no picker", () => {
     renderDialog(inProd);
     expect(screen.queryByLabelText(/reason for change/i)).not.toBeInTheDocument();
-    const select = screen.getByRole("combobox", { name: "Payment status" }) as HTMLSelectElement;
-    expect(select.value).toBe("Partially paid"); // TC-1048 · Partially paid
+    // The picker is gone: nothing on the modal can set payment by hand.
+    expect(screen.queryByRole("combobox", { name: "Payment status" })).not.toBeInTheDocument();
+    const display = screen.getByRole("textbox", { name: "Payment status" }) as HTMLInputElement;
+    expect(display.value).toBe("Partially paid"); // TC-1048 · UGX 1,500 of 4,500 paid
+    expect(display.readOnly).toBe(true);
     expect(screen.getByRole("button", { name: "Update status" })).toBeDisabled();
-    // Recording a payment status alone (no stage move) unlocks the update.
-    fireEvent.change(select, { target: { value: "Processing" } });
+    // Only a stage move unlocks the update — payment status is never editable.
+    fireEvent.click(screen.getByRole("button", { name: /^Next/ }));
     expect(screen.getByRole("button", { name: "Update status" })).toBeEnabled();
   });
 

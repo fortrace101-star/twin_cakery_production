@@ -1,0 +1,317 @@
+@import "tailwindcss" source(none);
+@import "tw-animate-css";
+@source "../src";
+@theme inline {
+  --font-sans: "DM Sans", sans-serif;
+  --font-display: "Lilita One", sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+:root {
+  --background: oklch(0.977 0.024 91);
+  --foreground: oklch(0.19 0.025 43);
+  --primary: oklch(0.79 0.17 74);
+  --primary-foreground: oklch(0.19 0.025 43);
+  --muted: oklch(0.93 0.025 84);
+  --muted-foreground: oklch(0.48 0.035 50);
+  --border: oklch(0.84 0.04 78);
+  --accent: oklch(0.94 0.043 83);
+  --danger: oklch(0.53 0.19 25);
+}
+
+* {
+  border-color: var(--border);
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--background);
+  color: var(--foreground);
+}
+a {
+  text-decoration: none;
+  color: inherit;
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.dashboard-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--background);
+  border-bottom: 1px solid var(--border);
+}
+.dashboard-header-inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-size: 26.45px;
+}
+.brand-mark {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: 800;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.dashboard-nav {
+  display: flex;
+  gap: 16px;
+  font-weight: 700;
+  font-size: 17.31px;
+}
+.dashboard-nav a {
+  transition: color 0.2s;
+}
+.dashboard-nav a[aria-current="page"] {
+  color: var(--primary);
+}
+
+main {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 48px 24px 80px;
+}
+
+.round-cta {
+  border-radius: 99px;
+  height: 45px;
+  padding: 0 22px;
+  font-size: 17.19px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.round-cta:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.blog-list-page {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.blog-list-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.blog-list-head h1 {
+  font-size: 44.97px;
+  line-height: 1.1;
+  margin: 0 0 6px;
+}
+.blog-list-head p {
+  color: var(--muted-foreground);
+  font-size: 18.52px;
+  margin: 0;
+}
+
+.blog-post-card {
+  display: block;
+  background: var(--accent);
+  border-radius: 8px;
+  padding: 20px;
+}
+.blog-post-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.blog-post-card h3 {
+  font-size: 26.45px;
+  margin: 0 0 8px;
+  line-height: 1.2;
+}
+.blog-post-card-slug {
+  font-size: 15.87px;
+  color: var(--muted-foreground);
+  word-break: break-all;
+}
+.blog-post-card-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.blog-new-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.blog-new-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.blog-new-head h1 {
+  font-size: 44.97px;
+  line-height: 1.1;
+  margin: 0 0 6px;
+}
+.blog-new-head p {
+  color: var(--muted-foreground);
+  font-size: 18.52px;
+  margin: 0;
+}
+
+.blog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 720px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 15.87px;
+  font-weight: 600;
+}
+.field input,
+.field textarea,
+.field select {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 12px;
+  color: var(--foreground);
+  width: 100%;
+}
+.field textarea {
+  resize: vertical;
+  min-height: 90px;
+}
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+}
+.form-message {
+  color: var(--danger);
+  font-size: 17.19px;
+}
+.form-message.success {
+  color: #2e7d32;
+}
+
+/* ── Login page ──────────────────────────────────────────────────────────── */
+.login-page {
+  max-width: 480px;
+}
+.login-page h1 {
+  font-size: 44.97px;
+  line-height: 1.1;
+  margin: 0 0 6px;
+}
+.login-hint {
+  color: var(--muted-foreground);
+  font-size: 15.87px;
+  margin: 0 0 24px;
+}
+.login-hint code {
+  background: var(--accent);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 0.9em;
+}
+
+/* ── List actions / ghost buttons ────────────────────────────────────────── */
+.blog-list-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.ghost-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 15.87px;
+  font-weight: 600;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.ghost-cta:hover {
+  background: var(--accent);
+}
+.ghost-cta:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ghost-cta-danger:hover {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+
+/* ── Post status badges ──────────────────────────────────────────────────── */
+.post-status {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  border-radius: 99px;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
+.post-status-published {
+  background: #2e7d32;
+  color: #fff;
+}
+.post-status-draft {
+  background: var(--border);
+  color: var(--foreground);
+}
+.post-status-archived {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* ── Field hints ─────────────────────────────────────────────────────────── */
+.field-hint {
+  font-weight: 400;
+  font-size: 0.85em;
+  color: var(--muted-foreground);
+}

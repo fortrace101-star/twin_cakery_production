@@ -11,9 +11,9 @@ export const modules = [
   { id: 'analytics', label: 'Analytics', icon: 'ChartNoAxesCombined', group: 'BUSINESS', tabs: ['Overview', 'Order history', 'Sales trends', 'Customers', 'Product performance'] },
   { id: 'administration', label: 'Settings', icon: 'Settings', group: 'BUSINESS', tabs: ['Business settings', 'Users', 'Roles', 'Permissions', 'Audit log'] },
 ] as const;
-export type Order = { id: string; customer: string; initials: string; product: string; options: string; date: string; time: string; amount: number; status: string; payment: string; delivery: string; channel: string; followUpCompletedAt?: string | null; };
+export type Order = { id: string; customer: string; initials: string; product: string; options: string; date: string; time: string; amount: number; status: string; payment: string; paymentNote?: string; delivery: string; channel: string; followUpCompletedAt?: string | null; /** Amount paid at order creation / last payment record. */ paidAmount?: number; /** Delivery location fields (Stage 5). */ deliveryLocation?: string; locationNote?: string; };
 export const initialOrders: Order[] = [
-  { id: 'TC-1048', customer: 'Sarah Mwangi', initials: 'SM', product: 'Chocolate celebration cake', options: '2 kg · Chocolate · Birthday', date: '2026-10-07', time: '10:00 AM', amount: 4500, status: 'In production', payment: 'Partially paid', delivery: 'Pending', channel: 'WhatsApp' },
+  { id: 'TC-1048', customer: 'Sarah Mwangi', initials: 'SM', product: 'Chocolate celebration cake', options: '2 kg · Chocolate · Birthday', date: '2026-10-07', time: '10:00 AM', amount: 4500, paidAmount: 1500, status: 'In production', payment: 'Partially paid', delivery: 'Pending', channel: 'WhatsApp' },
   { id: 'TC-1047', customer: 'David Ochieng', initials: 'DO', product: 'Red velvet cake', options: '1.5 kg · Red velvet · Anniversary', date: '2026-10-07', time: '11:30 AM', amount: 3800, status: 'Ready', payment: 'Paid', delivery: 'Awaiting dispatch', channel: 'Website' },
   { id: 'TC-1046', customer: 'Grace Wanjiku', initials: 'GW', product: 'Vanilla cupcakes', options: '24 pieces · Vanilla · Corporate', date: '2026-10-07', time: '01:00 PM', amount: 2400, status: 'Confirmed', payment: 'Paid', delivery: 'Pending', channel: 'Phone' },
   { id: 'TC-1045', customer: 'James Kamau', initials: 'JK', product: 'Wedding cake', options: '3 tiers · Vanilla & lemon', date: '2026-10-08', time: '09:00 AM', amount: 18000, status: 'In production', payment: 'Partially paid', delivery: 'Pending', channel: 'Walk-in' },
@@ -113,8 +113,8 @@ export const money = (amount: number) => 'UGX ' + amount.toLocaleString('en-UG',
 // so the active-order surfaces (dashboard, sales Orders tab, delivery) never drift.
 // Their dedicated home in the UI is Sales > "Order history" (terminal orders only).
 export const TERMINAL_ORDER_STATUSES = ["Completed / Delivered", "Cancelled"] as const;
-// Stage palette — the 7 display stages each get their OWN hue so the
-// breakdown reads as seven distinct steps rather than three pastels repeated.
+// Stage palette — the 6 in-flight stages each get their OWN hue so the
+// breakdown reads as six distinct steps rather than three pastels repeated.
 // Kept in sync with ORDER_STAGE_TONES in theme-tokens.ts (badges + order-row
 // tints read from there); these two tables add the legend class and donut fill.
 const ORDER_STAGE_HUES: Record<OrderBreakdownStatus, string> = {
@@ -124,7 +124,6 @@ const ORDER_STAGE_HUES: Record<OrderBreakdownStatus, string> = {
   Ready: "teal",
   "Awaiting Collection": "amber",
   "In Transit": "orange",
-  "Completed / Delivered": "rose",
 };
 
 // Legend swatch class per status (see .legend-* in styles.css).
@@ -138,7 +137,6 @@ const ORDER_BREAKDOWN_ARC: Record<OrderBreakdownStatus, string> = {
   Ready: "var(--teal-solid)",
   "Awaiting Collection": "var(--peach-solid)",
   "In Transit": "var(--orange-solid)",
-  "Completed / Delivered": "var(--rose-solid)",
 };
 
 export function isActiveOrder(order: Pick<Order, "status">): boolean {
@@ -153,8 +151,9 @@ export function isActiveOrder(order: Pick<Order, "status">): boolean {
 // 5). Both now derive from this single helper so they can never disagree, and
 // so they follow the same active-order rule as the order tables (terminal
 // statuses are excluded, but stay available via the explicit status filter).
-// The Order breakdown card shows EVERY stage of the pipeline (including the
-// terminal Completed stage) so the full lifecycle is visible at a glance.
+// The Order breakdown card shows the in-flight pipeline only. Completed /
+// Delivered and Cancelled orders live in Order history, so they are excluded
+// here — the donut tracks live work, not finished work.
 export const ORDER_BREAKDOWN_STATUSES = [
   "Pending confirmation",
   "Confirmed",
@@ -162,20 +161,26 @@ export const ORDER_BREAKDOWN_STATUSES = [
   "Ready",
   "Awaiting Collection",
   "In Transit",
-  "Completed / Delivered",
 ] as const;
 export type OrderBreakdownStatus = (typeof ORDER_BREAKDOWN_STATUSES)[number];
 
-export type OrderBreakdownSegment = { status: OrderBreakdownStatus; count: number };
+export type OrderBreakdownSegment = { status: OrderBreakdownStatus; count: number; outstandingAmount: number };
 export type OrderBreakdown = { total: number; segments: OrderBreakdownSegment[] };
 
+/** Outstanding = amount − paidAmount (never below zero); 0 for fully-paid orders. */
+export function orderOutstandingAmount(order: Pick<Order, "amount" | "payment" | "paidAmount">): number {
+  if (order.payment === "Paid") return 0;
+  return Math.max(order.amount - (order.paidAmount ?? 0), 0);
+}
 export function orderBreakdown(orders: Order[]): OrderBreakdown {
-  // Count every order across the full pipeline (not just active ones) so the
-  // breakdown reflects all order stages, including the terminal Completed stage.
-  const segments = ORDER_BREAKDOWN_STATUSES.map((status) => ({
-    status,
-    count: orders.filter((o) => o.status === status).length,
-  }));
+  const segments = ORDER_BREAKDOWN_STATUSES.map((status) => {
+    const list = orders.filter((o) => o.status === status);
+    return {
+      status,
+      count: list.length,
+      outstandingAmount: list.reduce((sum, o) => sum + orderOutstandingAmount(o), 0),
+    };
+  });
   const total = segments.reduce((sum, s) => sum + s.count, 0);
   return { total, segments };
 }

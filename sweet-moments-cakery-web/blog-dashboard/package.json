@@ -1,0 +1,25 @@
+{
+  "name": "twin-cakery-blog-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Twin Cakery blog dashboard — separate React + Vite app for writing blog posts",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.18.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "typescript": "^5.8.3",
+    "vite": "^8.1.5"
+  }
+}

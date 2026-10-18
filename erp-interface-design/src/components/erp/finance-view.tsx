@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, Clock3, Pencil, Plus, Trash2 } from "lucide-react";
+import { Check, Clock3, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useWorkspace } from "./store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { money } from "./data";
 import { StatusBadge as Status } from "../data-table/StatusBadge";
 import { orderStageTone } from "@/lib/theme-tokens";
+import { DataTable, type SortState } from "@/components/data-table/DataTable";
 import {
   listPayments,
   recordPayment,
@@ -20,6 +21,21 @@ import {
 } from "@/lib/api";
 import type { ServerExpense, ServerExpenseCategory, ServerPayment, FinanceReport } from "@/lib/api";
 
+/**
+ * Sort helper for the Finance tables (erp_design.md §7): numeric accessors
+ * compare as numbers, everything else as locale strings; null sort = as-is.
+ */
+function applySort<T>(rows: T[], sort: SortState, accessors: Record<string, (row: T) => number | string>): T[] {
+  const get = sort ? accessors[sort.key] : undefined;
+  if (!sort || !get) return rows;
+  return [...rows].sort((a, b) => {
+    const va = get(a);
+    const vb = get(b);
+    const d = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
+    return sort.dir === "asc" ? d : -d;
+  });
+}
+
 export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
   const { user, orders } = useWorkspace();
   // Order payments recorded as "Processing" on the order modal are surfaced here;
@@ -27,12 +43,15 @@ export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
   const processingOrders = orders.filter((o) => o.payment === "Processing");
   const outstandingOrders = orders.filter((o) => o.payment !== "Paid");
   const [tab, setTab] = useState("Payments");
+  // One sort state per table so the Finance tables sort independently.
+  const [paySort, setPaySort] = useState<SortState>(null);
+  const [statusSort, setStatusSort] = useState<SortState>(null);
+  const [expSort, setExpSort] = useState<SortState>(null);
   const [payments, setPayments] = useState<ServerPayment[]>([]);
   const [expenses, setExpenses] = useState<ServerExpense[]>([]);
   const [categories, setCategories] = useState<ServerExpenseCategory[]>([]);
   const [reports, setReports] = useState<FinanceReport | null>(null);
   const [reportsLoading, setReportsLoading] = useState(false);
-  const [headings, setHeadings] = useState<string[]>([]);
 
   // ---- payments -----------------------------------------------------------
   const [orderId, setOrderId] = useState("");
@@ -95,13 +114,10 @@ export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
   const [editing, setEditing] = useState<ServerExpense | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const EXPENSE_HEADINGS = ["Date", "Category", "Method", "Amount", "Recorded by", "Actions"];
-
   const refreshExpenses = useCallback(async () => {
     const [e, c] = await Promise.all([listExpenses(), listExpenseCategories()]);
     setExpenses(e);
     setCategories(c);
-    setHeadings(EXPENSE_HEADINGS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -194,6 +210,36 @@ export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
     { label: "Cash movement", value: money(reports.cashMovement) },
   ] : [];
 
+  // ---- table rows (sorted via the shared DataTable contract) ---------------
+  const sortedPayments = applySort(payments, paySort, {
+    order: (p) => p.orderId,
+    amount: (p) => p.amount,
+    method: (p) => p.method,
+    reference: (p) => p.reference,
+    date: (p) => new Date(p.createdAt).getTime(),
+  });
+  const sortedOutstanding = applySort(outstandingOrders, statusSort, {
+    order: (o) => o.id,
+    customer: (o) => o.customer,
+    amount: (o) => o.amount,
+  });
+  const sortedExpenses = applySort(expenses, expSort, {
+    date: (e) => new Date(e.date).getTime(),
+    category: (e) => categories.find((c) => c.id === e.categoryId)?.name ?? e.categoryId,
+    method: (e) => e.paymentMethod,
+    amount: (e) => e.amount,
+  });
+  const reportLines: { label: string; value: string; bold: boolean }[] = reports
+    ? [
+        { label: "Revenue (subtotal + tax + delivery)", value: money(reports.revenue), bold: false },
+        { label: "Payments received", value: money(reports.paymentsReceived), bold: false },
+        { label: "Outstanding payments", value: money(reports.outstandingPayments), bold: false },
+        { label: "Direct costs (expenses)", value: money(reports.directCosts), bold: false },
+        { label: "Gross profit", value: money(reports.grossProfit), bold: true },
+        { label: "Net operating result", value: money(reports.netOperatingResult), bold: false },
+        { label: "Cash movement", value: money(reports.cashMovement), bold: false },
+      ]
+    : [];
 
   return (
     <div className="workspace">
@@ -229,43 +275,42 @@ export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
               <div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setPasa(null)}>Cancel</Button><Button onClick={() => onConfirmPasa()}><Check size={16}/>Confirm</Button></div>
             </div>
           )}
-          <div className="table-wrap">
-            <table className="orders-table">
-              <thead><tr><th>Order</th><th>Amount</th><th>Method</th><th>Reference</th><th>Date</th><th>Received by</th></tr></thead>
-              <tbody>
-                {payments.map((p) => (
-                  <tr key={p.id}>
-                    <td>{p.orderId}</td>
-                    <td className="num">{money(p.amount)}</td>
-                    <td>{p.method}</td>
-                    <td>{p.reference}</td>
-                    <td><span className="text-xs text-muted-foreground">{new Date(p.createdAt).toLocaleDateString("en-UG")}</span></td>
-                    <td>{p.receivedBy}</td>
-                  </tr>
-                ))}
-                {payments.length === 0 && <tr><td colSpan={6} className="empty">No payments yet</td></tr>}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            columns={[
+              { header: "Order", sortKey: "order", cell: (p) => <strong className="product-name">{p.orderId}</strong> },
+              { header: "Amount", align: "right", sortKey: "amount", cell: (p) => <span className="amount-cell">{money(p.amount)}</span> },
+              { header: "Method", sortKey: "method", cell: (p) => p.method },
+              { header: "Reference", sortKey: "reference", cell: (p) => p.reference },
+              { header: "Date", sortKey: "date", cell: (p) => <span className="text-xs text-muted-foreground">{new Date(p.createdAt).toLocaleDateString("en-UG")}</span> },
+              { header: "Received by", cell: (p) => p.receivedBy },
+            ]}
+            rows={sortedPayments}
+            rowKey={(p) => p.id}
+            sort={paySort}
+            onSortChange={setPaySort}
+            stickyHeader
+            empty={<div className="empty-state"><Search /><h3>No payments yet</h3><p>Record a payment against an order above.</p></div>}
+            footer={<span>{payments.length} payment{payments.length === 1 ? "" : "s"}</span>}
+          />
 
           <h3 className="text-sm font-semibold" style={{ marginTop: 20 }}>Order payment status</h3>
-          <div className="table-wrap">
-            <table className="orders-table">
-              <thead><tr><th>Order</th><th>Customer</th><th>Product</th><th>Total</th><th>Payment status</th></tr></thead>
-              <tbody>
-                {outstandingOrders.map((o) => (
-                  <tr key={o.id} className={`order-row-tint tone-${orderStageTone(o.payment)}`}>
-                    <td><strong className="product-name">#{o.id}</strong></td>
-                    <td>{o.customer}</td>
-                    <td>{o.product}</td>
-                    <td className="num-col"><span className="amount-cell">{money(o.amount)}</span></td>
-                    <td><Status value={o.payment} /></td>
-                  </tr>
-                ))}
-                {outstandingOrders.length === 0 && <tr><td colSpan={5} className="empty">All order payments are settled</td></tr>}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            columns={[
+              { header: "Order", sortKey: "order", cell: (o) => <strong className="product-name">#{o.id}</strong> },
+              { header: "Customer", sortKey: "customer", cell: (o) => o.customer },
+              { header: "Product", cell: (o) => o.product },
+              { header: "Total", align: "right", sortKey: "amount", cell: (o) => <span className="amount-cell">{money(o.amount)}</span> },
+              { header: "Payment status", cell: (o) => <Status value={o.payment} /> },
+            ]}
+            rows={sortedOutstanding}
+            rowKey={(o) => o.id}
+            rowClassName={(o) => `order-row-tint tone-${orderStageTone(o.payment)}`}
+            sort={statusSort}
+            onSortChange={setStatusSort}
+            stickyHeader
+            empty={<div className="empty-state"><Check /><h3>All order payments are settled</h3><p>Every order in the workspace is fully paid.</p></div>}
+            footer={<span>{outstandingOrders.length} order{outstandingOrders.length === 1 ? "" : "s"} awaiting settlement</span>}
+          />
         </section>
       )}
 
@@ -286,24 +331,28 @@ export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
               ? <Button variant="secondary" onClick={onSave} disabled={saving}><Check size={16}/>{saving ? "Saving…" : "Save"}</Button>
               : <Button variant="secondary" onClick={openCreate}><Plus size={16}/>New expense</Button>}
           </div>
-          <div className="table-wrap">
-            <table className="orders-table">
-              <thead><tr>{headings.map((h) => <th key={h}>{h}</th>)}</tr></thead>
-              <tbody>
-                {expenses.map((e) => (
-                  <tr key={e.id}>
-                    <td>{new Date(e.date).toLocaleDateString("en-UG", { year: "numeric", month: "short", day: "numeric" })}</td>
-                    <td>{categories.find((c) => c.id === e.categoryId)?.name || e.categoryId}</td>
-                    <td>{e.paymentMethod}</td>
-                    <td className="num">{money(e.amount)}</td>
-                    <td>{e.recordedBy}</td>
-                    <td className="actions"><Button variant="ghost" size="icon" title="Edit" onClick={() => openEdit(e)}><Pencil size={14}/></Button><Button variant="ghost" size="icon" title="Delete" onClick={() => onDeleteExpense(e.id)}><Trash2 size={14}/></Button></td>
-                  </tr>
-                ))}
-                {expenses.length === 0 && <tr><td colSpan={6} className="empty">No expenses yet</td></tr>}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            columns={[
+              { header: "Date", sortKey: "date", cell: (e) => new Date(e.date).toLocaleDateString("en-UG", { year: "numeric", month: "short", day: "numeric" }) },
+              { header: "Category", sortKey: "category", cell: (e) => categories.find((c) => c.id === e.categoryId)?.name || e.categoryId },
+              { header: "Method", sortKey: "method", cell: (e) => e.paymentMethod },
+              { header: "Amount", align: "right", sortKey: "amount", cell: (e) => <span className="amount-cell">{money(e.amount)}</span> },
+              { header: "Recorded by", cell: (e) => e.recordedBy },
+              { header: "", cell: (e) => (
+                <div className="flex justify-end gap-1">
+                  <Button variant="ghost" size="icon" title={`Edit expense ${e.id}`} aria-label={`Edit expense ${e.id}`} onClick={() => openEdit(e)}><Pencil size={14}/></Button>
+                  <Button variant="ghost" size="icon" title={`Delete expense ${e.id}`} aria-label={`Delete expense ${e.id}`} onClick={() => onDeleteExpense(e.id)}><Trash2 size={14}/></Button>
+                </div>
+              ) },
+            ]}
+            rows={sortedExpenses}
+            rowKey={(e) => e.id}
+            sort={expSort}
+            onSortChange={setExpSort}
+            stickyHeader
+            empty={<div className="empty-state"><Plus /><h3>No expenses yet</h3><p>Record an expense above to track direct costs.</p></div>}
+            footer={<span>{expenses.length} expense{expenses.length === 1 ? "" : "s"}</span>}
+          />
         </section>
       )}
 
@@ -322,20 +371,15 @@ export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
             </div>
           ) : null}
           {reports && (
-            <div className="table-wrap">
-              <table className="orders-table">
-                <thead><tr><th>Line</th><th>Value (USh)</th></tr></thead>
-                <tbody>
-                  <tr><td>Revenue (subtotal + tax + delivery)</td><td className="num">{money(reports.revenue)}</td></tr>
-                  <tr><td>Payments received</td><td className="num">{money(reports.paymentsReceived)}</td></tr>
-                  <tr><td>Outstanding payments</td><td className="num">{money(reports.outstandingPayments)}</td></tr>
-                  <tr><td>Direct costs (expenses)</td><td className="num">{money(reports.directCosts)}</td></tr>
-                  <tr><td><strong>Gross profit</strong></td><td className="num"><strong>{money(reports.grossProfit)}</strong></td></tr>
-                  <tr><td>Net operating result</td><td className="num">{money(reports.netOperatingResult)}</td></tr>
-                  <tr><td>Cash movement</td><td className="num">{money(reports.cashMovement)}</td></tr>
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              columns={[
+                { header: "Line", cell: (r) => (r.bold ? <strong>{r.label}</strong> : r.label) },
+                { header: "Value (USh)", align: "right", cell: (r) => (r.bold ? <strong>{r.value}</strong> : r.value) },
+              ]}
+              rows={reportLines}
+              rowKey={(r) => r.label}
+              footer={<span>Report period: {period}</span>}
+            />
           )}
         </section>
       )}

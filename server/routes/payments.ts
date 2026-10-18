@@ -81,11 +81,18 @@ router.post("/", required("payments.record"), (req, res) => {
     notes: notes || "",
   });
 
-  const order = store.db.orders.find((o) => o.id === orderId);
-  if (order) {
-    if (order.paymentStatus === "UNPAID") order.paymentStatus = "PARTIALLY_PAID";
-    else if (order.paymentStatus === "PAID") order.paymentStatus = "OVERPAID";
-    order.updatedAt = new Date().toISOString();
+  // Spec §14: outstanding balance is derived server-side from the payment
+  // ledger. An M-Pesa push is only *staged* here — the money has not landed
+  // yet — so the order goes PROCESSING (the stub state) until the customer
+  // confirms in the Pasa simulator; every other method is credited at once.
+  if (method === "M-Pesa") {
+    const order = store.db.orders.find((o) => o.id === orderId);
+    if (order) {
+      order.paymentStatus = "PROCESSING";
+      order.updatedAt = new Date().toISOString();
+    }
+  } else {
+    store.recomputePaymentStatus(orderId);
   }
   store.persist();
 
@@ -107,10 +114,9 @@ router.post("/:id/callback", required("payments.record"), (req, res) => {
   const order = store.db.orders.find((o) => o.id === payment.orderId);
 
   if (resultCode === 0) {
-    if (order && order.paymentStatus !== "PAID") {
-      order.paymentStatus = "PAID";
-      order.updatedAt = new Date().toISOString();
-    }
+    // Money landed: the staged payment was already in the ledger at POST, so
+    // the derived status now recomputes to PAID (or OVERPAID when covered).
+    store.recomputePaymentStatus(payment.orderId);
     store.createNotification({
       eventTypeId: "PaymentReceived",
       title: "Payment received",
@@ -122,8 +128,13 @@ router.post("/:id/callback", required("payments.record"), (req, res) => {
       deepLink: null,
       createdBy: actor,
     });
-    store.persist();
   } else {
+    // Customer aborted / the push failed: the money never landed, so the
+    // staged payment leaves the ledger and the order drops back to whatever
+    // the remaining payments justify (usually UNPAID).
+    const idx = store.db.payments.findIndex((p) => p.id === id);
+    if (idx !== -1) store.db.payments.splice(idx, 1);
+    store.recomputePaymentStatus(payment.orderId);
     store.createNotification({
       eventTypeId: "PaymentReceived",
       title: "M-Pesa payment failed",
@@ -135,10 +146,10 @@ router.post("/:id/callback", required("payments.record"), (req, res) => {
       deepLink: null,
       createdBy: actor,
     });
-    store.persist();
   }
+  store.persist();
 
-  res.json({ ok: true, payment: { ...payment, status: resultCode === 0 ? "COMPLETED" : "FAILED" } });
+  res.json({ ok: true, payment: { ...payment, status: resultCode === 0 ? "COMPLETED" : "FAILED" }, orderPaymentStatus: order?.paymentStatus ?? null });
 });
 
 export default router;
