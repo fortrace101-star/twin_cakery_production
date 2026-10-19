@@ -67,7 +67,7 @@ describe("toUiOrder", () => {
 describe("orderStatusEnum", () => {
   it("maps UI labels back to server enums", () => {
     expect(orderStatusEnum("Confirmed")).toBe("CONFIRMED");
-    expect(orderStatusEnum("In production")).toBe("IN_PRODUCTION");
+    expect(orderStatusEnum("In production")).toBe("READY_FOR_PRODUCTION");
     expect(orderStatusEnum("Ready")).toBe("READY_FOR_DELIVERY");
     expect(orderStatusEnum("Awaiting Collection")).toBe("AWAITING_COLLECTION");
     expect(orderStatusEnum("In Transit")).toBe("IN_TRANSIT");
@@ -77,7 +77,7 @@ describe("orderStatusEnum", () => {
   });
 
   it("round-trips labels", () => {
-    expect(orderStatusLabel(orderStatusEnum("In production"))).toBe("In production");
+    expect(orderStatusLabel(orderStatusEnum("In production"))).toBe("Ready for production");
   });
 });
 

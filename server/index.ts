@@ -6,6 +6,7 @@ import express, { type Request, type Response, type NextFunction } from "express
 import { attachAuth, requireAuth } from "./middleware/auth.js";
 import { apiRouter } from "./routes/api.js";
 import { rbacService } from "./services/rbac.service.js";
+import { businessService } from "./services/business.service.js";
 import { ready, flush } from "./database/index.new.js";
 import { logger } from "./utils/logger.js";
 
@@ -140,6 +141,16 @@ void ready
       const e = reason as Error;
       logger.failure("server", `unhandledRejection - ${String(e?.message ?? reason)}`);
     });
+    // ── Backfill: pipeline orders must own a Production Job ────────
+    // Orders stranded before job auto-creation existed (status reading
+    // Confirmed / In production with no job) would leave the Jobs board
+    // empty. Idempotent, runs on every boot.
+    try {
+      const backfilled = businessService.reconcileProductionJobs("system");
+      if (backfilled > 0) logger.boot(`backfilled ${backfilled} production job(s) for pipeline orders`);
+    } catch (err) {
+      logger.failure("server", `production job reconcile failed: ${String((err as Error)?.message ?? err)}`);
+    }
     const server = app.listen(PORT, () => {
       logger.boot(`Twin Cakery ERP API running on http://localhost:${PORT}`);
       logger.boot(`API docs: http://localhost:${PORT}/api/v1`);

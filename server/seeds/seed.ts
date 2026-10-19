@@ -23,7 +23,7 @@ const PERMS = [
   "customers.view","customers.create","customers.edit","customers.interact",
   "products.view","products.create","products.edit","products.archive",
   "production.view","production.schedule","production.start","production.complete",
-  "production.quality_check","production.record_wastage",
+  "production.quality_check","production.record_wastage","production.record_consumption",
   "inventory.view","inventory.adjust","inventory.reserve","inventory.consume",
   "purchasing.view","purchasing.create","purchasing.approve","purchasing.receive",
   "finance.view","finance.record_payment","finance.record_expense","finance.view_reports",

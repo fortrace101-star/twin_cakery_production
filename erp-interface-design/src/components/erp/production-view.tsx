@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowUpRight, ChefHat, Search } from "lucide-react";
+import { ArrowUpRight, ChefHat, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import { useDensity } from "@/lib/density";
 import { useWorkspace } from "./store";
 import {
   listProductionJobs, startProductionJob, completeProductionJob, recordQualityCheck, recordProductionWastage, getProductionCosts, getProductionConsumption,
-  listInventoryItems,
+  listInventoryItems, recordJobMaterials,
   type ServerProductionJob, type ServerProductionCost, type ServerProductionConsumption, type ServerInventoryItem,
 } from "@/lib/api";
 
@@ -40,13 +40,18 @@ const totalCost=(c:ServerProductionCost)=>c.ingredientCost+c.packagingCost+c.lab
 
 type Qc={result:'PASS'|'FAIL';issues:string;notes:string};
 type Wastage={itemId:string;quantity:string;reason:string};
+/** Pending "materials used" line — quantity kept as the raw input string. */
+type Material={itemId:string;quantity:string;notes:string};
 
 function ProductionDetail(props:{
   detail:ServerProductionJob|null; costs:ServerProductionCost[]; consumption:ServerProductionConsumption[];
   invItems:ServerInventoryItem[]; busy:boolean; qc:Qc|null; setQc:(q:Qc|null)=>void; wastage:Wastage|null; setWastage:(w:Wastage|null)=>void;
+  materials:Material[]; setMaterials:(m:Material[])=>void; matForm:Material; setMatForm:(m:Material)=>void; addMaterial:()=>void; recordMaterials:()=>void;
   onClose:()=>void; act:(fn:()=>Promise<unknown>,msg:string)=>void;
 }) {
-  const {detail,costs,consumption,invItems,busy,qc,setQc,wastage,setWastage,onClose,act}=props;
+  const {detail,costs,consumption,invItems,busy,qc,setQc,wastage,setWastage,materials,setMaterials,matForm,setMatForm,addMaterial,recordMaterials,onClose,act}=props;
+  const selItem=invItems.find(i=>i.id===matForm.itemId);
+  const overStock=Boolean(selItem&&Number(matForm.quantity)>selItem.physicalStock);
   return <Dialog open={Boolean(detail)} onOpenChange={v=>{if(!v)onClose();}}>
     <DialogContent className="order-detail-dialog">
       {detail&&<>
@@ -59,8 +64,22 @@ function ProductionDetail(props:{
           {detail.requiredAt&&<p><span>Required by</span><strong>{new Date(detail.requiredAt).toLocaleString()}</strong></p>}
           <p><span>Status</span><Status value={jobStatusLabel(detail.status)}/></p>
         </div>
-        <h3 className="text-sm font-semibold">Consumption</h3>
-        {consumption.length===0?<p className="cell-sub">No consumption recorded yet.</p>:<div className="configuration-list">{consumption.map(c=><p key={c.id}><span>{c.itemId}</span><strong>{c.quantity} {c.unit} · {money(c.actualCost)}</strong></p>)}</div>}
+        <h3 className="text-sm font-semibold">Materials used</h3>
+        {consumption.length===0?<p className="cell-sub">No materials recorded yet.</p>:<div className="configuration-list">{consumption.map(c=>{const it=invItems.find(i=>i.id===c.itemId);return <p key={c.id}><span>{it?.name??c.itemId}</span><strong>{c.quantity} {c.unit} · {money(c.actualCost)}</strong></p>;})}</div>}
+        {(detail.status==='IN_PRODUCTION'||detail.status==='REWORK_REQUIRED')&&<>
+          <div className="form-row"><Label htmlFor="m-item">Ingredient</Label>
+            <select id="m-item" className="input" value={matForm.itemId} onChange={e=>setMatForm({...matForm,itemId:e.target.value})}><option value="">Choose ingredient…</option>{invItems.map(i=><option key={i.id} value={i.id}>{i.name} ({i.unit}) · {i.physicalStock} in stock</option>)}</select>
+          </div>
+          <div className="form-row"><Label htmlFor="m-qty">Quantity used</Label><Input id="m-qty" type="number" min={0} value={matForm.quantity} onChange={e=>setMatForm({...matForm,quantity:e.target.value})}/></div>
+          <div className="form-row"><Label htmlFor="m-notes">Notes</Label><Input id="m-notes" value={matForm.notes} onChange={e=>setMatForm({...matForm,notes:e.target.value})} placeholder="Optional"/></div>
+          {overStock&&selItem&&<p className="cell-sub">Only {selItem.physicalStock} {selItem.unit} of {selItem.name} in stock — reduce the quantity.</p>}
+          <div className="dialog-actions"><Button variant="outline" disabled={!matForm.itemId||!Number(matForm.quantity)||overStock} onClick={addMaterial}>Add material</Button></div>
+          {materials.length>0&&<>
+            <h4 className="text-sm font-semibold">Pending materials ({materials.length})</h4>
+            <div className="configuration-list">{materials.map((m,i)=>{const it=invItems.find(x=>x.id===m.itemId);return <p key={i}><span>{it?.name??m.itemId} · {m.quantity} {it?.unit??''}</span><strong>{money((it?.cost??0)*Number(m.quantity))}<Button variant="ghost" size="icon" aria-label={`Remove ${(it?.name??m.itemId)}`} onClick={()=>setMaterials(materials.filter((_,j)=>j!==i))}><X size={14}/></Button></strong></p>;})}</div>
+            <div className="dialog-actions"><Button disabled={busy||materials.length===0} onClick={recordMaterials}>Record materials used ({materials.length})</Button></div>
+          </>}
+        </>}
         <h3 className="text-sm font-semibold">Costs</h3>
         {costs.length===0?<p className="cell-sub">No cost records yet.</p>:<div className="configuration-list">{costs.map(c=><p key={c.id}><span>{c.status}</span><strong>{money(totalCost(c))}</strong></p>)}</div>}
         <div className="dialog-actions">
@@ -109,6 +128,8 @@ export function Production({tab,search,setSearch,onNotice,onSignIn}: {tab:string
   const [consumption,setConsumption]=useState<ServerProductionConsumption[]>([]);
   const [qc,setQc]=useState<Qc|null>(null);
   const [wastage,setWastage]=useState<Wastage|null>(null);
+  const [materials,setMaterials]=useState<Material[]>([]);
+  const [matForm,setMatForm]=useState<Material>({itemId:'',quantity:'',notes:''});
   const [invItems,setInvItems]=useState<ServerInventoryItem[]>([]);
 
   const refresh=useCallback(async()=>{
@@ -123,6 +144,7 @@ export function Production({tab,search,setSearch,onNotice,onSignIn}: {tab:string
 
   async function openDetail(j:ServerProductionJob){
     setDetail(j);
+    setMaterials([]); setMatForm({itemId:'',quantity:'',notes:''});
     const [c,cons]=await Promise.all([getProductionCosts(j.id),getProductionConsumption(j.id)]);
     setCosts(c); setConsumption(cons);
   }
@@ -136,6 +158,28 @@ export function Production({tab,search,setSearch,onNotice,onSignIn}: {tab:string
     onNotice(msg);
     await refresh();
     setDetail(null);
+  }
+
+  function addMaterial(){
+    const qty=Number(matForm.quantity);
+    if(!matForm.itemId||!Number.isFinite(qty)||qty<=0) return;
+    setMaterials([...materials,{...matForm}]);
+    setMatForm({itemId:matForm.itemId,quantity:'',notes:''});
+  }
+
+  async function recordMaterials(){
+    if(!detail||materials.length===0) return;
+    if(!connected){ onSignIn(); return; }
+    setBusy(true);
+    const created=await recordJobMaterials(detail.id,materials.map(m=>({itemId:m.itemId,quantity:Number(m.quantity),notes:m.notes||undefined})));
+    setBusy(false);
+    if(created===null){ onNotice('Materials not recorded — check stock levels and permissions'); return; }
+    onNotice(`Materials recorded · ${created.length} line${created.length===1?'':'s'} deducted from inventory`);
+    setMaterials([]); setMatForm({itemId:'',quantity:'',notes:''});
+    await refresh();
+    // Reload the open dialog so consumption/costs show what was just recorded.
+    const job=(await listProductionJobs()).find(j=>j.id===detail.id);
+    if(job) await openDetail(job); else setDetail(null);
   }
 
   if(!connected && jobs.length===0 && !loading){
@@ -161,7 +205,8 @@ export function Production({tab,search,setSearch,onNotice,onSignIn}: {tab:string
     <ProductionDetail
       detail={detail} costs={costs} consumption={consumption} invItems={invItems} busy={busy}
       qc={qc} setQc={setQc} wastage={wastage} setWastage={setWastage}
-      onClose={()=>{setDetail(null);setQc(null);setWastage(null);}} act={act}
+      materials={materials} setMaterials={setMaterials} matForm={matForm} setMatForm={setMatForm} addMaterial={addMaterial} recordMaterials={recordMaterials}
+      onClose={()=>{setDetail(null);setQc(null);setWastage(null);setMaterials([]);setMatForm({itemId:'',quantity:'',notes:''});}} act={act}
     />
   </section>;
 }

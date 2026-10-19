@@ -23,6 +23,10 @@ const required = (perm: string): RequestHandler => (req, res, next) => {
 };
 
 router.get("/jobs", required("production.view"), (req, res) => {
+  // Self-healing board: any pipeline order without a job gets one right here,
+  // so an order already reading "Confirmed" / "In production" can never sit on
+  // an empty board (backstop for data stranded by pre-fix writes).
+  businessService.reconcileProductionJobs("system");
   const jobs = store.productionJobs();
   const status = req.query.status as string | undefined;
   let list = jobs;
@@ -53,8 +57,8 @@ router.post("/jobs", required("production.schedule"), (req, res) => {
   if (!orderId) return res.status(400).json({ error: "orderId is required" });
   const order = store.orders().find((o) => o.id === String(orderId));
   if (!order) throw new NotFoundError("Order not found");
-  if (order.status !== "READY_FOR_PRODUCTION" && order.status !== "CONFIRMED" && order.status !== "PRODUCTION_REVIEW") {
-    return res.status(409).json({ error: "Order must be in READY_FOR_PRODUCTION, CONFIRMED, or PRODUCTION_REVIEW" });
+  if (order.status !== "READY_FOR_PRODUCTION" && order.status !== "CONFIRMED" && order.status !== "PRODUCTION_REVIEW" && order.status !== "IN_PRODUCTION") {
+    return res.status(409).json({ error: "Order must be in READY_FOR_PRODUCTION, CONFIRMED, PRODUCTION_REVIEW, or IN_PRODUCTION" });
   }
   const { job } = businessService.prepareOrderForProduction(String(orderId), session.userId);
   store.persist();
@@ -121,6 +125,30 @@ router.post("/jobs/:id/wastage", required("production.record_wastage"), (req, re
   });
   store.persist();
   res.json({ ok: true });
+});
+
+/**
+ * Manual material usage entry — deducts used ingredients from inventory,
+ * writes production_consumption rows + an ACTUAL cost roll-up (service does
+ * all validation: item exists, qty > 0 and <= physical stock, job in
+ * IN_PRODUCTION/REWORK_REQUIRED; errors map to 400/404/409).
+ */
+router.post("/jobs/:id/materials", required("production.record_consumption"), (req, res) => {
+  const id = String(req.params.id);
+  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  if (!session) return res.status(401).json({ error: "Not authenticated" });
+  const { items } = req.body || {};
+  if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: "items must be a non-empty array" });
+  const consumption = businessService.recordMaterialsUsed(
+    id,
+    session.userId,
+    items.map((it: { itemId?: string; quantity?: number; notes?: string }) => ({
+      itemId: String(it?.itemId ?? ""),
+      quantity: Number(it?.quantity ?? 0),
+      notes: it?.notes ? String(it.notes) : "",
+    })),
+  );
+  res.status(201).json({ consumption });
 });
 
 router.get("/jobs/:id/costs", required("production.view"), (req, res) => {

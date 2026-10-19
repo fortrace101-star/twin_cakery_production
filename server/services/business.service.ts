@@ -3,7 +3,7 @@ import { store } from "../database/store.js";
 import type { Patch } from "../database/store.js";
 import { notificationService } from "./notification.service.js";
 import { publishLowStockAlert } from "./stock-alerts.js";
-import type { Order, OrderStatus, User, OrderItem, ProductionJob, OrderStatusHistory, NotificationPriority } from "../database/types.js";
+import type { Order, OrderStatus, User, OrderItem, ProductionJob, ProductionConsumption, OrderStatusHistory, NotificationPriority } from "../database/types.js";
 
 export class BusinessService {
   validateOrderStatusTransition(current: OrderStatus, next: OrderStatus): void {
@@ -59,6 +59,17 @@ export class BusinessService {
       requiredAt: order.requiredAt,
       notes: "Created from confirmed order",
     });
+    // Persist the status move + history (updateOrderStatus writes both the row
+    // and the history entry and returns them). confirmOrder previously
+    // returned an in-memory copy only — the CONFIRMED status vanished on
+    // restart while the bare job row survived, leaving phantom jobs.
+    const persisted = store.updateOrderStatus(order.id, "CONFIRMED", changedBy, "Admin confirmed order");
+    const updatedOrder = persisted?.order ?? {
+      ...order,
+      status: "CONFIRMED" as OrderStatus,
+      updatedAt: now,
+    };
+    const persistedHistory = persisted?.history ?? history;
 
     for (const item of items) {
       if (item.quantity > 0) {
@@ -81,12 +92,6 @@ export class BusinessService {
     };
     notificationService.publishEvent(notificationEvent, { userId: changedBy, role: changedBy, isAdmin: true });
 
-    const updatedOrder = {
-      ...order,
-      status: "CONFIRMED" as OrderStatus,
-      updatedAt: now,
-    };
-
     store.createAuditLog({
       orderId: order.id,
       actor: changedBy,
@@ -97,7 +102,7 @@ export class BusinessService {
       timestamp: now,
     });
 
-    return { order: updatedOrder, history, job };
+    return { order: updatedOrder, history: persistedHistory, job };
   }
 
   /**
@@ -336,6 +341,82 @@ export class BusinessService {
     }
   }
 
+  /**
+   * Manually record materials (ingredients) used for a production job — the
+   * "used materials" entry the job dialog submits. Each accepted entry
+   * deducts stock (PRODUCTION_CONSUMPTION transaction), releases matching
+   * reservations, writes a production_consumption row (recipe snapshot +
+   * actual cost) and fires low-stock alerts; one ACTUAL cost row rolls up
+   * the submission. Every entry is validated before the first write, so a
+   * 409 never leaves stock half-deducted.
+   * (The older recordConsumption below stays unwired — it derives entries
+   * from order items and force-advances the job; this is the manual path.)
+   */
+  recordMaterialsUsed(
+    jobId: string,
+    userId: string,
+    entries: Array<{ itemId: string; quantity: number; notes?: string }>,
+  ): ProductionConsumption[] {
+    const job = store.productionJobs().find((j) => j.id === jobId);
+    if (!job) throw new NotFoundError("Production job not found");
+    if (job.status !== "IN_PRODUCTION" && job.status !== "REWORK_REQUIRED") {
+      throw new ConflictError(`Cannot record materials from status ${job.status}`);
+    }
+    if (!entries.length) throw new ValidationError("At least one material entry is required");
+
+    const resolved = entries.map((e) => {
+      const qty = Number(e.quantity);
+      if (!e.itemId || !Number.isFinite(qty) || qty <= 0) {
+        throw new ValidationError("Each material needs an itemId and a positive quantity");
+      }
+      const item = store.inventoryItems().find((i) => i.id === e.itemId);
+      if (!item) throw new NotFoundError(`Inventory item not found: ${e.itemId}`);
+      const available = item.physicalStock || 0;
+      if (qty > available) {
+        throw new ConflictError(`Insufficient stock for ${item.name}. Available: ${available}, Required: ${qty}`);
+      }
+      return { itemId: e.itemId, qty, notes: e.notes || "", item };
+    });
+
+    const created: ProductionConsumption[] = [];
+    let ingredientCost = 0;
+    for (const { itemId, qty, notes, item } of resolved) {
+      const unitCost = item.cost || 0;
+      const actualCost = qty * unitCost;
+      const previousStock = item.physicalStock || 0;
+      store.adjustInventory(itemId, -qty, item.unit, "PRODUCTION_CONSUMPTION", `Materials used for ${job.orderId}`, userId, unitCost, notes || "Materials used");
+      publishLowStockAlert(itemId, previousStock, { userId, role: userId, isAdmin: true });
+      // Release matching reservations so planned stock stops counting against availability.
+      const reserved = store.stockReservations().filter((r) => r.itemId === itemId && r.orderId === job.orderId);
+      for (const r of reserved) {
+        const idx = store.stockReservations().indexOf(r);
+        if (idx >= 0) store.stockReservations().splice(idx, 1);
+      }
+      created.push(store.createProductionConsumption({
+        jobId,
+        itemId,
+        quantity: qty,
+        unit: item.unit,
+        recipeVersion: job.recipeVersion,
+        unitCost,
+        actualCost,
+        notes: notes || "Recorded during production",
+      }));
+      ingredientCost += actualCost;
+    }
+    store.createProductionCost({
+      jobId,
+      ingredientCost,
+      packagingCost: 0,
+      labourCost: 0,
+      overheadCost: 0,
+      total: ingredientCost,
+      status: "ACTUAL",
+    });
+    store.persist();
+    return created;
+  }
+
   recordConsumption(jobId: string, userId: string): void {
     const job = store.productionJobs().find((j) => j.id === jobId);
     if (!job) throw new NotFoundError("Production job not found");
@@ -402,9 +483,13 @@ export class BusinessService {
   prepareOrderForProduction(orderId: string, userId: string): { job: ProductionJob } {
     const order = store.orders().find((o) => o.id === orderId);
     if (!order) throw new NotFoundError("Order not found");
-    if (order.status !== "READY_FOR_PRODUCTION" && order.status !== "CONFIRMED" && order.status !== "PRODUCTION_REVIEW") {
+    if (order.status !== "READY_FOR_PRODUCTION" && order.status !== "CONFIRMED" && order.status !== "PRODUCTION_REVIEW" && order.status !== "IN_PRODUCTION") {
       throw new ConflictError(`Order must be in a production-ready status to prepare`);
     }
+    // Idempotent: an order already carrying a job reuses it instead of
+    // spawning duplicates (covers the PATCH retry + confirm paths).
+    const existing = store.productionJobs().find((j) => j.orderId === order.id);
+    if (existing) return { job: existing };
     const job = store.createProductionJob({
       orderId: order.id,
       customerId: order.customerId,
@@ -419,6 +504,31 @@ export class BusinessService {
     });
     store.updateProductionJob(job.id, { status: "PENDING", stage: "CHECK_INVENTORY", progress: 10 });
     return { job };
+  }
+
+  /**
+   * Backfill pass — every order in the production pipeline must own a
+   * Production Job, or the Jobs board reads empty while the order already
+   * says "Confirmed" / "In production". Covers orders stranded by the old
+   * status-only PATCH (which never created jobs); runs on boot and on every
+   * GET /production/jobs so the board self-heals no matter which write path
+   * missed. Idempotent: orders that already carry a job are skipped.
+   */
+  reconcileProductionJobs(changedBy = "system"): number {
+    const pipelineStatuses = ["CONFIRMED", "PRODUCTION_REVIEW", "READY_FOR_PRODUCTION", "IN_PRODUCTION"];
+    let created = 0;
+    for (const order of store.orders()) {
+      if (!pipelineStatuses.includes(order.status)) continue;
+      if (store.productionJobs().some((j) => j.orderId === order.id)) continue;
+      try {
+        this.prepareOrderForProduction(order.id, changedBy);
+        created += 1;
+      } catch {
+        /* A malformed order must never stall the board. */
+      }
+    }
+    if (created > 0) store.persist();
+    return created;
   }
 }
 

@@ -269,7 +269,7 @@ const ORDER_STATUS_ENUMS: Record<string, string> = {
   Confirmed: "CONFIRMED",
   "Production review": "PRODUCTION_REVIEW",
   "Ready for production": "READY_FOR_PRODUCTION",
-  "In production": "IN_PRODUCTION",
+  "In production": "READY_FOR_PRODUCTION",
   "Quality check": "QUALITY_CHECK",
   "Rework required": "REWORK_REQUIRED",
   Ready: "READY_FOR_DELIVERY",
@@ -794,6 +794,15 @@ export interface ServerQualityCheck {
   updatedAt: string;
 }
 
+export async function confirmOrderApi(id: string): Promise<{ order: ServerOrder; history: unknown; job?: ServerProductionJob } | null> {
+  return safe(() => request<{ order: ServerOrder; history: unknown; job?: ServerProductionJob }>(`/orders/${id}/confirm`, { method: "POST" }), null);
+}
+
+/** POST /production/jobs — create a job for an order (requires production.schedule). */
+export function createProductionJob(orderId: string): Promise<ServerProductionJob | null> {
+  return safe(() => request<ServerProductionJob>(`/production/jobs`, { method: "POST", body: { orderId } }), null);
+}
+
 export function listProductionJobs(): Promise<ServerProductionJob[]> {
   return safe(() => request<ServerProductionJob[]>("/production/jobs"), []);
 }
@@ -830,6 +839,20 @@ export function getProductionCosts(id: string): Promise<ServerProductionCost[]> 
 
 export function getProductionConsumption(id: string): Promise<ServerProductionConsumption[]> {
   return safe(() => request<{ consumption: ServerProductionConsumption[] }>(`/production/jobs/${id}/consumption`).then((r) => r?.consumption ?? []), []);
+}
+
+export interface ServerMaterialInput {
+  itemId: string;
+  quantity: number;
+  notes?: string | undefined;
+}
+
+/** POST /production/jobs/:id/materials — deduct used materials from inventory. */
+export function recordJobMaterials(id: string, items: ServerMaterialInput[]): Promise<ServerProductionConsumption[] | null> {
+  return safe(
+    () => request<{ consumption: ServerProductionConsumption[] }>(`/production/jobs/${id}/materials`, { method: "POST", body: { items } }).then((r) => r?.consumption ?? []),
+    null,
+  );
 }
 
 export interface ServerProductionCost {

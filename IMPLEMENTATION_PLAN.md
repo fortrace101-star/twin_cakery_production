@@ -129,6 +129,27 @@ Gate: no `KSh/KES/en-KE/Nairobi` in `src/` or `server/` (docs history excepted),
 
 Risks: Lovable resync (no rewrite, stable paths) · 12px→16px churn (per-module) · PG down (JSON fallback) · `workspace.tsx` conflicts (split early) · seed placeholder pw (rotate).
 Sequence: `0 Vite switch → C move → D DB+seed → A+B design+themes (parallel E) → E1..E6 → F`. Defaults need confirm: raw `pg`, local `twin_cakery`, JWT bearer, tree `erp/server + erp/erp-interface-design`. Say `approved` to start Phase 0 + C.
+## 10. Production materials — manual consumption entry (added 2026-10-19)
+
+**Gap:** production jobs read ingredients from inventory, but the job dialog only *displays* consumption. Nothing lets a baker enter "used 3 kg flour, 1 L cream" and have stock actually drop. The server pieces already exist (`production_consumption` table, `store.adjustInventory` with `PRODUCTION_CONSUMPTION` type, `publishLowStockAlert`, `ProductionCost` roll-ups) — the wastage route (`POST /jobs/:id/wastage`, perm `production.record_wastage`) is the working model to copy. The existing `businessService.recordConsumption` is unwired (no route), auto-derives entries from *order items* (productIds treated as inventory ids), consumes only reserved quantities and force-advances the job to QUALITY_CHECK — unsuitable; keep it but mark deprecated, don't route to it.
+
+### 10.1 Server
+1. **Migration `013_production_consumption.sql`** (mirror 012 pattern, safe re-run): insert permission `production.record_consumption`; map to `role-admin` + `role-production` (seed's production role already owns `production.*`). Add the key to `server/services/rbac.service.ts` allow-list + seed permissions for fresh DBs.
+2. **`business.service.ts` → `recordMaterialsUsed(jobId, userId, entries[])`**: per entry `{itemId, quantity, notes?}` — job must exist and be consumable (`IN_PRODUCTION` or `REWORK_REQUIRED`, else 409); inventory item must exist; `quantity > 0` and `<= physicalStock` (409 with item name + available/required, like `reserveStock`); then in one pass: `adjustInventory(itemId, -qty, unit, "PRODUCTION_CONSUMPTION", "Materials used for <orderId>", userId, item.cost, notes)` (stock down + ledger row) → `publishLowStockAlert` → `createProductionConsumption({jobId, itemId, quantity, unit, recipeVersion: job.recipeVersion, unitCost, actualCost, notes})`; release matching `stockReservations` rows (same rule as old `recordConsumption`); finally one `createProductionCost({status:"ACTUAL", ingredientCost: ΣactualCost, total})` row per submission; `store.persist()`.
+3. **Route `POST /production/jobs/:id/materials`** (`required("production.record_consumption")`): body `{items:[{itemId, quantity, notes}]}` — 400 on empty array/invalid entries, 404 unknown job/item, 409 bad state/insufficient stock; responds `{consumption:[…]}`.
+
+### 10.2 Frontend (`erp-interface-design`)
+4. **`lib/api.ts`**: `recordJobMaterials(id, items)` POST wrapper + `ServerMaterialInput` type (locked in api-map test).
+5. **`production-view.tsx` detail dialog — "Materials used" section** replaces the read-only Consumption list:
+   - Recorded rows: ingredient name (from `invItems`), qty · unit, actual cost, notes.
+   - Entry line: item `<select>` (name + unit + "N in stock"), qty number input, optional notes → **Add** appends to a pending list (remove supported, subtotals shown); inline red warning + submit block when qty > physicalStock (server re-validates).
+   - **Record materials used** button → `recordJobMaterials` → refetch jobs + openDetail (consumption/costs) + `listInventoryItems` so stock chips update; RBAC failure → existing "check your permissions" notice.
+   - Section visible only for `IN_PRODUCTION` / `REWORK_REQUIRED` jobs; read-only history for the rest.
+
+### 10.3 Gate
+`tsc --noEmit` clean; vitest green incl. new `production-materials.test.tsx` (add/remove pending rows, over-stock client block, payload shape on submit); E3-style live pass: start job → record 2 materials → `inventory_items.physical_stock` down, `inventory_transactions` rows typed `PRODUCTION_CONSUMPTION`, ACTUAL cost row present, low-stock alert fires when crossing minimum.
+
+
 
 
 

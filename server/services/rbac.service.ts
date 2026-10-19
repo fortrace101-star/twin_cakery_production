@@ -49,6 +49,7 @@ export class RbacService {
       "production.complete": ["production.complete"],
       "production.quality_check": ["production.quality_check"],
       "production.record_wastage": ["production.record_wastage"],
+      "production.record_consumption": ["production.record_consumption"],
       "inventory.view": ["inventory.view"],
       "inventory.adjust": ["inventory.adjust"],
       "inventory.reserve": ["inventory.reserve"],
