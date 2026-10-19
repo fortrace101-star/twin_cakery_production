@@ -12,8 +12,9 @@ import { useDensity } from "@/lib/density";
 import { useWorkspace } from "./store";
 import {
   listProductionJobs, startProductionJob, completeProductionJob, recordQualityCheck, recordProductionWastage, getProductionCosts, getProductionConsumption,
-  listInventoryItems, recordJobMaterials,
+  listInventoryItems, recordJobMaterials, listOrders, listCustomers, listCatalogueProducts,
   type ServerProductionJob, type ServerProductionCost, type ServerProductionConsumption, type ServerInventoryItem,
+  type ServerOrder, type ServerCustomer, type ServerCatalogueProduct,
 } from "@/lib/api";
 
 /* ── Production (live; E3) ─────────────────────────────────────────────── */
@@ -42,21 +43,30 @@ type Qc={result:'PASS'|'FAIL';issues:string;notes:string};
 type Wastage={itemId:string;quantity:string;reason:string};
 /** Pending "materials used" line — quantity kept as the raw input string. */
 type Material={itemId:string;quantity:string;notes:string};
+/** What a job row/dialog shows: the order number, its item and the customer behind it. */
+type JobCtx={orderNumber:string;itemName:string;itemLabel:string;customer:string};
 
 function ProductionDetail(props:{
   detail:ServerProductionJob|null; costs:ServerProductionCost[]; consumption:ServerProductionConsumption[];
   invItems:ServerInventoryItem[]; busy:boolean; qc:Qc|null; setQc:(q:Qc|null)=>void; wastage:Wastage|null; setWastage:(w:Wastage|null)=>void;
   materials:Material[]; setMaterials:(m:Material[])=>void; matForm:Material; setMatForm:(m:Material)=>void; addMaterial:()=>void; recordMaterials:()=>void;
+  ctx:JobCtx|null;
   onClose:()=>void; act:(fn:()=>Promise<unknown>,msg:string)=>void;
 }) {
-  const {detail,costs,consumption,invItems,busy,qc,setQc,wastage,setWastage,materials,setMaterials,matForm,setMatForm,addMaterial,recordMaterials,onClose,act}=props;
+  const {detail,costs,consumption,invItems,busy,qc,setQc,wastage,setWastage,materials,setMaterials,matForm,setMatForm,addMaterial,recordMaterials,ctx,onClose,act}=props;
   const selItem=invItems.find(i=>i.id===matForm.itemId);
   const overStock=Boolean(selItem&&Number(matForm.quantity)>selItem.physicalStock);
+  // The body scrolls inside the height-capped dialog, so bring a freshly opened
+  // sub-form (QC / wastage) into view instead of leaving it below the fold.
+  // Optional call: jsdom has no scrollIntoView.
+  useEffect(()=>{if(qc)document.getElementById('qc-issues')?.scrollIntoView?.({block:'center'});},[qc]);
+  useEffect(()=>{if(wastage)document.getElementById('w-item')?.scrollIntoView?.({block:'center'});},[wastage]);
   return <Dialog open={Boolean(detail)} onOpenChange={v=>{if(!v)onClose();}}>
     <DialogContent className="order-detail-dialog">
       {detail&&<>
-        <DialogTitle>{detail.productId||'Production job'}</DialogTitle>
-        <DialogDescription>{detail.id} · order {detail.orderId} · {jobStatusLabel(detail.status)}</DialogDescription>
+        <DialogTitle>Order {ctx?.orderNumber??detail.orderId} — {ctx?.itemName??detail.productId}</DialogTitle>
+        <DialogDescription>{ctx?.customer??'—'} · {jobStatusLabel(detail.status)} · {detail.id}</DialogDescription>
+        <div className="order-form-scroll">
         <div className="configuration-list">
           <p><span>Quantity</span><strong>{detail.quantity}</strong></p>
           <p><span>Recipe version</span><strong>{detail.recipeVersion}</strong></p>
@@ -64,33 +74,25 @@ function ProductionDetail(props:{
           {detail.requiredAt&&<p><span>Required by</span><strong>{new Date(detail.requiredAt).toLocaleString()}</strong></p>}
           <p><span>Status</span><Status value={jobStatusLabel(detail.status)}/></p>
         </div>
-        <h3 className="text-sm font-semibold">Materials used</h3>
+        <h3 className="text-sm font-semibold">Materials used{consumption.length>0?` (${consumption.length})`:''}</h3>
         {consumption.length===0?<p className="cell-sub">No materials recorded yet.</p>:<div className="configuration-list">{consumption.map(c=>{const it=invItems.find(i=>i.id===c.itemId);return <p key={c.id}><span>{it?.name??c.itemId}</span><strong>{c.quantity} {c.unit} · {money(c.actualCost)}</strong></p>;})}</div>}
-        {(detail.status==='IN_PRODUCTION'||detail.status==='REWORK_REQUIRED')&&<>
+        {(detail.status==='IN_PRODUCTION'||detail.status==='REWORK_REQUIRED')&&<div className="erp-form">
+          <h3 className="text-sm font-semibold">Record materials</h3>
           <div className="form-row"><Label htmlFor="m-item">Ingredient</Label>
             <select id="m-item" className="input" value={matForm.itemId} onChange={e=>setMatForm({...matForm,itemId:e.target.value})}><option value="">Choose ingredient…</option>{invItems.map(i=><option key={i.id} value={i.id}>{i.name} ({i.unit}) · {i.physicalStock} in stock</option>)}</select>
           </div>
           <div className="form-row"><Label htmlFor="m-qty">Quantity used</Label><Input id="m-qty" type="number" min={0} value={matForm.quantity} onChange={e=>setMatForm({...matForm,quantity:e.target.value})}/></div>
           <div className="form-row"><Label htmlFor="m-notes">Notes</Label><Input id="m-notes" value={matForm.notes} onChange={e=>setMatForm({...matForm,notes:e.target.value})} placeholder="Optional"/></div>
-          {overStock&&selItem&&<p className="cell-sub">Only {selItem.physicalStock} {selItem.unit} of {selItem.name} in stock — reduce the quantity.</p>}
+          {overStock&&selItem&&<p className="form-error">Only {selItem.physicalStock} {selItem.unit} of {selItem.name} in stock — reduce the quantity.</p>}
           <div className="dialog-actions"><Button variant="outline" disabled={!matForm.itemId||!Number(matForm.quantity)||overStock} onClick={addMaterial}>Add material</Button></div>
           {materials.length>0&&<>
             <h4 className="text-sm font-semibold">Pending materials ({materials.length})</h4>
             <div className="configuration-list">{materials.map((m,i)=>{const it=invItems.find(x=>x.id===m.itemId);return <p key={i}><span>{it?.name??m.itemId} · {m.quantity} {it?.unit??''}</span><strong>{money((it?.cost??0)*Number(m.quantity))}<Button variant="ghost" size="icon" aria-label={`Remove ${(it?.name??m.itemId)}`} onClick={()=>setMaterials(materials.filter((_,j)=>j!==i))}><X size={14}/></Button></strong></p>;})}</div>
             <div className="dialog-actions"><Button disabled={busy||materials.length===0} onClick={recordMaterials}>Record materials used ({materials.length})</Button></div>
           </>}
-        </>}
+        </div>}
         <h3 className="text-sm font-semibold">Costs</h3>
         {costs.length===0?<p className="cell-sub">No cost records yet.</p>:<div className="configuration-list">{costs.map(c=><p key={c.id}><span>{c.status}</span><strong>{money(totalCost(c))}</strong></p>)}</div>}
-        <div className="dialog-actions">
-          {(detail.status==='PENDING'||detail.status==='SCHEDULED'||detail.status==='READY_FOR_PRODUCTION')&&<Button disabled={busy} onClick={()=>act(()=>startProductionJob(detail.id),'Production started')}>Start production</Button>}
-          {detail.status==='IN_PRODUCTION'&&<Button disabled={busy} onClick={()=>act(()=>completeProductionJob(detail.id),'Marked ready for quality check')}>Mark complete</Button>}
-          {(detail.status==='READY_FOR_QUALITY'||detail.status==='QUALITY_CHECK')&&<>
-            <Button disabled={busy} onClick={()=>setQc({result:'PASS',issues:'',notes:''})}>Quality check: Pass</Button>
-            <Button variant="outline" disabled={busy} onClick={()=>setQc({result:'FAIL',issues:'',notes:''})}>Fail / rework</Button>
-          </>}
-          <Button variant="outline" disabled={busy} onClick={()=>setWastage({itemId:invItems[0]?.id??'',quantity:'',reason:''})}>Record wastage</Button>
-        </div>
         {qc&&<div className="erp-form">
           <h3 className="text-sm font-semibold">Quality check — {qc.result==='PASS'?'Pass':'Fail / rework'}</h3>
           <div className="form-row"><Label htmlFor="qc-issues">Issues</Label><Input id="qc-issues" value={qc.issues} onChange={e=>setQc({...qc,issues:e.target.value})} placeholder="Optional"/></div>
@@ -112,6 +114,17 @@ function ProductionDetail(props:{
             <Button variant="ghost" onClick={()=>setWastage(null)}>Cancel</Button>
           </div>
         </div>}
+        </div>
+        <div className="dialog-actions">
+          {(detail.status==='PENDING'||detail.status==='SCHEDULED'||detail.status==='READY_FOR_PRODUCTION')&&<Button disabled={busy} onClick={()=>act(()=>startProductionJob(detail.id),'Production started')}>Start production</Button>}
+          {detail.status==='IN_PRODUCTION'&&<Button disabled={busy} onClick={()=>act(()=>completeProductionJob(detail.id),'Marked ready for quality check')}>Mark complete</Button>}
+          {(detail.status==='READY_FOR_QUALITY'||detail.status==='QUALITY_CHECK')&&<>
+            <Button disabled={busy} onClick={()=>setQc({result:'PASS',issues:'',notes:''})}>Quality check: Pass</Button>
+            <Button variant="outline" disabled={busy} onClick={()=>setQc({result:'FAIL',issues:'',notes:''})}>Fail / rework</Button>
+          </>}
+          <Button variant="outline" disabled={busy} onClick={()=>setWastage({itemId:invItems[0]?.id??'',quantity:'',reason:''})}>Record wastage</Button>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        </div>
       </>}
     </DialogContent>
   </Dialog>;
@@ -131,6 +144,9 @@ export function Production({tab,search,setSearch,onNotice,onSignIn}: {tab:string
   const [materials,setMaterials]=useState<Material[]>([]);
   const [matForm,setMatForm]=useState<Material>({itemId:'',quantity:'',notes:''});
   const [invItems,setInvItems]=useState<ServerInventoryItem[]>([]);
+  const [orders,setOrders]=useState<ServerOrder[]>([]);
+  const [customers,setCustomers]=useState<ServerCustomer[]>([]);
+  const [catalogue,setCatalogue]=useState<ServerCatalogueProduct[]>([]);
 
   const refresh=useCallback(async()=>{
     setLoading(true);
@@ -139,8 +155,36 @@ export function Production({tab,search,setSearch,onNotice,onSignIn}: {tab:string
   },[]);
   useEffect(()=>{ void refresh(); },[refresh]);
 
+  // Order/customer/catalogue names for the row and dialog display (loaded once).
+  useEffect(()=>{
+    let alive=true;
+    void Promise.all([listOrders(),listCustomers(),listCatalogueProducts()]).then(([os,cs,ps])=>{
+      if(!alive) return;
+      setOrders(os); setCustomers(cs); setCatalogue(ps);
+    });
+    return ()=>{ alive=false; };
+  },[]);
+
+  const productNameById=new Map(catalogue.map(p=>[p.id,p.name] as const));
+  const customerNameById=new Map(customers.map(c=>[c.id,c.name] as const));
+  /** Resolve the order number, order item and customer a job represents (raw ids as fallback). */
+  const jobContext=(j:ServerProductionJob):JobCtx=>{
+    const order=orders.find(o=>o.id===j.orderId);
+    const first=order?.items[0];
+    const itemName=first?(productNameById.get(first.productId)??first.productId):j.productId;
+    const qty=first?.quantity??j.quantity;
+    const variant=first?.variantOptions?` (${first.variantOptions})`:'';
+    const extra=order&&order.items.length>1?` +${order.items.length-1} more`:'';
+    return {
+      orderNumber:order?.orderNumber??j.orderId,
+      itemName,
+      itemLabel:`${qty}× ${itemName}${variant}${extra}`,
+      customer:customerNameById.get(order?.customerId??j.customerId)??j.customerId,
+    };
+  };
+
   const q=search.toLowerCase();
-  const filtered=jobs.filter(j=>`${j.id} ${j.orderId} ${j.productId} ${jobStatusLabel(j.status)}`.toLowerCase().includes(q));
+  const filtered=jobs.filter(j=>{const c=jobContext(j);return `${c.orderNumber} ${c.itemLabel} ${c.customer} ${j.id} ${j.orderId} ${j.productId} ${jobStatusLabel(j.status)}`.toLowerCase().includes(q);});
 
   async function openDetail(j:ServerProductionJob){
     setDetail(j);
@@ -191,7 +235,7 @@ export function Production({tab,search,setSearch,onNotice,onSignIn}: {tab:string
     <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search jobs" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search jobs, orders…"/></label></div>
     <DataTable
       columns={[
-        { header:'Job / order', cell:(j)=><><strong className="product-name">{j.productId||'Job'}</strong><small className="cell-sub">{j.id} · order {j.orderId}</small></> },
+        { header:'Job / order', cell:(j)=>{const c=jobContext(j);return <><strong className="product-name">{c.orderNumber} · {c.itemLabel}</strong><small className="cell-sub">{c.customer} · {j.id}</small></>;},},
         { header:'Qty', align:'right', cell:(j)=><span className="amount-cell">{j.quantity}</span> },
         { header:'Recipe', cell:(j)=>j.recipeVersion },
         { header:'Progress', cell:(j)=><div style={{minWidth:90}}><div className="progress-track"><div className="progress-bar" style={{width:`${j.progress}%`}}/></div><small className="cell-sub">{j.progress}% · {JOB_STAGE_LABEL[j.stage]??j.stage}</small></div> },
@@ -203,7 +247,7 @@ export function Production({tab,search,setSearch,onNotice,onSignIn}: {tab:string
     />
     <div className="table-foot"><span>{filtered.length} jobs</span><span>{jobs.filter(j=>j.status==='IN_PRODUCTION').length} in production</span></div>
     <ProductionDetail
-      detail={detail} costs={costs} consumption={consumption} invItems={invItems} busy={busy}
+      detail={detail} ctx={detail?jobContext(detail):null} costs={costs} consumption={consumption} invItems={invItems} busy={busy}
       qc={qc} setQc={setQc} wastage={wastage} setWastage={setWastage}
       materials={materials} setMaterials={setMaterials} matForm={matForm} setMatForm={setMatForm} addMaterial={addMaterial} recordMaterials={recordMaterials}
       onClose={()=>{setDetail(null);setQc(null);setWastage(null);setMaterials([]);setMatForm({itemId:'',quantity:'',notes:''});}} act={act}

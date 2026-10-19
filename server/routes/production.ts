@@ -99,6 +99,16 @@ router.post("/jobs/:id/quality-check", required("production.quality_check"), (re
     updated = { ...job, status: "REWORK_REQUIRED", stage: "QUALITY", progress: 50, updatedAt: new Date().toISOString() };
   }
   store.updateProductionJob(id, updated);
+  if (result === "PASS") {
+    // Orders must follow Production: job Ready for delivery ⇒ the order
+    // switches to Ready (walks the legal status graph, writes history rows).
+    // Non-fatal — the quality check + job write above already persisted.
+    try {
+      businessService.advanceOrderToReadyForDelivery(job, session.userId);
+    } catch {
+      /* Non-fatal: the quality check write above already succeeded. */
+    }
+  }
   store.persist();
   res.json({ job: updated, check });
 });

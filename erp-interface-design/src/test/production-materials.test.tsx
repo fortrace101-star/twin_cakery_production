@@ -7,17 +7,24 @@ import { Production } from "@/components/erp/production-view";
 // materials POST so the submit payload can be asserted without a server.
 // Fixtures live inside vi.hoisted because vi.mock factories are hoisted above
 // top-level consts (ReferenceError: Cannot access 'job' before initialization).
-const { job, qcJob, flour, cream, recordJobMaterialsMock } = vi.hoisted(() => {
+const { job, qcJob, flour, cream, order, customer, product, recordJobMaterialsMock } = vi.hoisted(() => {
   const job = { id: "job-1", orderId: "ord-1", customerId: "cust-1", productId: "prod-choc", variantOptions: "", quantity: 1, recipeVersion: "v1.2", requiredBy: null, requiredAt: null, status: "IN_PRODUCTION", stage: "PRODUCE", progress: 40, notes: "", createdAt: "", updatedAt: "" };
   const qcJob = { ...job, id: "job-2", status: "READY_FOR_QUALITY" };
   const flour = { id: "inv-flour", sku: "ING-001", name: "Wheat flour", category: "Flour", unit: "kg", physicalStock: 10, reorderLevel: 4, supplierId: "", cost: 400, lastUpdated: "" };
   const cream = { id: "inv-cream", sku: "ING-006", name: "Whipping cream", category: "Dairy", unit: "L", physicalStock: 2, reorderLevel: 4, supplierId: "", cost: 650, lastUpdated: "" };
-  return { job, qcJob, flour, cream, recordJobMaterialsMock: vi.fn() };
+  // Order/customer/catalogue fixtures — the board shows the order a job represents.
+  const order = { id: "ord-1", orderNumber: "TC-2001", customerId: "cust-1", items: [{ productId: "prod-choc", variantOptions: "", quantity: 2, unitPrice: 4500 }] };
+  const customer = { id: "cust-1", name: "Ada Okafor" };
+  const product = { id: "prod-choc", name: "Chocolate celebration cake" };
+  return { job, qcJob, flour, cream, order, customer, product, recordJobMaterialsMock: vi.fn() };
 });
 
 vi.mock("@/lib/api", () => ({
   listProductionJobs: vi.fn().mockResolvedValue([job, qcJob]),
   listInventoryItems: vi.fn().mockResolvedValue([flour, cream]),
+  listOrders: vi.fn().mockResolvedValue([order]),
+  listCustomers: vi.fn().mockResolvedValue([customer]),
+  listCatalogueProducts: vi.fn().mockResolvedValue([product]),
   getProductionCosts: vi.fn().mockResolvedValue([]),
   getProductionConsumption: vi.fn().mockResolvedValue([]),
   recordJobMaterials: recordJobMaterialsMock,
@@ -50,6 +57,11 @@ function selectItem(name: string) {
 describe("Production job materials entry (used materials → inventory)", () => {
   it("offers the materials entry for an in-production job, with live stock in the options", async () => {
     await openJob("job-1");
+    // The rows/dialog present the order the job represents: order no · item, customer · job id.
+    // Both fixture jobs share order TC-2001, so the primary line appears on both rows.
+    expect(screen.getAllByText("TC-2001 · 2× Chocolate celebration cake")).toHaveLength(2);
+    expect(screen.getByText("Ada Okafor · job-1")).toBeInTheDocument();
+    expect(screen.getByText("Order TC-2001 — Chocolate celebration cake")).toBeInTheDocument();
     expect(screen.getByLabelText("Ingredient")).toBeInTheDocument();
     expect(screen.getByLabelText("Quantity used")).toBeInTheDocument();
     expect(screen.getByText(/Wheat flour \(kg\) · 10 in stock/)).toBeInTheDocument();

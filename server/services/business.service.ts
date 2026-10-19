@@ -300,6 +300,13 @@ export class BusinessService {
         deepLink: `/workspace/production/jobs/${jobId}`,
         createdBy: checkedBy,
       }, { userId: checkedBy, role: checkedBy, isAdmin: true });
+      // Orders must follow Production: the job just became Ready for delivery,
+      // so the order switches to Ready too (idempotent, non-fatal).
+      try {
+        this.advanceOrderToReadyForDelivery(job, checkedBy);
+      } catch {
+        /* Non-fatal: the quality check + job write above already persisted. */
+      }
     } else {
       job.status = "REWORK_REQUIRED";
       job.stage = "QUALITY";
@@ -318,6 +325,59 @@ export class BusinessService {
       }, { userId: checkedBy, role: checkedBy, isAdmin: true });
     }
     return { job, check };
+  }
+
+  /**
+   * Production → Orders sync: the moment a job is marked Ready for delivery
+   * (quality check passed), its order must switch to Ready for delivery too —
+   * otherwise Orders keeps reading "In production" while Production says the
+   * job is ready. The order walks FORWARD through the legal status graph
+   * (CONFIRMED → PRODUCTION_REVIEW → READY_FOR_PRODUCTION → IN_PRODUCTION →
+   * QUALITY_CHECK → READY_FOR_DELIVERY; a rework order re-enters at
+   * QUALITY_CHECK), writing one history row per hop so every jump is one
+   * validateOrderStatusTransition would accept, plus a single audit row for
+   * the final move. Idempotent and non-fatal: orders already at/past Ready,
+   * cancelled, or not yet in the production leg are left untouched, and a
+   * missing order never fails the quality check that triggered this.
+   */
+  advanceOrderToReadyForDelivery(job: ProductionJob, changedBy: string): Order | undefined {
+    const order = store.orders().find((o) => o.id === job.orderId);
+    if (!order) return undefined;
+    const atOrPastReady: OrderStatus[] = ["READY_FOR_DELIVERY", "AWAITING_COLLECTION", "IN_TRANSIT", "COMPLETED_DELIVERED", "CANCELLED"];
+    if (atOrPastReady.includes(order.status)) return order;
+    const chain: OrderStatus[] = ["CONFIRMED", "PRODUCTION_REVIEW", "READY_FOR_PRODUCTION", "IN_PRODUCTION", "QUALITY_CHECK", "READY_FOR_DELIVERY"];
+    // Only the confirmed production leg walks forward; pre-confirm states
+    // (inquiry/quotation/awaiting) are never invented by production.
+    if (order.status !== "REWORK_REQUIRED" && !chain.includes(order.status)) return order;
+    const originalStatus = order.status;
+    let current = order.status;
+    for (let hops = 0; current !== "READY_FOR_DELIVERY" && hops <= chain.length; hops++) {
+      const idx = chain.indexOf(current);
+      const next: OrderStatus | undefined =
+        current === "REWORK_REQUIRED" ? "QUALITY_CHECK"
+        : idx >= 0 && idx < chain.length - 1 ? chain[idx + 1]
+        : undefined;
+      if (!next) break;
+      this.validateOrderStatusTransition(current, next); // only legal hops ship
+      const reason = next === "READY_FOR_DELIVERY"
+        ? `Quality check passed for job ${job.id} — order ready for delivery`
+        : `Production sync for job ${job.id} (quality check passed)`;
+      const persisted = store.updateOrderStatus(order.id, next, changedBy, reason);
+      if (!persisted) break;
+      current = next;
+    }
+    if (current === "READY_FOR_DELIVERY" && originalStatus !== "READY_FOR_DELIVERY") {
+      store.createAuditLog({
+        orderId: order.id,
+        actor: changedBy,
+        action: "order:status_changed",
+        previousStatus: originalStatus,
+        newStatus: "READY_FOR_DELIVERY",
+        reason: `Quality check passed for job ${job.id} — order ready for delivery`,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    return store.orders().find((o) => o.id === job.orderId);
   }
 
   recordWastage(jobId: string, itemId: string, quantity: number, unit: string, reason: string, cost: number, recordedBy: string): void {
