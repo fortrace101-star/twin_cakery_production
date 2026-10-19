@@ -29,12 +29,12 @@ const PERMS = [
   "finance.view","finance.record_payment","finance.record_expense","finance.view_reports",
   "payments.view","payments.record",
   "deliveries.view","deliveries.create","deliveries.dispatch","deliveries.complete","deliveries.cancel",
-  "feedback.view","feedback.create","feedback.resolve",
+  "feedback.view","feedback.create","feedback.resolve","feedback.update",
   "users.manage","roles.manage","settings.manage","audit.view",
   "catalogue.view","catalogue.create","catalogue.edit","catalogue.archive",
   "content.view","content.create","content.edit",
-  "quotations.view","quotations.create","quotations.accept",
-  "inquiries.view","inquiries.create","sales.analytics",
+  "quotations.view","quotations.create","quotations.accept","quotations.edit",
+  "inquiries.view","inquiries.create","inquiries.edit","sales.analytics",
 ];
 
 export async function seed(): Promise<void> {
@@ -73,6 +73,44 @@ export async function seed(): Promise<void> {
       `rp-admin-${i + 1}`,
       `perm-${i + 1}`,
     ]);
+  }
+  // Non-admin roles need their grants too — without them every required()
+  // route 403s for Production/Sales/CSR users (and a permission-aware nav
+  // would hide the whole workspace). Keys mirror migration 014.
+  const roleGrants: Record<string, string[]> = {
+    "role-production": [
+      "production.view","production.schedule","production.start","production.complete",
+      "production.quality_check","production.record_wastage","production.record_consumption",
+      "inventory.view","inventory.adjust","inventory.reserve","inventory.consume",
+      "purchasing.view","purchasing.create","purchasing.receive",
+      "deliveries.view","deliveries.create","deliveries.dispatch","deliveries.complete","deliveries.cancel",
+      "orders.view","orders.confirm","customers.view","catalogue.view",
+    ],
+    "role-sales": [
+      "orders.view","orders.create","orders.cancel","orders.confirm",
+      "quotations.view","quotations.create","quotations.accept","quotations.edit",
+      "inquiries.view","inquiries.create","inquiries.edit",
+      "customers.view","customers.create","customers.edit",
+      "feedback.view","feedback.create",
+      "sales.analytics","payments.view","payments.record",
+      "deliveries.view","catalogue.view",
+    ],
+    "role-csr": [
+      "orders.view","inquiries.view","inquiries.create",
+      "customers.view","customers.create","customers.interact",
+      "feedback.view","feedback.create","feedback.update","quotations.view","catalogue.view",
+    ],
+  };
+  for (const [roleId, keys] of Object.entries(roleGrants)) {
+    for (const key of keys) {
+      const perm = (await pool.query(`SELECT id FROM permissions WHERE key = $1`, [key])).rows[0];
+      if (!perm) continue;
+      await pool.query(
+        `INSERT INTO role_permissions (id, role_id, permission_id) VALUES ($1,$2,$3)
+         ON CONFLICT (role_id, permission_id) DO NOTHING`,
+        [`rp-${roleId.replace("role-", "")}-${perm.id}`, roleId, perm.id],
+      );
+    }
   }
   const customers = [
     ["cust-sarah","Sarah Mwangi","+256 700 000 011","sarah@example.com"],

@@ -49,6 +49,8 @@ type WorkspaceContextValue = {
   user: ServerUser | null;
   connected: boolean;
   authError: string;
+  /** Granted permission keys for the signed-in user; null in preview mode. */
+  permissions: string[] | null;
   signIn: (username: string, password: string) => Promise<boolean>;
   signOut: () => void;
   addOrder: (order: Order, phone?: string) => void;
@@ -86,6 +88,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<ServerUser | null>(null);
   const [authError, setAuthError] = useState("");
+  const [permissions, setPermissions] = useState<string[] | null>(null);
 
   // Latest raw server orders, so we can map a UI orderNumber back to its
   // server `id` (e.g. `TC-1048` → `ord-1048`) when writing status changes.
@@ -142,7 +145,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       // api.ts setToken). If none is present we stay on sample data.
       const session = await me();
       if (!aliveRef.current) return;
-      if (session) setUser(session.user);
+      if (session) {
+        setUser(session.user);
+        setPermissions(session.permissions ?? []);
+      }
       await refresh();
     })();
   }, [refresh]);
@@ -154,6 +160,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         const result = await login(username, password);
         if (!aliveRef.current) return true;
         setUser(result.user);
+        // login() carries no permission list — pull it via me() so the
+        // permission-aware navigation can filter immediately after sign-in.
+        const session = await me();
+        if (!aliveRef.current) return true;
+        setPermissions(session?.permissions ?? []);
         await refresh();
         return true;
       } catch (err) {
@@ -169,6 +180,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     void logout();
     setUser(null);
     setAuthError("");
+    setPermissions(null);
     setOrders(initialOrders);
     setAudit([]);
   }, []);
@@ -268,6 +280,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     user,
     connected: user !== null,
     authError,
+    permissions,
     signIn,
     signOut,
     addOrder,

@@ -11,6 +11,40 @@ export const modules = [
   { id: 'analytics', label: 'Analytics', icon: 'ChartNoAxesCombined', group: 'BUSINESS', tabs: ['Overview', 'Order history', 'Sales trends', 'Customers', 'Product performance'] },
   { id: 'administration', label: 'Settings', icon: 'Settings', group: 'BUSINESS', tabs: ['Business settings', 'Users', 'Roles', 'Permissions', 'Audit log'] },
 ] as const;
+
+/**
+ * Permission required to see each module in the navigation (E5:
+ * "Navigation must be permission-aware", Updated doc §4). The Dashboard
+ * entry lives outside `modules` and stays visible for everyone.
+ */
+export const MODULE_PERMISSIONS: Record<string, string> = {
+  crm: 'customers.view',
+  sales: 'orders.view',
+  catalogue: 'catalogue.view',
+  webapp: 'content.view',
+  production: 'production.view',
+  inventory: 'inventory.view',
+  purchasing: 'purchasing.view',
+  delivery: 'deliveries.view',
+  finance: 'finance.view',
+  analytics: 'sales.analytics',
+  administration: 'users.manage',
+};
+
+/**
+ * Modules a permission set may see.
+ * - `null` (interface preview / not signed in) → show everything.
+ * - An array → keep every module whose mapped permission is granted
+ *   (modules without a mapping are always visible).
+ */
+export function visibleModules<T extends { id: string }>(mods: readonly T[], permissions: string[] | null): readonly T[] {
+  if (permissions === null) return mods;
+  return mods.filter((m) => {
+    const need = MODULE_PERMISSIONS[m.id];
+    return !need || permissions.includes(need);
+  });
+}
+
 export type Order = { id: string; customer: string; initials: string; product: string; options: string; date: string; time: string; amount: number; status: string; payment: string; paymentNote?: string; delivery: string; channel: string; followUpCompletedAt?: string | null; /** Amount paid at order creation / last payment record. */ paidAmount?: number; /** Delivery location fields (Stage 5). */ deliveryLocation?: string; locationNote?: string; };
 export const initialOrders: Order[] = [
   { id: 'TC-1048', customer: 'Sarah Mwangi', initials: 'SM', product: 'Chocolate celebration cake', options: '2 kg · Chocolate · Birthday', date: '2026-10-07', time: '10:00 AM', amount: 4500, paidAmount: 1500, status: 'In production', payment: 'Partially paid', delivery: 'Pending', channel: 'WhatsApp' },

@@ -1318,17 +1318,29 @@ export async function listNotifications(limit = 50): Promise<ServerNotification[
 
 export async function markAsRead(notificationId: string, userId?: string): Promise<boolean> {
   const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
-  return safe(() => request<boolean>(`/notifications/${notificationId}/read${q}`), false);
+  // Server route is PATCH /notifications/:id/read → { ok: true }.
+  return safe(async () => {
+    const r = await request<{ ok: boolean }>(`/notifications/${notificationId}/read${q}`, { method: "PATCH" });
+    return r?.ok === true;
+  }, false);
 }
 
 export async function markAllAsRead(userId?: string): Promise<number> {
   const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
-  return safe(() => request<number>(`/notifications/mark-all-read${q}`), 0);
+  // Server route is POST /notifications/mark-all-read → { ok, count }.
+  return safe(async () => {
+    const r = await request<{ ok: boolean; count: number }>(`/notifications/mark-all-read${q}`, { method: "POST" });
+    return r?.count ?? 0;
+  }, 0);
 }
 
 export async function getUnreadCount(userId?: string): Promise<number> {
   const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
-  return safe(() => request<number>(`/notifications/unread-count${q}`), 0);
+  // Server responds { count } — unwrap it (a raw object would break `> 0`).
+  return safe(async () => {
+    const r = await request<number | { count: number }>(`/notifications/unread-count${q}`);
+    return typeof r === "number" ? r : (r?.count ?? 0);
+  }, 0);
 }
 
 export async function getNotificationPreferences(userId?: string): Promise<ServerNotificationPreference[]> {
@@ -1344,4 +1356,117 @@ export async function updateNotificationPreferences(
     request<ServerNotificationPreference>("/notifications/preferences", { method: "PATCH", body: { userId, eventTypeId: payload.eventTypeId, channel: payload.channel } }),
     null,
   );
+}
+
+/* -- E4/E5: live analytics dashboards ------------------------------------ */
+
+export interface ServerDashboardAnalytics {
+  metrics: {
+    todayOrders: number;
+    ordersInProduction: number;
+    ordersDueToday: number;
+    pendingInquiries: number;
+    pendingQuotations: number;
+    outstandingPayments: number;
+    lowStockItems: number;
+    todayRevenue: number;
+    monthlyRevenue: number;
+    directCosts: number;
+    grossProfit: number;
+    expenses: number;
+    deliveryStatus: string;
+    recentFeedback: string;
+  };
+  revenueTrend: number[];
+  expensesTrend: number[];
+  trendLabels: string[];
+  orderStatusBreakdown: Record<string, number>;
+  productionSummary: Array<{ jobId: string; status: string; stage: string; progress: number; quantity: number }>;
+  inventorySummary: Array<{ itemId: string; name: string; availableStock: number; lowStock: boolean }>;
+}
+
+export interface ServerSalesAnalytics {
+  inquiries: number;
+  lostInquiries: number;
+  quotations: number;
+  acceptedQuotations: number;
+  confirmedOrders: number;
+  conversionRate: number;
+  revenue: number;
+  averageOrderValue: number;
+  repeatCustomerRate: number;
+  customerLifetimeValue: number;
+  totalCustomers: number;
+  bestProducts: Array<{ productId: string; name: string; revenue: number; orders: number }>;
+  bestCategories: Array<{ name: string; revenue: number }>;
+}
+
+/** GET /analytics/dashboard — RBAC: sales.analytics; null when unavailable. */
+export async function getDashboardAnalytics(): Promise<ServerDashboardAnalytics | null> {
+  return safe(() => request<ServerDashboardAnalytics>("/analytics/dashboard"), null);
+}
+
+/** GET /analytics/sales — commercial funnel/AOV/repeat metrics. */
+export async function getSalesAnalytics(): Promise<ServerSalesAnalytics | null> {
+  return safe(() => request<ServerSalesAnalytics>("/analytics/sales"), null);
+}
+
+/* -- E5: RBAC administration (users / roles / permissions) --------------- */
+
+export interface ServerRbacUser {
+  id: string;
+  username: string;
+  displayName: string;
+  email: string;
+  phone: string;
+  role: string;
+  isAdmin: boolean;
+  status: string;
+  createdAt: string;
+}
+
+export interface ServerRole {
+  id: string;
+  name: string;
+  label: string;
+  active: boolean;
+}
+
+export interface ServerPermission {
+  id: string;
+  key: string;
+}
+
+export async function listRbacUsers(): Promise<ServerRbacUser[]> {
+  return safe(() => request<ServerRbacUser[]>("/rbac/users"), []);
+}
+
+export async function listRbacRoles(): Promise<ServerRole[]> {
+  return safe(() => request<ServerRole[]>("/rbac/roles"), []);
+}
+
+export async function listRbacPermissions(): Promise<ServerPermission[]> {
+  return safe(() => request<ServerPermission[]>("/rbac/permissions"), []);
+}
+
+/** Permission keys currently granted to a role (RBAC: roles.manage). */
+export async function getRolePermissionKeys(roleId: string): Promise<string[]> {
+  return safe(async () => {
+    const r = await request<{ role: ServerRole; permissions: string[] }>(`/rbac/${roleId}/permissions`);
+    return r?.permissions ?? [];
+  }, []);
+}
+
+export async function grantRolePermission(roleId: string, permissionId: string): Promise<boolean> {
+  return safe(async () => {
+    const r = await request<{ ok: boolean }>(`/rbac/${roleId}/permissions/${permissionId}`, { method: "POST" });
+    return r?.ok === true;
+  }, false);
+}
+
+export async function revokeRolePermission(roleId: string, permissionId: string): Promise<boolean> {
+  return safe(async () => {
+    const r = await request<{ ok: boolean }>(`/rbac/${roleId}/permissions/${permissionId}`, { method: "DELETE" });
+    return r?.ok === true;
+  }, false);
 }

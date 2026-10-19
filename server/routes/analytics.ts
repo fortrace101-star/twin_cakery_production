@@ -75,6 +75,17 @@ router.get("/dashboard", required("sales.analytics"), (_req, res) => {
     revenueTrend.push(bucket);
     trendLabels.push(d.toLocaleString("en-UG", { month: "short", year: "2-digit" }));
   }
+  // Paired expense trend so the revenue chart can render both series honestly
+  // instead of the old hard-coded 42% expense bars (E4 remainder).
+  const expensesTrend: number[] = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const bucket = expenses.filter((e) => {
+      const ed = new Date(e.createdAt || "");
+      return !isNaN(ed.getTime()) && ed.getMonth() === d.getMonth() && ed.getFullYear() === d.getFullYear();
+    }).reduce((s, e) => s + (e.amount || 0), 0);
+    expensesTrend.push(bucket);
+  }
 
   const orderStatusBreakdown: Record<string, number> = {};
   for (const o of orders) orderStatusBreakdown[o.status] = (orderStatusBreakdown[o.status] || 0) + 1;
@@ -135,6 +146,7 @@ router.get("/dashboard", required("sales.analytics"), (_req, res) => {
       recentFeedback: feedback.slice(0, 5).map((f) => f.comment).join("; "),
     } as import("../database/types.js").Metrics,
     revenueTrend,
+    expensesTrend,
     trendLabels,
     orderStatusBreakdown,
     productionSummary,

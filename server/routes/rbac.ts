@@ -24,7 +24,18 @@ router.get("/users", required("users.manage"), (req, res) => {
   const role = req.query.role as string | undefined;
   let list = users;
   if (role) list = list.filter((u) => u.role === role);
-  res.json(list);
+  // Safe projection only — passwordHash / notify internals never leave the API.
+  res.json(list.map((u) => ({
+    id: u.id,
+    username: u.username,
+    displayName: u.displayName,
+    email: u.email,
+    phone: u.phone,
+    role: u.role,
+    isAdmin: u.isAdmin,
+    status: u.status,
+    createdAt: u.createdAt,
+  })));
 });
 
 router.get("/roles", required("roles.manage"), (req, res) => {
@@ -52,6 +63,18 @@ router.post("/:id/permissions/:permissionId", required("roles.manage"), (req, re
   const perm = store.permissions().find((p) => p.id === permissionId);
   if (!perm) throw new NotFoundError("Permission not found");
   rbacService.assignPermissionToRole(role.id, perm.id);
+  store.persist();
+  res.json({ ok: true });
+});
+
+// Revoke — the roles editor needs the inverse of the grant above (E5).
+router.delete("/:id/permissions/:permissionId", required("roles.manage"), (req, res) => {
+  const id = String(req.params.id); const permissionId = String(req.params.permissionId);
+  const role = store.roles().find((r) => r.id === id);
+  if (!role) throw new NotFoundError("Role not found");
+  const perm = store.permissions().find((p) => p.id === permissionId);
+  if (!perm) throw new NotFoundError("Permission not found");
+  rbacService.removePermissionFromRole(role.id, perm.id);
   store.persist();
   res.json({ ok: true });
 });

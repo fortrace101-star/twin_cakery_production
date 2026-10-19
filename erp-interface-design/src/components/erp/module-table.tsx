@@ -19,7 +19,9 @@ import {
   type ServerCatalogueCategory, type ServerCatalogueProduct, type ServerCatalogueType,
   listProductionJobs, startProductionJob, completeProductionJob, recordQualityCheck, recordProductionWastage, getProductionCosts, getProductionConsumption,
   listInventoryItems, getInventoryLedger,
+  listRbacUsers, listRbacRoles, listRbacPermissions, getRolePermissionKeys, grantRolePermission, revokeRolePermission,
   type ServerProductionJob, type ServerProductionCost, type ServerProductionConsumption, type ServerInventoryItem, type ServerInventoryTransaction,
+  type ServerRbacUser, type ServerRole, type ServerPermission,
 } from "@/lib/api";
 export function orderRowTone(o: Order): string {
   return `order-row-tint tone-${tone(o.status)}`;
@@ -352,4 +354,47 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
   return <section className="panel module-table"><div className="panel-heading"><div><h2>{tab}</h2><p>{module==='inventory'?'Stock quantities reflect opening, purchases, adjustments, usage and wastage.':`${rows.length} ${tab.toLowerCase()} in your workspace`}</p></div><Button variant="outline" onClick={()=>onNotice('Sample workspace — live records are not connected')}><Plus/>{module==='purchasing'?'Create purchase order':module==='inventory'?'Record adjustment':'Add record'}</Button></div><div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label={`Search ${tab}`} value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Search ${tab.toLowerCase()}...`}/></label><label className="filter-select"><SlidersHorizontal size={14}/><select aria-label="Filter records" value={filter} onChange={e=>setFilter(e.target.value)}><option>All records</option>{Array.from(new Set(moduleRows(module,tab,orders).map(r=>r.status))).map(s=><option key={s}>{s}</option>)}</select></label></div><DataTable columns={columns} rows={rows} rowKey={(r)=>r.id} rowClassName={(r)=>`order-row-tint tone-${tone(r.status)}`} onRowActivate={(r)=>setRecord(r)} stickyHeader density={density} empty={<div className="empty-state"><Search/><h3>No matching records</h3><p>Try a different search or filter.</p></div>}/><div className="table-foot"><span>{rows.length} records</span><span>October 2026</span></div><Dialog open={Boolean(record)} onOpenChange={v=>{if(!v)setRecord(null)}}><DialogContent><DialogTitle>{record?.name}</DialogTitle><DialogDescription>{record?.id} · {tab}</DialogDescription><div className="configuration-list"><p><span>Details</span><strong>{record?.detail}</strong></p><p><span>{headings[1]}</span><strong>{record?.secondary}</strong></p><p><span>{headings[2]}</span><strong>{record?.value}</strong></p>{record&&<p><span>Status</span><Status value={record.status}/></p>}</div>{module==='inventory'&&<><h3 className="text-sm font-semibold">Stock ledger</h3><div className="configuration-list"><p><span>Opening stock</span><strong>20 kg</strong></p><p><span>Purchase receipt</span><strong>+10 kg</strong></p><p><span>Production consumption</span><strong>−21 kg</strong></p><p><span>Recorded wastage</span><strong>−1 kg</strong></p></div><p className="text-xs text-muted-foreground">Illustrative transaction breakdown for all-purpose flour.</p></>}{module==='sales'&&<Button onClick={()=>{const o=orders.find(o=>o.customer===record?.name);if(o){setRecord(null);onSelect(o)}}}>Open related order<ArrowRight/></Button>}</DialogContent></Dialog></section>
 }
 
-export function Administration({tab,audit,onNotice}: {tab:string;audit:string[];onNotice:(s:string)=>void}){const [name,setName]=useState('Twin Cakery Bakery');const [slogan,setSlogan]=useState('Taste the secret');return <section className="panel settings-panel"><div className="panel-heading"><h2>{tab}</h2></div>{tab==='Business settings'?<form className="erp-form settings-form" onSubmit={e=>{e.preventDefault();onNotice('Settings updated for this preview session')}}><label>Business name<input value={name} onChange={e=>setName(e.target.value)} required maxLength={100}/></label><label>Slogan<input value={slogan} onChange={e=>setSlogan(e.target.value)} maxLength={150}/></label><div className="form-row"><label>Currency<select><option>UGX — Ugandan shilling</option><option>USD — US dollar</option><option>TZS — Tanzanian shilling</option></select></label><label>Timezone<select><option>Africa/Kampala (UTC+3)</option><option>UTC</option></select></label></div><Button type="submit"><Check/>Save changes</Button></form>:tab==='Audit log'?<div className="audit-list">{audit.map((a,i)=><p className="audit-entry" key={i}><Check size={16}/><span>{a}<small>07 Oct 2026 · Preview session</small></span></p>)}</div>:<div className="role-table">{(tab==='Users'?['Alex Morgan · Proprietor','Susan Wanjiru · Production','Daniel Otieno · Sales','Emily Njeri · CSR']:tab==='Roles'?['Admin / Proprietor','Production Manager','Sales Manager','Customer Service Representative']:['orders.view','orders.create','orders.confirm','production.manage','inventory.adjust','finance.view']).map((r,i)=><div key={r}><span className="customer-avatar avatar-0"><Users size={17}/></span><strong>{r}</strong><Status value="Active"/><span className="text-xs text-muted-foreground">{i===0?'All permissions':'Assigned permissions'}</span></div>)}</div>}</section>}
+export function Administration({tab,audit,onNotice,connected=false}: {tab:string;audit:string[];onNotice:(s:string)=>void;connected?:boolean}){
+  const [name,setName]=useState('Twin Cakery Bakery');
+  const [slogan,setSlogan]=useState('Taste the secret');
+  // E5: live RBAC administration — Users / Roles / Permissions read the real
+  // tables through /rbac/* (roles.manage / users.manage) instead of the old
+  // hard-coded sample rows.
+  const [users,setUsers]=useState<ServerRbacUser[]>([]);
+  const [roles,setRoles]=useState<ServerRole[]>([]);
+  const [perms,setPerms]=useState<ServerPermission[]>([]);
+  const [selRole,setSelRole]=useState<string|null>(null);
+  const [granted,setGranted]=useState<string[]>([]);
+  useEffect(()=>{
+    let alive=true;
+    void (async()=>{
+      if(tab==='Users'){ setUsers(await listRbacUsers()); }
+      else if(tab==='Roles'||tab==='Permissions'){ const [r,p]=await Promise.all([listRbacRoles(),listRbacPermissions()]); if(!alive)return; setRoles(r); setPerms(p); }
+    })();
+    return ()=>{alive=false;};
+  },[tab]);
+  useEffect(()=>{
+    if(!selRole){ setGranted([]); return; }
+    let alive=true;
+    void (async()=>{ const keys=await getRolePermissionKeys(selRole); if(alive) setGranted(keys); })();
+    return ()=>{alive=false;};
+  },[selRole]);
+  const role=roles.find(r=>r.id===selRole)??null;
+  const toggle=async(key:string,permId:string)=>{
+    if(!selRole) return;
+    const has=granted.includes(key);
+    setGranted(prev=>has?prev.filter(k=>k!==key):[...prev,key]);
+    const ok=has?await revokeRolePermission(selRole,permId):await grantRolePermission(selRole,permId);
+    if(!ok){ setGranted(prev=>has?[...prev,key]:prev.filter(k=>k!==key)); onNotice('Permission change failed — check your permissions'); return; }
+    onNotice(has?`${key} revoked${role?` from ${role.name}`:''}`:`${key} granted${role?` to ${role.name}`:''}`);
+  };
+  const permGroups=perms.reduce<Record<string,ServerPermission[]>>((acc,p)=>{const k=p.key.split('.')[0]||'other';(acc[k]=acc[k]||[]).push(p);return acc;},{});
+  const empty=(what:string,perm:string)=><p className="cell-sub">No {what} to display — this view requires the {perm} permission.</p>;
+  return <section className="panel settings-panel"><div className="panel-heading"><h2>{tab}</h2></div>
+  {tab==='Business settings'?<form className="erp-form settings-form" onSubmit={e=>{e.preventDefault();onNotice(connected?'Settings saved':'Settings updated for this preview session')}}><label>Business name<input value={name} onChange={e=>setName(e.target.value)} required maxLength={100}/></label><label>Slogan<input value={slogan} onChange={e=>setSlogan(e.target.value)} maxLength={150}/></label><div className="form-row"><label>Currency<select><option>UGX — Ugandan shilling</option><option>USD — US dollar</option><option>TZS — Tanzanian shilling</option></select></label><label>Timezone<select><option>Africa/Kampala (UTC+3)</option><option>UTC</option></select></label></div><Button type="submit"><Check/>Save changes</Button></form>
+  :tab==='Audit log'?<div className="audit-list">{audit.map((a,i)=><p className="audit-entry" key={i}><Check size={16}/><span>{a}<small>{connected?'Saved to the audit log':'Preview session'}</small></span></p>)}</div>
+  :tab==='Users'?(users.length===0?empty('users','users.manage'):<div className="role-table">{users.map(u=><div key={u.id}><span className="customer-avatar avatar-0"><Users size={17}/></span><strong>{u.displayName||u.username}</strong><Status value={u.status||'Active'}/><span className="text-xs text-muted-foreground">{u.username} · {u.email} · {u.role}</span></div>)}</div>)
+  :tab==='Roles'?(roles.length===0?empty('roles','roles.manage'):<div className="role-table">{roles.map(r=><div key={r.id} className={`role-row${selRole===r.id?' selected':''}`}><span className="customer-avatar avatar-0"><Users size={17}/></span><strong>{r.name}</strong><Status value={r.active?'Active':'Inactive'}/><span className="text-xs text-muted-foreground">{r.label}<Button variant="link" onClick={()=>{setSelRole(r.id);onNotice(`${r.name} selected — open the Permissions tab to edit its grants`);}}>{selRole===r.id?'Selected':'Manage permissions'}</Button></span></div>)}</div>)
+  :(perms.length===0?empty('permissions','roles.manage'):!role?<p className="cell-sub">Select a role on the Roles tab to grant or revoke its permissions.</p>:<div><p className="cell-sub">Editing permissions for <strong>{role.name}</strong> — click a chip to toggle it.</p><div className="perm-groups">{Object.entries(permGroups).map(([g,list])=><div className="perm-group" key={g}><h4>{g}</h4><div className="perm-chips">{list.map(p=><button key={p.id} type="button" className={`perm-chip${granted.includes(p.key)?' granted':''}`} aria-pressed={granted.includes(p.key)} onClick={()=>{void toggle(p.key,p.id);}}>{p.key}</button>)}</div></div>)}</div></div>)}
+  </section>;
+}
