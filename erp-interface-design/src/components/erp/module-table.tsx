@@ -83,7 +83,8 @@ export function OrderTable({orders,onSelect,compact=false}: {orders:Order[];onSe
 
   if(!compact) columns.push({ header:'Due date', cell:(o)=><><strong className="product-name">{o.date}</strong><small className="cell-sub">{o.time}</small></> });
 
-  columns.push({ header:'Amount', align:'right', sortKey:'amount', cell:(o)=><span className="amount-cell">{money(o.amount)}</span> });
+  // Orders with any payment show the amount collected so far under the total.
+  columns.push({ header:'Amount', align:'right', sortKey:'amount', cell:(o)=><span className="amount-cell">{money(o.amount)}{(o.paidAmount??0)>0&&<small className="paid-bracket" title="Amount paid so far">({money(o.paidAmount??0)} paid)</small>}</span> });
 
   columns.push({ header:'Order status', cell:(o)=><Status value={o.status}/> });
 

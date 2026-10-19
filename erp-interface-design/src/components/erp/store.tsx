@@ -53,7 +53,7 @@ type WorkspaceContextValue = {
   signOut: () => void;
   addOrder: (order: Order, phone?: string) => void;
   /** Records the order stage and (optionally) its payment status & paid amount in one write. */
-  updateOrder: (id: string, status: string, payment?: string, paidDelta?: number) => void;
+  updateOrder: (id: string, status: string, payment?: string, paidDelta?: number, payMeta?: { method?: string; receivedBy?: string; reference?: string; notes?: string }) => void;
   /** Documents the post-delivery CRM follow-up for a completed order. */
   completeFollowUp: (id: string) => void;
   refresh: () => void;
@@ -211,10 +211,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const updateOrder = useCallback((id: string, status: string, payment?: string, paidDelta?: number) => {
+  const updateOrder = useCallback((id: string, status: string, payment?: string, paidDelta?: number, payMeta?: { method?: string; receivedBy?: string; reference?: string; notes?: string }) => {
     // Optimistic label update so the dialog/table reflects the change instantly.
     // A recorded payment also accumulates into paidAmount (capped at the total)
-    // so the bracketed "amount paid" on the table and modal stays truthful.
+    // so the bracketed "amount paid" on the modal and the resolved payment
+    // status stay truthful.
     // Reaching "Completed / Delivered" flips the delivery column too — the
     // order has been handed over, so it must read as delivered everywhere.
     const delivered = status === "Completed / Delivered";
@@ -229,7 +230,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           // Land the payment in the server ledger (POST /payments) so it
           // survives refreshes; the server derives PARTIALLY_PAID/PAID from
           // the ledger (spec §14), which refresh() then re-reads.
-          await recordPayment({ orderId: server.id, amount: paidDelta, method: "Cash", receivedBy: user?.id ?? "" });
+          await recordPayment({ orderId: server.id, amount: paidDelta, method: payMeta?.method || "Cash", receivedBy: payMeta?.receivedBy || user?.id || "", ...(payMeta?.reference ? { reference: payMeta.reference } : {}), ...(payMeta?.notes ? { notes: payMeta.notes } : {}) });
         }
         await updateOrderApi(server.id, {
           status: orderStatusEnum(status),
