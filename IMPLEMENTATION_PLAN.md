@@ -1,8 +1,8 @@
 # Twin Cakery ERP — Implementation Plan
 
-> Version: 1.1-in-progress | Date: 2026-10-08 | Branch: `financials` | App: `erp/erp-interface-design` → target `erp/` root + `erp/erp-interface-design/` frontend
+> Version: 1.2 | Date: 2026-10-19 | Branch: `main` | App: `erp/erp-interface-design` → target `erp/` root + `erp/erp-interface-design/` frontend
 > Decisions confirmed: local Postgres, raw `pg`, pure React+Vite+TS, remove Lovable + all references. JWT default pending.
-> Progress: Phase 0 DONE (build+test green), Phase C DONE (server at root, C-03 proxy live-check open), Phase D **DONE incl. D-06 live-persist gate** (2026-10-09: `flush()` + response-hold middleware ⇒ 2xx = committed; `server/_d06_gate.ps1` PASS). Next: Phase A.
+> Progress 2026-10-19: Phases **0 / A / B / C / D DONE** (D-06 + C-03 gates pass). Phase **E: E1–E5 DONE** (E3 gate 22/22 on 10-16; E4 gate `_e4_gate.ps1` PASS 10-19; E5 permission-aware nav + RBAC admin + live analytics 10-19). Next: **E6** (public site + order form + WhatsApp stub) → **E7** (Staff & Salary) → **Phase F** (hardening/handover).
 > Currency decision: switch display + data from KSh/KES (Kenya, en-KE, Nairobi) to UGX/USh (Uganda, en-UG, Kampala/Africa/Kampala) — see §9.
 > References: `Twin_Cakery_ERP_Architecture Updated.md` (**3325 lines, GOVERNING contract since 2026-10-09** — adds §5 customer order history/reminders, §18 Staff & Salary, rules 26–34; contains duplicate `## 19` heading — old §18 renumbered, numbering bug noted), `docs/erp-specification.md` (2541 lines, superseded baseline), `erp_design.md` (586 lines), `erp-design-system.md`, `DashboardDesignPattern.md`, `dark-mode-light-mode-guide.md` (Orizon + light/dark avif), `Twin_Cakery_ERP_Architecture (1).md` (original)
 > Goals: (1) Standard ERP design (2) Light + Dark themes (3) Move `server/` to `erp/` root (4) Create + connect `twin_cakery` Postgres DB + seed (5) Implement spec gaps (6) Migrate to pure React + Vite + TS, zero TanStack/Lovable.
