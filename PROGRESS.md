@@ -1,4 +1,4 @@
-﻿# Twin Cakery ERP — Progress Tracker
+# Twin Cakery ERP — Progress Tracker
 
 > Companion to `IMPLEMENTATION_PLAN.md v1.0-draft`. Update this file on every work session. Status legend: `[ ] todo` `[~] in-progress` `[x] done` `[-] deferred`.
 
@@ -115,4 +115,3 @@
 - After each session append a row to §6 log, flip checkboxes, bump `Overall` counts. Keep `IMPLEMENTATION_PLAN.md` version in sync (append `1.1, 1.2…` entries).
 
 
-\n\n| 2026-10-20 | **E6 order proposals backend COMPLETE.** | server tsc OK; vitest 61/61; migration 016 created; store + types + router + public route all consistent | Next: E6 frontend review UI -> E7 (staff & salary) -> F |

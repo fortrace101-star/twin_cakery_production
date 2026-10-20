@@ -23,8 +23,6 @@ import type {
   Order,
   OrderCustomerSnapshot,
   OrderItem,
-  OrderProposal,
-  OrderProposalItem,
   OrderStatusHistory,
   Payment,
   PaymentStatus,
@@ -299,81 +297,6 @@ export class MemoryStore {
     inquiry.updatedAt = new Date().toISOString();
     this.db.persist();
     return inquiry;
-  }
-
-  // ---- public order proposals (E6 §§29-30) ----
-  orderProposals(): OrderProposal[] {
-    return this.db.orderProposals;
-  }
-
-  findOrderProposal(id: string): OrderProposal | undefined {
-    return this.db.orderProposals.find((p) => p.id === id);
-  }
-
-  createOrderProposal(input: Patch): OrderProposal {
-    const id = makeId("prop");
-    const now = new Date().toISOString();
-    const rawItems = Array.isArray(input.items) ? (input.items as Array<Record<string, unknown>>) : [];
-    const items: OrderProposalItem[] = rawItems.map((raw) => {
-      const qty = mapNum(raw.quantity);
-      const unit = mapNum(raw.unitPrice);
-      return {
-        id: makeId("propi"),
-        proposalId: id,
-        productId: String(raw.productId ?? ""),
-        productName: String(raw.productName ?? ""),
-        variantOptions:
-          raw.variantOptions === undefined || raw.variantOptions === null ? "" : String(raw.variantOptions),
-        quantity: qty,
-        unitPrice: unit,
-        total: mapNum(raw.total) || qty * unit,
-        createdAt: now,
-        updatedAt: now,
-      };
-    });
-    const record: OrderProposal = {
-      id,
-      proposalNumber: String(input.proposalNumber ?? `PROP-${Date.now().toString(36).toUpperCase()}`),
-      customerName: String(input.customerName ?? ""),
-      phone: String(input.phone ?? ""),
-      email: String(input.email ?? ""),
-      productSummary: String(input.productSummary ?? ""),
-      quantity: mapNum(input.quantity) || items.reduce((n, i) => n + i.quantity, 0) || 1,
-      preferredDate: mapDate(input.preferredDate),
-      preferredTime: String(input.preferredTime ?? ""),
-      deliveryType: String(input.deliveryType ?? "PICKUP"),
-      deliveryLocation: String(input.deliveryLocation ?? ""),
-      customerNotes: String(input.customerNotes ?? input.notes ?? ""),
-      referenceImage: String(input.referenceImage ?? ""),
-      status: "PENDING_REVIEW",
-      items,
-      customerId: mapStr(input.customerId),
-      inquiryId: mapStr(input.inquiryId),
-      orderId: mapStr(input.orderId),
-      reviewedBy: mapStr(input.reviewedBy),
-      reviewedAt: mapDate(input.reviewedAt),
-      reviewNotes: String(input.reviewNotes ?? ""),
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.db.orderProposals.push(record);
-    for (const item of items) this.db.orderProposalItems.push(item);
-    this.db.persist();
-    return record;
-  }
-
-  updateOrderProposal(id: string, patch: Patch): OrderProposal | undefined {
-    const proposal = this.db.orderProposals.find((p) => p.id === id);
-    if (!proposal) return undefined;
-    applyPatch(proposal, patch, [
-      "proposalNumber", "customerName", "phone", "email", "productSummary", "quantity",
-      "preferredDate", "preferredTime", "deliveryType", "deliveryLocation", "customerNotes",
-      "referenceImage", "status", "customerId", "inquiryId", "orderId",
-      "reviewedBy", "reviewedAt", "reviewNotes",
-    ]);
-    proposal.updatedAt = new Date().toISOString();
-    this.db.persist();
-    return proposal;
   }
 
   // ---- quotations ----
@@ -1455,19 +1378,6 @@ export class MemoryStore {
       createdAt: now,
       updatedAt: now,
     };
-  }
-
-  /**
-   * Create an immutable customer contact snapshot for an order
-   * (rule 27). Skips if a snapshot already exists (UNIQUE order_id).
-   * Caller pushes + persists. Returns the snapshot or null if skipped.
-   */
-  createOrderCustomerSnapshot(order: Order): OrderCustomerSnapshot | null {
-    const snapshot = this.buildOrderSnapshot(order, order.createdBy);
-    if (!snapshot) return null;
-    this.db.orderSnapshots.push(snapshot);
-    this.db.persist();
-    return snapshot;
   }
 
   eventsByCustomer(customerId: string): CustomerEvent[] {

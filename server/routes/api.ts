@@ -19,7 +19,6 @@ import notificationRouter from "./notifications.js";
 import rbacRouter from "./rbac.js";
 import analyticsRouter from "./analytics.js";
 import publicRouter from "./public.js";
-import orderProposalsRouter from "./order-proposals.js";
 
 export const apiRouter = Router();
 
@@ -44,6 +43,5 @@ apiRouter.use("/notifications", notificationRouter);
 apiRouter.use("/rbac", rbacRouter);
 apiRouter.use("/analytics", analyticsRouter);
 apiRouter.use("/public", publicRouter);
-apiRouter.use("/order-proposals", orderProposalsRouter);
 
 export default apiRouter;
