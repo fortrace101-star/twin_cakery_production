@@ -1,11 +1,10 @@
-/** E6: public order proposals (staff review). */
 export type OrderProposalStatus = "PENDING_REVIEW" | "CONFIRMED" | "CANCELLED";
 
 export interface OrderProposalItem {
   id: string;
   proposalId: string;
   productId: string;
-  name: string;
+  productName: string;
   variantOptions: string;
   quantity: number;
   unitPrice: number;
@@ -20,16 +19,21 @@ export interface OrderProposal {
   customerName: string;
   phone: string;
   email: string;
+  productSummary: string;
+  quantity: number;
+  preferredDate: string | null;
+  preferredTime: string;
   deliveryType: string;
   deliveryLocation: string;
-  requiredBy: string | null;
-  notes: string;
+  customerNotes: string;
+  referenceImage: string;
   status: OrderProposalStatus;
   items: OrderProposalItem[];
   createdAt: string;
   updatedAt: string;
   customerId: string | null;
   inquiryId: string | null;
+  orderId: string | null;
   reviewedBy: string | null;
   reviewedAt: string | null;
   reviewNotes: string;

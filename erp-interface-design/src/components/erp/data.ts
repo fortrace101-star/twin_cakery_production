@@ -1,6 +1,6 @@
 export const modules = [
   { id: 'crm', label: 'Customers & CRM', icon: 'Users', group: 'WORKSPACE', tabs: ['Customers', 'Occasions', 'Inquiries', 'Interactions', 'Feedback'] },
-  { id: 'sales', label: 'Sales & orders', icon: 'ShoppingBag', group: 'WORKSPACE', tabs: ['Orders', 'Order history', 'Quotations', 'Sales analytics'] },
+  { id: 'sales', label: 'Sales & orders', icon: 'ShoppingBag', group: 'WORKSPACE', tabs: ['Orders', 'Order history', 'Order proposals', 'Quotations', 'Sales analytics'] },
   { id: 'catalogue', label: 'Product catalogue', icon: 'CakeSlice', group: 'WORKSPACE', tabs: ['Products', 'Categories', 'Product types', 'Variants'] },
   { id: 'webapp', label: 'Site Management', icon: 'Globe', group: 'WORKSPACE', tabs: ['Overview', 'Product catalog', 'Website users'] },
   { id: 'production', label: 'Production', icon: 'ChefHat', group: 'OPERATIONS', tabs: ['Schedule', 'Jobs', 'Quality control', 'Production costs'] },
