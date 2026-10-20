@@ -1298,6 +1298,72 @@ export async function updateDelivery(
 }
 
 
+/* -- E6: public order proposals (staff review) ------------------------------ */
+
+import { OrderProposal, OrderProposalItem, OrderProposalStatus } from './types';
+
+/** GET /order-proposals (public, staff review) */
+export async function listOrderProposals(): Promise<OrderProposal[]> {
+  return safe(() => request<OrderProposal[]>('/order-proposals'), []);
+}
+
+/** GET /order-proposals/:id */
+export async function getOrderProposal(id: string): Promise<OrderProposal | null> {
+  return safe(() => request<OrderProposal>(`/order-proposals/${encodeURIComponent(id)}`), null);
+}
+
+/** POST /order-proposals */
+export async function createOrderProposal(
+  input: {
+    proposalNumber: string;
+    customerName: string;
+    phone: string;
+    email?: string;
+    deliveryType: string;
+    deliveryLocation: string;
+    requiredBy?: string | null;
+    notes?: string;
+    items: { productId: string; quantity: number }[];
+    customerId?: string | null;
+    inquiryId?: string | null;
+  },
+): Promise<OrderProposal | null> {
+  return safe(() => request<OrderProposal>('/order-proposals', { method: 'POST', body: input }), null);
+}
+
+/** PUT /order-proposals/:id (staff edit) */
+export async function updateOrderProposal(
+  id: string,
+  input: {
+    proposalNumber?: string;
+    customerName?: string;
+    phone?: string;
+    email?: string;
+    deliveryType?: string;
+    deliveryLocation?: string;
+    requiredBy?: string | null;
+    notes?: string;
+    items?: { productId: string; quantity: number; unit?: string; unitPrice?: number }[];
+    status?: OrderProposalStatus;
+    reviewNotes?: string;
+  },
+): Promise<OrderProposal | null> {
+  return safe(() => request<OrderProposal>(`/order-proposals/${encodeURIComponent(id)}`, { method: 'PUT', body: input }), null);
+}
+
+/** POST /order-proposals/:id/confirm (staff review action) */
+export async function confirmOrderProposal(id: string): Promise<OrderProposal | null> {
+  return safe(() => request<OrderProposal>(`/order-proposals/${encodeURIComponent(id)}/confirm`, { method: 'POST' }), null);
+}
+
+/** POST /order-proposals/:id/cancel (staff review action) */
+export async function cancelOrderProposal(id: string, reason?: string): Promise<OrderProposal | null> {
+  const body = reason !== undefined ? { reason } : undefined;
+  return safe(() => request<OrderProposal>(`/order-proposals/${encodeURIComponent(id)}/cancel`, { method: 'POST', body }), null);
+}
+
+
+
 export async function dispatchDelivery(id: string): Promise<ServerDelivery | null> {
   return safe(() => request<ServerDelivery>(`/deliveries/${id}/dispatch`, { method: "POST" }), null);
 }
