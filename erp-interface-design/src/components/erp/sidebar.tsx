@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Boxes, CakeSlice, ChartNoAxesCombined, ChevronDown, ChevronUp, ChefHat, CircleHelp, Globe, LayoutDashboard, LogOut, MapPin, Settings, ShoppingBag, Truck, Users, Wallet, type LucideIcon } from "lucide-react";
+import { Boxes, CakeSlice, ChartNoAxesCombined, ChevronDown, ChevronUp, ChefHat, CircleHelp, Globe, LayoutDashboard, LogOut, MapPin, Settings, ShoppingBag, Truck, UserCog, Users, Wallet, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import logo from "@/assets/twin-cakery-logo.png";
 import { modules, visibleModules } from "./data";
 import type { ServerUser } from "@/lib/api";
-const icons: Record<string, LucideIcon> = { Users, ShoppingBag, CakeSlice, Globe, ChefHat, Boxes, Truck, MapPin, Wallet, ChartNoAxesCombined, Settings };
+const icons: Record<string, LucideIcon> = { Users, ShoppingBag, CakeSlice, Globe, ChefHat, Boxes, Truck, MapPin, Wallet, ChartNoAxesCombined, Settings, UserCog };
 
 function initialsOf(name?: string | null): string {
   if (!name) return "TC";
@@ -61,7 +61,7 @@ export function Sidebar({module,setTab,setSearch,setStatusFilter,setHelp,user,co
 
      <Button variant="ghost" asChild className={`nav-item ${module==='dashboard'?'nav-active':''}`} title="Dashboard"><Link to="/"><LayoutDashboard/><span>Dashboard</span></Link></Button>
 
-     {['WORKSPACE','OPERATIONS','BUSINESS'].map(group=><div className="nav-group" key={group}><p>{group}</p>{visibleModules(modules,permissions).filter(m=>m.group===group).map(m=>{const Icon=icons[m.icon]||LayoutDashboard;return <Button variant="ghost" asChild key={m.id} title={m.id==='crm'&&followUps>0?`${followUps} completed order${followUps===1?'':'s'} awaiting follow-up`:m.label} className={`nav-item ${module===m.id?'nav-active':''}`}><Link to={`/workspace/${m.id}`} onClick={()=>{setTab('');setSearch('');setStatusFilter('All statuses');}}><Icon/><span>{m.label}</span>{m.id==='sales'&&activeOrders>0&&<small className="nav-count">{activeOrders}</small>}{m.id==='crm'&&followUps>0&&<small className="nav-count followup-count" aria-label={`${followUps} completed orders awaiting follow-up`}>{followUps}</small>}</Link></Button>})}</div>)}
+     {['WORKSPACE','OPERATIONS','PEOPLE','BUSINESS'].map(group=><div className="nav-group" key={group}><p>{group}</p>{visibleModules(modules,permissions).filter(m=>m.group===group).map(m=>{const Icon=icons[m.icon]||LayoutDashboard;return <Button variant="ghost" asChild key={m.id} title={m.id==='crm'&&followUps>0?`${followUps} completed order${followUps===1?'':'s'} awaiting follow-up`:m.label} className={`nav-item ${module===m.id?'nav-active':''}`}><Link to={`/workspace/${m.id}`} onClick={()=>{setTab('');setSearch('');setStatusFilter('All statuses');}}><Icon/><span>{m.label}</span>{m.id==='sales'&&activeOrders>0&&<small className="nav-count">{activeOrders}</small>}{m.id==='crm'&&followUps>0&&<small className="nav-count followup-count" aria-label={`${followUps} completed orders awaiting follow-up`}>{followUps}</small>}</Link></Button>})}</div>)}
 
     </nav>
     {canUp && <button type="button" className="scroll-arrow scroll-up" aria-label="Scroll navigation up" title="Scroll up" onClick={()=>scrollBy(-180)}><ChevronUp size={16}/></button>}

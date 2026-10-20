@@ -3,6 +3,7 @@ import { store } from "../database/store.js";
 import { rbacService } from "../services/rbac.service.js";
 import { NotFoundError } from "../utils/errors.js";
 import { extractToken, AuthService } from "../services/auth.service.js";
+import { paginate } from "../utils/paginate.js";
 
 const router = Router();
 const authService = new AuthService();
@@ -22,7 +23,15 @@ router.get("/", required("catalogue.view"), (req, res) => {
   const categories = store.db.catalogue?.categories || [];
   const products = store.db.catalogue?.products || [];
   const visible = products.filter((p) => p.catalogueVisible);
-  return res.json({ categories, products: visible });
+  // §33 — with `?page=`/`?pageSize=` the product list paginates (categories stay
+  // whole); without them the historical `{ categories, products }` shape returns.
+  const paged = paginate(visible, req.query, {
+    sortable: ["name", "displayOrder", "createdAt"],
+    dateField: "createdAt",
+    searchFields: ["name", "sku"],
+  });
+  if (Array.isArray(paged)) return res.json({ categories, products: paged });
+  return res.json({ categories, ...paged });
 });
 
 router.get("/categories", required("catalogue.view"), (req, res) => {
@@ -123,6 +132,11 @@ router.post("/products", required("catalogue.create"), (req, res) => {
     updatedAt: now,
   };
   store.db.catalogue.products.push(product);
+  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  store.createAuditLog({
+    actor: session?.userId ?? "", action: "product:created",
+    entityType: "product", entityId: product.id, reason: `${product.sku} · ${product.name}`,
+  });
   store.db.persist();
   res.status(201).json(product);
 });
@@ -139,7 +153,17 @@ router.patch("/products/:id", required("catalogue.edit"), (req, res) => {
   const idx = products.findIndex((p) => p.id === id);
   if (idx === -1) throw new NotFoundError("Product not found");
   const update = req.body || {};
-  products[idx] = { ...products[idx], ...update, updatedAt: new Date().toISOString() };
+  const before = products[idx];
+  products[idx] = { ...before, ...update, updatedAt: new Date().toISOString() };
+  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  // §34 "price changes" — the reason flags a basePrice change explicitly.
+  store.createAuditLog({
+    actor: session?.userId ?? "", action: "product:updated",
+    entityType: "product", entityId: id,
+    reason: before.basePrice !== products[idx].basePrice
+      ? `${products[idx].name}: price ${before.basePrice} → ${products[idx].basePrice}`
+      : String(products[idx].name),
+  });
   store.db.persist();
   res.json(products[idx]);
 });
@@ -150,6 +174,11 @@ router.post("/products/:id/archive", required("catalogue.archive"), (req, res) =
   const idx = products.findIndex((p) => p.id === id);
   if (idx === -1) throw new NotFoundError("Product not found");
   products[idx] = { ...products[idx], archived: true, active: false, updatedAt: new Date().toISOString() };
+  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  store.createAuditLog({
+    actor: session?.userId ?? "", action: "product:archived",
+    entityType: "product", entityId: id, reason: String(products[idx].name),
+  });
   store.db.persist();
   res.json(products[idx]);
 });

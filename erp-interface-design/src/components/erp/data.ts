@@ -10,6 +10,7 @@ export const modules = [
   { id: 'finance', label: 'Finance', icon: 'Wallet', group: 'BUSINESS', tabs: ['Payments', 'Expenses', 'Profitability', 'Reports'] },
   { id: 'analytics', label: 'Analytics', icon: 'ChartNoAxesCombined', group: 'BUSINESS', tabs: ['Overview', 'Order history', 'Sales trends', 'Customers', 'Product performance'] },
   { id: 'administration', label: 'Settings', icon: 'Settings', group: 'BUSINESS', tabs: ['Business settings', 'Users', 'Roles', 'Permissions', 'Audit log'] },
+  { id: 'staff', label: 'Staff & Salary', icon: 'UserCog', group: 'PEOPLE', tabs: ['Team', 'Attendance', 'Salary periods', 'Advances', 'Payslips'] },
 ] as const;
 
 /**
@@ -29,6 +30,9 @@ export const MODULE_PERMISSIONS: Record<string, string> = {
   finance: 'finance.view',
   analytics: 'sales.analytics',
   administration: 'users.manage',
+  // E7: the module only shows to staff.view holders (Admin + Production by
+  // seed); salary tabs inside it re-check remuneration.* on every fetch.
+  staff: 'staff.view',
 };
 
 /**

@@ -1504,3 +1504,381 @@ export async function revokeRolePermission(roleId: string, permissionId: string)
     return r?.ok === true;
   }, false);
 }
+
+/* ── E7: Staff & Salary (§18) ─────────────────────────────────────────────
+ * Reads degrade via `safe()` like the rest of the client; mutations THROW so
+ * the workflow UI can surface the exact server message (409 CLOSED guards,
+ * 422 validation, 403 permission) in a toast instead of failing silently.
+ * Salary figures only ever arrive via /remuneration/* (remuneration.* perms) —
+ * /staff rows are identity-only by design.
+ */
+
+export type EmploymentStatus = "ACTIVE" | "PROBATION" | "ON_LEAVE" | "INACTIVE" | "TERMINATED";
+
+export interface ServerStaff {
+  id: string;
+  staffNumber: string;
+  name: string;
+  phone: string;
+  email: string;
+  jobTitle: string;
+  employmentStatus: EmploymentStatus;
+  startDate: string | null;
+  /** Work pattern / schedule, free text (§18.1). */
+  schedule: string;
+  notes: string;
+  userId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AttendanceStatus = "PRESENT" | "ABSENT" | "HALF_DAY" | "LEAVE" | "SICK" | "LATE";
+
+export interface ServerAttendance {
+  id: string;
+  staffId: string;
+  /** Joined by the route for display. */
+  staffName?: string;
+  date: string;
+  status: AttendanceStatus;
+  hours: number;
+  notes: string;
+  recordedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PaymentFrequency = "weekly" | "biweekly" | "monthly" | "quarterly" | "custom";
+
+export interface ServerSalaryProfile {
+  id: string;
+  staffId: string;
+  basicSalary: number;
+  paymentFrequency: PaymentFrequency;
+  allowanceAmount: number;
+  deductionAmount: number;
+  effectiveFrom: string | null;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PeriodType = PaymentFrequency;
+export type PeriodStatus = "OPEN" | "PROCESSING" | "APPROVED" | "PARTIALLY_PAID" | "PAID" | "CLOSED";
+
+export interface ServerPeriod {
+  id: string;
+  label: string;
+  periodType: PeriodType;
+  startDate: string;
+  endDate: string;
+  intendedPaymentDate: string | null;
+  status: PeriodStatus;
+  totalAmount: number;
+  paidAmount: number;
+  notes: string;
+  createdBy: string;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  closedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PeriodItemStatus = "PENDING" | "APPROVED" | "PAID" | "PARTIALLY_PAID" | "ADJUSTED";
+
+export interface ServerPeriodItem {
+  id: string;
+  periodId: string;
+  staffId: string;
+  staffName?: string;
+  staffNumber?: string;
+  basicSalary: number;
+  allowances: number;
+  bonuses: number;
+  deductions: number;
+  advanceAmount: number;
+  otherPayments: number;
+  netAmount: number;
+  paidAmount: number;
+  status: PeriodItemStatus;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type RemunerationPaymentMethod = "CASH" | "MOBILE_MONEY" | "BANK_TRANSFER" | "OTHER";
+export type PeriodPaymentStatus = "RECORDED" | "PENDING" | "PAID" | "CANCELLED";
+
+export interface ServerPeriodPayment {
+  id: string;
+  periodId: string;
+  staffId: string;
+  staffName?: string;
+  itemId: string | null;
+  amount: number;
+  paymentDate: string;
+  method: RemunerationPaymentMethod;
+  reference: string;
+  paymentStatus: PeriodPaymentStatus;
+  notes: string;
+  recordedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** GET /remuneration/periods/:id — period + lines + payments (§18.5 drill). */
+export interface ServerPeriodDetail extends ServerPeriod {
+  items: ServerPeriodItem[];
+  payments: ServerPeriodPayment[];
+}
+
+export interface AdvanceRepaymentEntry {
+  date: string;
+  amount: number;
+  method?: string;
+  reference?: string;
+  recordedBy?: string;
+}
+
+export interface ServerAdvance {
+  id: string;
+  staffId: string;
+  staffName?: string;
+  /** Immutable original grant — recoveries append to repaymentLog (§18.6). */
+  amount: number;
+  repaidAmount: number;
+  /** Remaining balance, computed on the wire. */
+  outstanding: number;
+  reason: string;
+  advanceDate: string | null;
+  status: "OUTSTANDING" | "SETTLED";
+  repaymentLog: AdvanceRepaymentEntry[];
+  recordedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ServerPayslip {
+  id: string;
+  periodId: string;
+  staffId: string;
+  itemId: string | null;
+  periodLabel: string;
+  staffName: string;
+  basicSalary: number;
+  allowances: number;
+  bonuses: number;
+  deductions: number;
+  advanceAmount: number;
+  otherPayments: number;
+  netAmount: number;
+  paidAmount: number;
+  issuedAt: string | null;
+  issuedBy: string;
+}
+
+export interface ServerRemunerationDashboard {
+  period: ServerPeriod | null;
+  items: ServerPeriodItem[];
+  totals: {
+    due: number;
+    paid: number;
+    pending: number;
+    allowances: number;
+    bonuses: number;
+    deductions: number;
+    outstandingAdvances: number;
+  };
+  upcomingPaymentDates: { id: string; label: string; date: string; status: PeriodStatus; total: number }[];
+  periodStatus: PeriodStatus | null;
+}
+
+function qs(params: Record<string, string | number | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== "") search.set(k, String(v));
+  }
+  const s = search.toString();
+  return s ? `?${s}` : "";
+}
+
+/* -- Staff directory + attendance (staff.* permissions) ------------------- */
+
+export function listStaff(params?: { status?: string; q?: string }): Promise<ServerStaff[]> {
+  return safe(() => request<ServerStaff[]>(`/staff${qs({ status: params?.status, q: params?.q })}`), []);
+}
+
+export function getStaff(id: string): Promise<ServerStaff | null> {
+  return safe(() => request<ServerStaff>(`/staff/${id}`), null);
+}
+
+/** Mutations throw ApiError (message shown by the caller). */
+export function createStaff(payload: Partial<ServerStaff>): Promise<ServerStaff> {
+  return request<ServerStaff>("/staff", { method: "POST", body: payload });
+}
+
+export function updateStaff(id: string, patch: Partial<ServerStaff>): Promise<ServerStaff> {
+  return request<ServerStaff>(`/staff/${id}`, { method: "PATCH", body: patch });
+}
+
+/** End employment — history stays intact, never a hard delete (§18.7). */
+export function archiveStaff(id: string): Promise<ServerStaff> {
+  return request<ServerStaff>(`/staff/${id}/archive`, { method: "POST", body: {} });
+}
+
+export function listAttendance(params?: { staffId?: string; from?: string; to?: string }): Promise<ServerAttendance[]> {
+  return safe(
+    () => request<ServerAttendance[]>(`/staff/attendance${qs({ staffId: params?.staffId, from: params?.from, to: params?.to })}`),
+    [],
+  );
+}
+
+/** Record one day for one person (upsert — same day overwrites). */
+export function recordAttendance(payload: {
+  staffId: string;
+  date: string;
+  status: AttendanceStatus;
+  hours?: number;
+  notes?: string;
+}): Promise<ServerAttendance> {
+  return request<ServerAttendance>("/staff/attendance", { method: "POST", body: payload });
+}
+
+/* -- Salary profiles (remuneration.view / remuneration.edit) ------------- */
+
+export function getSalaryProfile(staffId: string): Promise<ServerSalaryProfile | null> {
+  return safe(() => request<ServerSalaryProfile | null>(`/remuneration/profiles/${staffId}`), null);
+}
+
+/** PUT = create-or-update the confidential baseline (§18.2). */
+export function saveSalaryProfile(
+  staffId: string,
+  payload: {
+    basicSalary?: number;
+    paymentFrequency?: PaymentFrequency;
+    allowanceAmount?: number;
+    deductionAmount?: number;
+    effectiveFrom?: string;
+    notes?: string;
+  },
+): Promise<ServerSalaryProfile | null> {
+  return request<ServerSalaryProfile | null>(`/remuneration/profiles/${staffId}`, { method: "PUT", body: payload });
+}
+
+/* -- Period workflow (remuneration.* permissions) ------------------------ */
+
+export function listPeriods(status?: PeriodStatus): Promise<ServerPeriod[]> {
+  return safe(() => request<ServerPeriod[]>(`/remuneration/periods${qs({ status })}`), []);
+}
+
+export function createPeriod(payload: {
+  label: string;
+  periodType: PeriodType;
+  startDate: string;
+  endDate: string;
+  intendedPaymentDate?: string;
+  notes?: string;
+}): Promise<ServerPeriod> {
+  return request<ServerPeriod>("/remuneration/periods", { method: "POST", body: payload });
+}
+
+export function getPeriod(id: string): Promise<ServerPeriodDetail | null> {
+  return safe(() => request<ServerPeriodDetail>(`/remuneration/periods/${id}`), null);
+}
+
+/** SELECT STAFF + CALCULATE; empty list = all ACTIVE/PROBATION staff. Re-runnable while OPEN/PROCESSING. */
+export function calculatePeriod(id: string, staffIds?: string[]): Promise<ServerPeriodItem[]> {
+  return request<ServerPeriodItem[]>(`/remuneration/periods/${id}/calculate`, {
+    method: "POST",
+    body: { staffIds: staffIds ?? [] },
+  });
+}
+
+/** Review/adjust a line before approval (server recomputes net). */
+export function updatePeriodItem(id: string, patch: Partial<ServerPeriodItem>): Promise<ServerPeriodItem> {
+  return request<ServerPeriodItem>(`/remuneration/items/${id}`, { method: "PATCH", body: patch });
+}
+
+/** Additive correction line — the sanctioned path once lines are frozen (§18.7). */
+export function addAdjustment(
+  periodId: string,
+  payload: { staffId: string; allowances?: number; bonuses?: number; deductions?: number; otherPayments?: number; notes?: string },
+): Promise<ServerPeriodItem> {
+  return request<ServerPeriodItem>(`/remuneration/periods/${periodId}/adjustments`, { method: "POST", body: payload });
+}
+
+export function approvePeriod(id: string): Promise<ServerPeriod> {
+  return request<ServerPeriod>(`/remuneration/periods/${id}/approve`, { method: "POST", body: {} });
+}
+
+/** Terminal — the server answers 409 for anything that mutates a CLOSED period. */
+export function closePeriod(id: string): Promise<ServerPeriod> {
+  return request<ServerPeriod>(`/remuneration/periods/${id}/close`, { method: "POST", body: {} });
+}
+
+export function listPeriodPayments(periodId: string): Promise<ServerPeriodPayment[]> {
+  return safe(() => request<ServerPeriodPayment[]>(`/remuneration/periods/${periodId}/payments`), []);
+}
+
+export function recordPeriodPayment(
+  periodId: string,
+  payload: {
+    staffId: string;
+    amount: number;
+    paymentDate: string;
+    method?: RemunerationPaymentMethod;
+    reference?: string;
+    notes?: string;
+  },
+): Promise<ServerPeriodPayment> {
+  return request<ServerPeriodPayment>(`/remuneration/periods/${periodId}/payments`, { method: "POST", body: payload });
+}
+
+export function markPaymentPaid(paymentId: string): Promise<ServerPeriodPayment> {
+  return request<ServerPeriodPayment>(`/remuneration/payments/${paymentId}/mark-paid`, { method: "POST", body: {} });
+}
+
+/* -- Advances (remuneration.* permissions) ------------------------------- */
+
+export function listAdvances(staffId?: string): Promise<ServerAdvance[]> {
+  return safe(() => request<ServerAdvance[]>(`/remuneration/advances${qs({ staffId })}`), []);
+}
+
+export function createAdvance(payload: { staffId: string; amount: number; reason: string; advanceDate?: string }): Promise<ServerAdvance> {
+  return request<ServerAdvance>("/remuneration/advances", { method: "POST", body: payload });
+}
+
+/** Append a recovery — the original amount never changes (§18.6). */
+export function recordAdvanceRepayment(
+  id: string,
+  payload: { amount: number; date: string; method?: string; reference?: string },
+): Promise<ServerAdvance> {
+  return request<ServerAdvance>(`/remuneration/advances/${id}/repayments`, { method: "POST", body: payload });
+}
+
+/* -- Payslips (remuneration.process to issue, payslip.print to open) ----- */
+
+/** Idempotent: existing snapshots are returned, never cloned (§18.8). */
+export function issuePayslips(periodId: string): Promise<ServerPayslip[]> {
+  return request<ServerPayslip[]>(`/remuneration/periods/${periodId}/payslips`, { method: "POST", body: {} });
+}
+
+export function listPayslips(params?: { periodId?: string; staffId?: string }): Promise<ServerPayslip[]> {
+  return safe(() => request<ServerPayslip[]>(`/remuneration/payslips${qs(params ?? {})}`), []);
+}
+
+/** Single printable document — gated by payslip.print, not remuneration.view. */
+export function getPayslip(id: string): Promise<ServerPayslip | null> {
+  return safe(() => request<ServerPayslip>(`/remuneration/payslips/${id}`), null);
+}
+
+/* -- Dashboard + printable reports (remuneration.view / view_reports) ---- */
+
+export function getRemunerationDashboard(periodId?: string): Promise<ServerRemunerationDashboard | null> {
+  return safe(() => request<ServerRemunerationDashboard>(`/remuneration/dashboard${qs({ periodId })}`), null);
+}
+
+export function getRemunerationReport(type: "advances" | "outstanding", periodId?: string): Promise<unknown[]> {
+  return safe(() => request<unknown[]>(`/remuneration/reports${qs({ type, periodId })}`), []);
+}

@@ -30,6 +30,7 @@ import type {
   OrderProposalItem,
   OrderStatusHistory,
   Payment,
+  Payslip,
   Permission,
   ProductionConsumption,
   ProductionCost,
@@ -41,8 +42,15 @@ import type {
   QualityCheck,
   Quotation,
   QuotationItem,
+  RemunerationItem,
+  RemunerationPayment,
+  RemunerationPeriod,
   Role,
   RolePermission,
+  SalaryProfile,
+  Staff,
+  StaffAdvance,
+  StaffAttendance,
   StockReservation,
   Supplier,
   SupplierPriceHistory,
@@ -165,6 +173,15 @@ export interface DbCache {
   expenseCategories: ExpenseCategory[];
   orderProposals: OrderProposal[];
   orderProposalItems: OrderProposalItem[];
+  // E7 — staff & remuneration (governing doc §18): FK parents before children.
+  staff: Staff[];
+  staffAttendance: StaffAttendance[];
+  salaryProfiles: SalaryProfile[];
+  remunerationPeriods: RemunerationPeriod[];
+  remunerationItems: RemunerationItem[];
+  staffAdvances: StaffAdvance[];
+  remunerationPayments: RemunerationPayment[];
+  payslips: Payslip[];
   catalogue: Catalogue;
   blogCategories: BlogCategory[];
   blogPosts: BlogPost[];
@@ -234,6 +251,15 @@ export function createCache(): DbCache {
     expenseCategories: [],
     orderProposals: [],
     orderProposalItems: [],
+    // E7 — staff & remuneration tables (order = FK-safe for insert/delete).
+    staff: [],
+    staffAttendance: [],
+    salaryProfiles: [],
+    remunerationPeriods: [],
+    remunerationItems: [],
+    staffAdvances: [],
+    remunerationPayments: [],
+    payslips: [],
     catalogue: { categories: [], types: [], products: [], variants: [], optionDefinitions: [], optionValues: [] },
     blogCategories: [],
     blogPosts: [],
@@ -462,6 +488,21 @@ export async function loadCache(): Promise<void> {
       p.items = cache.orderProposalItems.filter((i) => i.proposalId === p.id);
     }
 
+    // E7 — staff & remuneration (governing doc §18): parents first, then
+    // children keyed onto them. JSONB repayment_log stays a parsed array via
+    // coerceRow's default branch.
+    cache.staff = (await load<Staff>("staff")) ?? [];
+    cache.staffAttendance = (await load<StaffAttendance>("staff_attendance")) ?? [];
+    cache.salaryProfiles = (await load<SalaryProfile>("salary_profiles")) ?? [];
+    cache.remunerationPeriods = (await load<RemunerationPeriod>("remuneration_periods")) ?? [];
+    cache.remunerationItems = (await load<RemunerationItem>("remuneration_items")) ?? [];
+    cache.staffAdvances = (await load<StaffAdvance>("staff_advances")) ?? [];
+    for (const a of cache.staffAdvances) {
+      if (!Array.isArray(a.repaymentLog)) a.repaymentLog = [];
+    }
+    cache.remunerationPayments = (await load<RemunerationPayment>("remuneration_payments")) ?? [];
+    cache.payslips = (await load<Payslip>("payslips")) ?? [];
+
     currentDb = cache;
     logger.boot(`cache loaded: ${cache.users.length} users, ${cache.customers.length} customers, ` +
       `${cache.orders.length} orders, ${cache.quotations.length} quotations, ` +
@@ -603,6 +644,16 @@ const MIRRORS: Mirror[] = [
   // their own mirrors (proposals only hold OPTIONAL links to them).
   { table: "order_proposals", rows: (c) => c.orderProposals },
   { table: "order_proposal_items", rows: (c) => c.orderProposalItems },
+  // E7 — staff & remuneration: staff before its children; periods before
+  // items/payments/payslips; advances after staff. Deletion runs reversed.
+  { table: "staff", rows: (c) => c.staff },
+  { table: "staff_attendance", rows: (c) => c.staffAttendance },
+  { table: "salary_profiles", rows: (c) => c.salaryProfiles },
+  { table: "remuneration_periods", rows: (c) => c.remunerationPeriods },
+  { table: "remuneration_items", rows: (c) => c.remunerationItems },
+  { table: "staff_advances", rows: (c) => c.staffAdvances },
+  { table: "remuneration_payments", rows: (c) => c.remunerationPayments },
+  { table: "payslips", rows: (c) => c.payslips },
   { table: "blog_categories", rows: (c) => c.blogCategories },
   { table: "blog_posts", rows: (c) => c.blogPosts },
   { table: "website_users", rows: (c) => c.websiteUsers },

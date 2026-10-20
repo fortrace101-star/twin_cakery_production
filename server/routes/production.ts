@@ -6,6 +6,7 @@ import { businessService } from "../services/business.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
 import { publishLowStockAlert } from "../services/stock-alerts.js";
+import { paginate } from "../utils/paginate.js";
 
 const router = Router();
 const authService = new AuthService();
@@ -31,7 +32,12 @@ router.get("/jobs", required("production.view"), (req, res) => {
   const status = req.query.status as string | undefined;
   let list = jobs;
   if (status) list = list.filter((j) => j.status === status);
-  res.json(list);
+  // §33 — opt-in pagination envelope (plain array without ?page=).
+  res.json(paginate(list, req.query, {
+    sortable: ["requiredBy", "progress", "status", "createdAt"],
+    dateField: "createdAt",
+    searchFields: ["orderId", "variantOptions", "notes"],
+  }));
 });
 
 router.get("/jobs/:id", required("production.view"), (req, res) => {
@@ -71,6 +77,11 @@ router.post("/jobs/:id/complete", required("production.complete"), (req, res) =>
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   const job = store.updateProductionJob(id, { status: "READY_FOR_QUALITY", stage: "QUALITY", progress: 80, updatedAt: new Date().toISOString() });
   if (!job) throw new NotFoundError("Production job not found");
+  store.createAuditLog({
+    actor: session.userId, action: "production:completed",
+    entityType: "production_job", entityId: job.id, orderId: job.orderId,
+    newStatus: "READY_FOR_QUALITY", reason: `Job ${id} marked complete`,
+  });
   store.persist();
   res.json(job);
 });
@@ -109,6 +120,12 @@ router.post("/jobs/:id/quality-check", required("production.quality_check"), (re
       /* Non-fatal: the quality check write above already succeeded. */
     }
   }
+  store.createAuditLog({
+    actor: session.userId, action: "production:quality_check",
+    entityType: "production_job", entityId: id, orderId: job.orderId,
+    newStatus: result === "PASS" ? "PASS" : "REWORK_REQUIRED",
+    reason: issues ? String(issues) : `QC ${result || "checked"} for job ${id}`,
+  });
   store.persist();
   res.json({ job: updated, check });
 });

@@ -62,6 +62,11 @@ router.post("/:id/dispatch", required("deliveries.dispatch"), (req, res) => {
   }
   const delivery = store.updateDelivery(id, { status: "IN_TRANSIT", actualDispatchTime: new Date().toISOString(), updatedAt: new Date().toISOString() });
   if (!delivery) throw new NotFoundError("Delivery not found");
+  store.createAuditLog({
+    actor: session.userId, action: "delivery:dispatched",
+    entityType: "delivery", entityId: delivery.id, orderId: delivery.orderId,
+    newStatus: "IN_TRANSIT", reason: `Dispatched for order ${delivery.orderId}`,
+  });
   store.persist();
   res.json(delivery);
 });
@@ -79,6 +84,11 @@ router.post("/:id/complete", required("deliveries.complete"), (req, res) => {
     const updated = store.updateOrder(order.id, { status: "COMPLETED_DELIVERED", deliveryStatus: "DELIVERED", followUpCompletedAt: null });
     if (updated) businessService.requestCustomerFollowUp(updated, session.userId);
   }
+  store.createAuditLog({
+    actor: session.userId, action: "delivery:completed",
+    entityType: "delivery", entityId: delivery.id, orderId: delivery.orderId,
+    newStatus: "COMPLETED_DELIVERED", reason: `Delivered for order ${delivery.orderId}`,
+  });
   store.persist();
   res.json(delivery);
 });

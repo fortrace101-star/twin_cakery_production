@@ -39,7 +39,13 @@ export type AuditAction =
   | "payment:created" | "expense:created" | "expense:updated"
   | "user:updated" | "role:updated" | "role:permission_changed"
   | "settings:updated" | "catalogue:created" | "catalogue:updated" | "catalogue:archived"
-  | "notification:read" | "feedback:created" | "feedback:resolved";
+  | "notification:read" | "feedback:created" | "feedback:resolved"
+  // E7 — Staff & Salary (§34: every salary-relevant mutation is auditable)
+  | "staff:created" | "staff:updated" | "staff:archived"
+  | "remuneration:profile_updated" | "remuneration:period_created" | "remuneration:calculated"
+  | "remuneration:approved" | "remuneration:closed" | "remuneration:adjustment_added"
+  | "remuneration:payment_recorded" | "remuneration:payment_paid" | "remuneration:payslips_issued"
+  | "remuneration:advance_created" | "remuneration:advance_repaid";
 
 export type Currency = "UGX" | "USD" | "TZS";
 
@@ -569,6 +575,9 @@ export interface AuditLog extends BaseEntity {
   orderId: string;
   actor: string;
   action: AuditAction;
+  /** Non-order entities (staff, remuneration periods…) — E7 + §34 coverage. */
+  entityType: string;
+  entityId: string;
   previousStatus: string;
   newStatus: string;
   reason: string;
@@ -728,6 +737,163 @@ export interface ProductionJobSummary {
   purchaseRequirements: string;
   estimatedCost: number;
   actualCost: number;
+}
+
+// ---------------------------------------------------------------------------
+// E7 — Staff management & salary/remuneration (governing doc §§18.1–18.8).
+// Salary figures are CONFIDENTIAL: every route exposing them sits behind a
+// remuneration.* permission (§18.2 Admin/Proprietor-only by default).
+// ---------------------------------------------------------------------------
+
+export type EmploymentStatus = "ACTIVE" | "PROBATION" | "ON_LEAVE" | "INACTIVE" | "TERMINATED";
+
+export interface Staff extends BaseEntity {
+  staffNumber: string;
+  name: string;
+  phone: string;
+  email: string;
+  jobTitle: string;
+  employmentStatus: EmploymentStatus;
+  startDate: string | null;
+  /** Work pattern / schedule, free text (§18.1). */
+  schedule: string;
+  notes: string;
+  /** Optional link to an ERP login — most staff never get one. */
+  userId: string | null;
+}
+
+export type AttendanceStatus = "PRESENT" | "ABSENT" | "HALF_DAY" | "LEAVE" | "SICK" | "LATE";
+
+export interface StaffAttendance extends BaseEntity {
+  staffId: string;
+  /** ISO date (YYYY-MM-DD) — one row per staff per day. */
+  date: string;
+  status: AttendanceStatus;
+  hours: number;
+  notes: string;
+  recordedBy: string;
+}
+
+export type PaymentFrequency = "weekly" | "biweekly" | "monthly" | "quarterly" | "custom";
+
+/** Confidential recurring baseline behind "calculate salary" (§18.2). */
+export interface SalaryProfile extends BaseEntity {
+  staffId: string;
+  basicSalary: number;
+  /** Advisory only — each concrete period is admin-defined (§18.3). */
+  paymentFrequency: PaymentFrequency;
+  allowanceAmount: number;
+  deductionAmount: number;
+  effectiveFrom: string | null;
+  notes: string;
+}
+
+export type PeriodType = "weekly" | "biweekly" | "monthly" | "quarterly" | "custom";
+
+/** §18.7 workflow statuses. CLOSED is terminal — never silently rewritten. */
+export type RemunerationPeriodStatus =
+  | "OPEN"
+  | "PROCESSING"
+  | "APPROVED"
+  | "PARTIALLY_PAID"
+  | "PAID"
+  | "CLOSED";
+
+export interface RemunerationPeriod extends BaseEntity {
+  label: string;
+  periodType: PeriodType;
+  startDate: string;
+  endDate: string;
+  intendedPaymentDate: string | null;
+  status: RemunerationPeriodStatus;
+  totalAmount: number;
+  paidAmount: number;
+  notes: string;
+  createdBy: string;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  closedAt: string | null;
+}
+
+export type RemunerationItemStatus = "PENDING" | "APPROVED" | "PAID" | "PARTIALLY_PAID" | "ADJUSTED";
+
+/** One selected staff line in a period — the §18.4 calculation breakdown. */
+export interface RemunerationItem extends BaseEntity {
+  periodId: string;
+  staffId: string;
+  basicSalary: number;
+  allowances: number;
+  bonuses: number;
+  deductions: number;
+  advanceAmount: number;
+  otherPayments: number;
+  netAmount: number;
+  paidAmount: number;
+  status: RemunerationItemStatus;
+  notes: string;
+}
+
+export type AdvanceStatus = "OUTSTANDING" | "SETTLED";
+
+/** Append-only repayment entry — the original `amount` never changes (§18.6). */
+export interface AdvanceRepayment {
+  date: string;
+  amount: number;
+  method?: string;
+  reference?: string;
+  recordedBy?: string;
+}
+
+export interface StaffAdvance extends BaseEntity {
+  staffId: string;
+  /** Immutable original grant — recoveries append to repaymentLog instead. */
+  amount: number;
+  repaidAmount: number;
+  reason: string;
+  advanceDate: string | null;
+  status: AdvanceStatus;
+  repaymentLog: AdvanceRepayment[];
+  recordedBy: string;
+}
+
+export type RemunerationPaymentMethod = "CASH" | "MOBILE_MONEY" | "BANK_TRANSFER" | "OTHER";
+
+export type RemunerationPaymentStatus = "RECORDED" | "PENDING" | "PAID" | "CANCELLED";
+
+/** §18.7 payment record — staff, period, amount, date, method, reference. */
+export interface RemunerationPayment extends BaseEntity {
+  periodId: string;
+  staffId: string;
+  itemId: string | null;
+  amount: number;
+  paymentDate: string;
+  method: RemunerationPaymentMethod;
+  reference: string;
+  paymentStatus: RemunerationPaymentStatus;
+  notes: string;
+  recordedBy: string;
+}
+
+/**
+ * §18.8 printable snapshot — figures frozen at generation so a later salary
+ * profile change can never rewrite an issued payslip.
+ */
+export interface Payslip extends BaseEntity {
+  periodId: string;
+  staffId: string;
+  itemId: string | null;
+  periodLabel: string;
+  staffName: string;
+  basicSalary: number;
+  allowances: number;
+  bonuses: number;
+  deductions: number;
+  advanceAmount: number;
+  otherPayments: number;
+  netAmount: number;
+  paidAmount: number;
+  issuedAt: string | null;
+  issuedBy: string;
 }
 
 export interface InventorySummary {

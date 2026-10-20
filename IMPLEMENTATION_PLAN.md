@@ -113,7 +113,7 @@ Seed additions: reminder perms (`customer_reminders.read/create/update`), staff 
 
 Implemented in `server/index.ts` (`logger.request` in `server/utils/logger.ts`); the `pg` pool (`server/database/db.ts`) stays silent. Format: `{ source: 'http', endpoint: '...', method: 'GET', time: '3.3ms', status: 200 }`.
 
-Security §35 all routers, audit §34 coverage, pagination §33 everywhere, vitest critical path (confirm→produce→QC→deliver→pay, cancel, perms), docs (`README/AGENTS/roadmap`), runbook (`db:migrate/seed`, creds rotation, URLs).
+Security §35 all routers, audit §34 coverage, pagination §33 everywhere, vitest critical path (confirm→produce→QC→deliver→pay, cancel, perms), docs (`README/AGENTS/roadmap`), runbook (`db:migrate/seed`, creds rotation, URLs). **DONE 2026-10-20 — Phase F gate `_f_gate.ps1` PASS: 96/96 asserts, `GATE_RESULT fail=0`, exit 0.** §33 pagination deployed on orders/customers/catalogue/staff/inventory/payments (envelope + compat + sort-clamp + search + date-range) with unit tests; §34 audit coverage 14 action-asserts + salary-marker exclusion; §35 security sweep (163 routes, auth/public/notifications allowlisted), 401/403 probes for Admin/Sales/CSR/Production; §27 leak scans (salary fields + passwordHash + `TwinCakery123` masked).
 Updated-doc hardening: RBAC checks on salary/remuneration + customer-reminder endpoints (Admin-only, rule 30); snapshot-immutability audit (orders history + recipe snapshots never rewritten, rule 27); notification leak tests (supplier costs, private notes, salary never leak to non-authorized roles, §27 leak rules); reminder "internal-only" test (no outbound contact fired automatically).
 
 ## 8. Risks + execution

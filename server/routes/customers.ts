@@ -3,6 +3,7 @@ import { store } from "../database/store.js";
 import { rbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
+import { paginate } from "../utils/paginate.js";
 
 const router = Router();
 const authService = new AuthService();
@@ -26,7 +27,12 @@ router.get("/", required("customers.view"), (req, res) => {
   let list = customers;
   if (name) list = list.filter((c) => c.name.toLowerCase().includes(name.toLowerCase()));
   if (status) list = list.filter((c) => c.status === status);
-  res.json(list);
+  // §33 — opt-in pagination envelope (plain array without ?page=).
+  res.json(paginate(list, req.query, {
+    sortable: ["name", "createdAt", "totalOrders", "totalSpend"],
+    dateField: "createdAt",
+    searchFields: ["name", "email", "phone"],
+  }));
 });
 
 router.post("/", required("customers.create"), (req, res) => {

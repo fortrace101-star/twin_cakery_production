@@ -4,6 +4,7 @@ import { rbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { businessService } from "../services/business.service.js";
 import { ConflictError, NotFoundError } from "../utils/errors.js";
+import { paginate } from "../utils/paginate.js";
 
 const router = Router();
 const authService = new AuthService();
@@ -27,7 +28,12 @@ router.get("/", required("orders.view"), (req, res) => {
   let list = orders;
   if (customerId) list = list.filter((o) => o.customerId === customerId);
   if (status) list = list.filter((o) => o.status === status);
-  res.json(list);
+  // §33 — opt-in `?page=&pageSize=` envelope; no params → plain array (unchanged).
+  res.json(paginate(list, req.query, {
+    sortable: ["createdAt", "requiredBy", "total", "status"],
+    dateField: "createdAt",
+    searchFields: ["orderNumber", "notes"],
+  }));
 });
 
 router.post("/", required("orders.create"), (req, res) => {

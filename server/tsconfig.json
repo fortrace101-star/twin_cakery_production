@@ -16,7 +16,6 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "types": ["node", "./node_modules/@types/express"],
-    "strict": true,
     "declaration": true,
     "incremental": true
   },

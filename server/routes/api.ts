@@ -20,6 +20,8 @@ import rbacRouter from "./rbac.js";
 import analyticsRouter from "./analytics.js";
 import publicRouter from "./public.js";
 import orderProposalsRouter from "./order-proposals.js";
+import staffRouter from "./staff.js";
+import remunerationRouter from "./remuneration.js";
 
 export const apiRouter = Router();
 
@@ -45,5 +47,7 @@ apiRouter.use("/rbac", rbacRouter);
 apiRouter.use("/analytics", analyticsRouter);
 apiRouter.use("/public", publicRouter);
 apiRouter.use("/order-proposals", orderProposalsRouter);
+apiRouter.use("/staff", staffRouter);
+apiRouter.use("/remuneration", remunerationRouter);
 
 export default apiRouter;

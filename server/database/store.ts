@@ -28,6 +28,7 @@ import type {
   OrderStatusHistory,
   Payment,
   PaymentStatus,
+  Payslip,
   Permission,
   ProductionConsumption,
   ProductionCost,
@@ -39,8 +40,15 @@ import type {
   QualityCheck,
   Quotation,
   QuotationItem,
+  RemunerationItem,
+  RemunerationPayment,
+  RemunerationPeriod,
   Role,
   RolePermission,
+  SalaryProfile,
+  Staff,
+  StaffAdvance,
+  StaffAttendance,
   StockReservation,
   Supplier,
   SupplierPriceHistory,
@@ -609,6 +617,13 @@ export class MemoryStore {
       updatedAt: now,
     };
     this.db.orderStatusHistory.push(row);
+    // §34 — order cancellation is an auditable business action; the route
+    // bypasses businessService.cancelOrder, so the audit row lives here.
+    this.createAuditLog({
+      orderId: order.id, actor: changedBy, action: "order:cancelled",
+      entityType: "order", entityId: order.id,
+      previousStatus, newStatus: "CANCELLED", reason: String(reason ?? ""),
+    });
     this.db.persist();
     return { order, history: row };
   }
@@ -1335,6 +1350,8 @@ export class MemoryStore {
       orderId: String(input.orderId ?? ""),
       actor: String(input.actor ?? ""),
       action: String(input.action ?? "") as AuditLog["action"],
+      entityType: String(input.entityType ?? ""),
+      entityId: String(input.entityId ?? ""),
       previousStatus: String(input.previousStatus ?? ""),
       newStatus: String(input.newStatus ?? ""),
       reason: String(input.reason ?? ""),
@@ -1813,6 +1830,567 @@ export class MemoryStore {
     this.db.websiteUsers.splice(idx, 1);
     this.db.persist();
     return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // E7 — Staff management & salary/remuneration (governing doc §§18.1–18.8)
+  // Salary figures are confidential: routes gate every read behind a
+  // remuneration.* permission. Workflow status transitions are enforced here
+  // so no route can bypass them. CLOSED periods are terminal — corrections
+  // become NEW records, never silent rewrites (§18.7 / rule 34).
+  // -------------------------------------------------------------------------
+
+  // ---- staff (§18.1: identity, roles, schedule, notes) ----
+
+  staffList(): Staff[] {
+    return this.db.staff.slice().sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  findStaff(id: string): Staff | undefined {
+    return this.db.staff.find((s) => s.id === id);
+  }
+
+  createStaff(input: Patch): Staff {
+    const now = new Date().toISOString();
+    const record: Staff = {
+      id: makeId("staff"),
+      staffNumber: String(input.staffNumber ?? "") || `STF-${(this.db.staff.length + 1).toString().padStart(3, "0")}`,
+      name: String(input.name ?? ""),
+      phone: String(input.phone ?? ""),
+      email: String(input.email ?? ""),
+      jobTitle: String(input.jobTitle ?? ""),
+      employmentStatus: String(input.employmentStatus ?? "ACTIVE") as Staff["employmentStatus"],
+      startDate: mapDate(input.startDate),
+      schedule: String(input.schedule ?? ""),
+      notes: String(input.notes ?? ""),
+      userId: mapStr(input.userId),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.db.staff.push(record);
+    this.db.persist();
+    return record;
+  }
+
+  updateStaff(id: string, patch: Patch): Staff | undefined {
+    const staff = this.db.staff.find((s) => s.id === id);
+    if (!staff) return undefined;
+    applyPatch(staff, patch, [
+      "staffNumber", "name", "phone", "email", "jobTitle", "employmentStatus",
+      "startDate", "schedule", "notes", "userId",
+    ]);
+    staff.updatedAt = new Date().toISOString();
+    this.db.persist();
+    return staff;
+  }
+
+  /** No hard delete — salary history must stay reconstructable (§18.7). */
+  archiveStaff(id: string): Staff | undefined {
+    return this.updateStaff(id, { employmentStatus: "TERMINATED" });
+  }
+
+  // ---- attendance (§18.1: one row per staff per day, upsert) ----
+
+  attendance(staffId?: string, fromDate?: string, toDate?: string): StaffAttendance[] {
+    return this.db.staffAttendance
+      .filter((a) => (staffId ? a.staffId === staffId : true))
+      .filter((a) => (fromDate ? a.date >= fromDate : true))
+      .filter((a) => (toDate ? a.date <= toDate : true))
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }
+
+  recordAttendance(input: Patch): StaffAttendance {
+    const staffId = String(input.staffId ?? "");
+    const date = String(input.date ?? "").slice(0, 10);
+    // Upsert on (staffId, date): no DB-level UNIQUE beyond PKs (a surprise
+    // unique violation would roll back the entire cache write-back).
+    const existing = this.db.staffAttendance.find((a) => a.staffId === staffId && a.date === date);
+    const now = new Date().toISOString();
+    if (existing) {
+      applyPatch(existing, input, ["status", "hours", "notes", "recordedBy"]);
+      existing.updatedAt = now;
+      this.db.persist();
+      return existing;
+    }
+    const record: StaffAttendance = {
+      id: makeId("att"),
+      staffId,
+      date,
+      status: String(input.status ?? "PRESENT") as StaffAttendance["status"],
+      hours: mapNum(input.hours),
+      notes: String(input.notes ?? ""),
+      recordedBy: String(input.recordedBy ?? ""),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.db.staffAttendance.push(record);
+    this.db.persist();
+    return record;
+  }
+
+  // ---- salary profiles (§18.2: confidential recurring baseline) ----
+
+  salaryProfileFor(staffId: string): SalaryProfile | undefined {
+    return this.db.salaryProfiles.find((p) => p.staffId === staffId);
+  }
+
+  /** One profile per staff: create on first save, update thereafter. */
+  upsertSalaryProfile(staffId: string, input: Patch): SalaryProfile {
+    const now = new Date().toISOString();
+    const existing = this.salaryProfileFor(staffId);
+    if (existing) {
+      applyPatch(existing, input, [
+        "basicSalary", "paymentFrequency", "allowanceAmount", "deductionAmount", "effectiveFrom", "notes",
+      ]);
+      existing.updatedAt = now;
+      this.db.persist();
+      return existing;
+    }
+    const record: SalaryProfile = {
+      id: makeId("salp"),
+      staffId,
+      basicSalary: mapNum(input.basicSalary),
+      paymentFrequency: String(input.paymentFrequency ?? "monthly") as SalaryProfile["paymentFrequency"],
+      allowanceAmount: mapNum(input.allowanceAmount),
+      deductionAmount: mapNum(input.deductionAmount),
+      effectiveFrom: mapDate(input.effectiveFrom),
+      notes: String(input.notes ?? ""),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.db.salaryProfiles.push(record);
+    this.db.persist();
+    return record;
+  }
+  // ---- payment periods (§18.3 admin-defined; §18.4 workflow) ----
+  //
+  // CREATE → OPEN → (select+calculate) PROCESSING → (approve) APPROVED
+  //        → (record payments) PARTIALLY_PAID / PAID → (close) CLOSED.
+  // CLOSED is terminal: no item/payment/period mutation is ever applied.
+
+  remunerationPeriods(): RemunerationPeriod[] {
+    return this.db.remunerationPeriods.slice().sort((a, b) => b.startDate.localeCompare(a.startDate));
+  }
+
+  findPeriod(id: string): RemunerationPeriod | undefined {
+    return this.db.remunerationPeriods.find((p) => p.id === id);
+  }
+
+  createPeriod(input: Patch): RemunerationPeriod {
+    const now = new Date().toISOString();
+    const record: RemunerationPeriod = {
+      id: makeId("rper"),
+      label: String(input.label ?? ""),
+      periodType: String(input.periodType ?? "monthly") as RemunerationPeriod["periodType"],
+      startDate: String(input.startDate ?? "").slice(0, 10),
+      endDate: String(input.endDate ?? "").slice(0, 10),
+      intendedPaymentDate: mapDate(input.intendedPaymentDate),
+      status: "OPEN",
+      totalAmount: 0,
+      paidAmount: 0,
+      notes: String(input.notes ?? ""),
+      createdBy: String(input.createdBy ?? ""),
+      approvedBy: null,
+      approvedAt: null,
+      closedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.db.remunerationPeriods.push(record);
+    this.db.persist();
+    return record;
+  }
+
+  /** Throws when the period is CLOSED — the invariant every mutator shares. */
+  private assertPeriodOpen(period: RemunerationPeriod, what: string): void {
+    if (period.status === "CLOSED") {
+      throw new Error(`Period is CLOSED — ${what} must be recorded as a new adjustment, never a rewrite`);
+    }
+  }
+
+  periodItems(periodId: string): RemunerationItem[] {
+    return this.db.remunerationItems
+      .filter((i) => i.periodId === periodId)
+      .sort((a, b) => a.staffId.localeCompare(b.staffId));
+  }
+
+  periodPayments(periodId: string): RemunerationPayment[] {
+    return this.db.remunerationPayments
+      .filter((p) => p.periodId === periodId)
+      .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate));
+  }
+
+  /** net = basic + allowances + bonuses − deductions − advance + other (§18.4). */
+  private computeNet(i: { basicSalary: number; allowances: number; bonuses: number; deductions: number; advanceAmount: number; otherPayments: number }): number {
+    return Math.round(
+      (i.basicSalary + i.allowances + i.bonuses - i.deductions - i.advanceAmount + i.otherPayments) * 100,
+    ) / 100;
+  }
+
+  private recomputePeriodTotals(periodId: string): void {
+    const period = this.findPeriod(periodId);
+    if (!period) return;
+    const items = this.periodItems(periodId);
+    period.totalAmount = Math.round(items.reduce((n, i) => n + i.netAmount, 0) * 100) / 100;
+    period.paidAmount = Math.round(items.reduce((n, i) => n + i.paidAmount, 0) * 100) / 100;
+    if (period.status !== "CLOSED" && period.status !== "OPEN") {
+      if (period.paidAmount <= 0) period.status = period.approvedAt ? "APPROVED" : period.status;
+      else if (period.paidAmount >= period.totalAmount && period.totalAmount > 0) period.status = "PAID";
+      else period.status = "PARTIALLY_PAID";
+    }
+    period.updatedAt = new Date().toISOString();
+  }
+  /**
+   * SELECT STAFF + CALCULATE (§18.4): materialise one item per selected staff
+   * from their salary profile. Re-runnable while OPEN/PROCESSING — approved
+   * lines are frozen. Advances are NEVER auto-deducted: the Admin opts in per
+   * line so outstanding balances stay visible (§18.6).
+   */
+  calculatePeriod(periodId: string, staffIds: string[], _actor: string): RemunerationItem[] {
+    const period = this.findPeriod(periodId);
+    if (!period) throw new Error("Period not found");
+    this.assertPeriodOpen(period, "calculation");
+    if (period.approvedAt) throw new Error("Period is already APPROVED — adjustments must be new records");
+    const now = new Date().toISOString();
+    const targets = staffIds.length
+      ? staffIds
+      : this.db.staff.filter((s) => s.employmentStatus === "ACTIVE" || s.employmentStatus === "PROBATION").map((s) => s.id);
+    const created: RemunerationItem[] = [];
+    for (const staffId of targets) {
+      if (!this.findStaff(staffId)) continue;
+      const existing = this.db.remunerationItems.find((i) => i.periodId === periodId && i.staffId === staffId);
+      if (existing && existing.status !== "PENDING") continue;
+      const profile = this.salaryProfileFor(staffId);
+      const draft = {
+        basicSalary: profile?.basicSalary ?? 0,
+        allowances: profile?.allowanceAmount ?? 0,
+        bonuses: 0,
+        deductions: profile?.deductionAmount ?? 0,
+        advanceAmount: 0,
+        otherPayments: 0,
+      };
+      const net = this.computeNet(draft);
+      if (existing) {
+        applyPatch(existing, draft, ["basicSalary", "allowances", "bonuses", "deductions", "advanceAmount", "otherPayments"]);
+        existing.netAmount = net;
+        existing.updatedAt = now;
+        created.push(existing);
+      } else {
+        const record: RemunerationItem = {
+          id: makeId("ritem"),
+          periodId,
+          staffId,
+          ...draft,
+          netAmount: net,
+          paidAmount: 0,
+          status: "PENDING",
+          notes: "",
+          createdAt: now,
+          updatedAt: now,
+        };
+        this.db.remunerationItems.push(record);
+        created.push(record);
+      }
+    }
+    if (period.status === "OPEN") period.status = "PROCESSING";
+    period.updatedAt = now;
+    this.recomputePeriodTotals(periodId);
+    this.db.persist();
+    return created;
+  }
+
+  updatePeriodItem(itemId: string, patch: Patch): RemunerationItem | undefined {
+    const item = this.db.remunerationItems.find((i) => i.id === itemId);
+    if (!item) return undefined;
+    const period = this.findPeriod(item.periodId);
+    if (!period) return undefined;
+    this.assertPeriodOpen(period, "item adjustment");
+    if (period.approvedAt && item.status !== "PENDING") {
+      throw new Error("Approved lines are frozen — record corrections as a NEW adjustment line");
+    }
+    applyPatch(item, patch, [
+      "basicSalary", "allowances", "bonuses", "deductions", "advanceAmount", "otherPayments", "notes", "status",
+    ]);
+    item.netAmount = this.computeNet(item);
+    item.updatedAt = new Date().toISOString();
+    this.recomputePeriodTotals(item.periodId);
+    this.db.persist();
+    return item;
+  }
+
+  /** Additive correction line for APPROVED/CLOSED periods (§18.7 history). */
+  addAdjustmentItem(periodId: string, input: Patch): RemunerationItem {
+    const period = this.findPeriod(periodId);
+    if (!period) throw new Error("Period not found");
+    if (!period.approvedAt) throw new Error("Adjustments only apply after approval — edit the line directly");
+    const now = new Date().toISOString();
+    const draft = {
+      basicSalary: mapNum(input.basicSalary),
+      allowances: mapNum(input.allowances),
+      bonuses: mapNum(input.bonuses),
+      deductions: mapNum(input.deductions),
+      advanceAmount: mapNum(input.advanceAmount),
+      otherPayments: mapNum(input.otherPayments),
+    };
+    const record: RemunerationItem = {
+      id: makeId("ritem"),
+      periodId,
+      staffId: String(input.staffId ?? ""),
+      ...draft,
+      netAmount: this.computeNet(draft),
+      paidAmount: 0,
+      status: "ADJUSTED",
+      notes: String(input.notes ?? "Adjustment"),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.db.remunerationItems.push(record);
+    // Totals may move even on a CLOSED period: the adjustment is a NEW record,
+    // the original lines stay byte-identical (history remains reconstructable).
+    this.recomputePeriodTotals(periodId);
+    this.db.persist();
+    return record;
+  }
+
+  /** REVIEW/ADJUST → APPROVE: freeze every line (§18.4/§18.7). */
+  approvePeriod(periodId: string, actor: string): RemunerationPeriod | undefined {
+    const period = this.findPeriod(periodId);
+    if (!period) return undefined;
+    this.assertPeriodOpen(period, "approval");
+    if (period.approvedAt) throw new Error("Period is already approved");
+    if (this.periodItems(periodId).length === 0) throw new Error("Calculate salary before approving — no items selected");
+    const now = new Date().toISOString();
+    period.status = "APPROVED";
+    period.approvedBy = actor || null;
+    period.approvedAt = now;
+    period.updatedAt = now;
+    for (const item of this.periodItems(periodId)) {
+      if (item.status === "PENDING") item.status = "APPROVED";
+    }
+    this.db.persist();
+    return period;
+  }
+  // ---- payments (§18.7): record → mark paid → rollup → close ----
+
+  recordPayment(input: Patch): RemunerationPayment {
+    const period = this.findPeriod(String(input.periodId ?? ""));
+    if (!period) throw new Error("Period not found");
+    this.assertPeriodOpen(period, "payment recording");
+    if (!period.approvedAt) throw new Error("Approve the period before recording payments");
+    const now = new Date().toISOString();
+    const record: RemunerationPayment = {
+      id: makeId("rpay"),
+      periodId: period.id,
+      staffId: String(input.staffId ?? ""),
+      itemId: mapStr(input.itemId),
+      amount: mapNum(input.amount),
+      paymentDate: String(input.paymentDate ?? now).slice(0, 10),
+      method: String(input.method ?? "CASH") as RemunerationPayment["method"],
+      reference: String(input.reference ?? ""),
+      paymentStatus: "RECORDED",
+      notes: String(input.notes ?? ""),
+      recordedBy: String(input.recordedBy ?? ""),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.db.remunerationPayments.push(record);
+    this.db.persist();
+    return record;
+  }
+
+  /** MARK PAID: credit the line, roll the period forward, never touch CLOSED. */
+  markPaymentPaid(paymentId: string, actor: string): RemunerationPayment | undefined {
+    const payment = this.db.remunerationPayments.find((p) => p.id === paymentId);
+    if (!payment) return undefined;
+    const period = this.findPeriod(payment.periodId);
+    if (!period) return undefined;
+    this.assertPeriodOpen(period, "marking a payment paid");
+    if (payment.paymentStatus === "PAID") return payment; // idempotent
+    const now = new Date().toISOString();
+    payment.paymentStatus = "PAID";
+    payment.updatedAt = now;
+    void actor;
+    const item = this.db.remunerationItems.find((i) => i.id === payment.itemId)
+      ?? this.db.remunerationItems.find((i) => i.periodId === payment.periodId && i.staffId === payment.staffId);
+    if (item) {
+      item.paidAmount = Math.round((item.paidAmount + payment.amount) * 100) / 100;
+      item.status = item.paidAmount >= item.netAmount ? "PAID" : "PARTIALLY_PAID";
+      item.updatedAt = now;
+    }
+    this.recomputePeriodTotals(payment.periodId);
+    this.db.persist();
+    return payment;
+  }
+
+  /** CLOSE PERIOD: terminal. Totals + rows are frozen from here on (§18.7). */
+  closePeriod(periodId: string, actor: string): RemunerationPeriod | undefined {
+    const period = this.findPeriod(periodId);
+    if (!period) return undefined;
+    if (period.status === "CLOSED") return period; // idempotent
+    if (!period.approvedAt) throw new Error("Approve the period before closing it");
+    const now = new Date().toISOString();
+    period.status = "CLOSED";
+    period.closedAt = now;
+    period.updatedAt = now;
+    void actor;
+    this.db.persist();
+    return period;
+  }
+
+  // ---- advances (§18.6): original amount immutable, repayments append ----
+
+  staffAdvances(staffId?: string): StaffAdvance[] {
+    return this.db.staffAdvances
+      .filter((a) => (staffId ? a.staffId === staffId : true))
+      .sort((a, b) => String(b.advanceDate ?? b.createdAt).localeCompare(String(a.advanceDate ?? a.createdAt)));
+  }
+
+  outstandingAdvances(staffId: string): number {
+    return Math.round(
+      this.db.staffAdvances
+        .filter((a) => a.staffId === staffId && a.status === "OUTSTANDING")
+        .reduce((n, a) => n + (a.amount - a.repaidAmount), 0) * 100,
+    ) / 100;
+  }
+
+  createAdvance(input: Patch): StaffAdvance {
+    const now = new Date().toISOString();
+    const record: StaffAdvance = {
+      id: makeId("adv"),
+      staffId: String(input.staffId ?? ""),
+      amount: mapNum(input.amount),
+      repaidAmount: 0,
+      reason: String(input.reason ?? ""),
+      advanceDate: mapDate(input.advanceDate) ?? now.slice(0, 10),
+      status: "OUTSTANDING",
+      repaymentLog: [],
+      recordedBy: String(input.recordedBy ?? ""),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.db.staffAdvances.push(record);
+    this.db.persist();
+    return record;
+  }
+
+  /**
+   * Recovery/repayment: appends to repaymentLog and bumps repaidAmount —
+   * `amount` is NEVER reduced, so the original grant stays reconstructable
+   * (§18.6 "must not be silently overwritten"). Settles at zero outstanding.
+   */
+  recordAdvanceRepayment(advanceId: string, input: Patch): StaffAdvance | undefined {
+    const advance = this.db.staffAdvances.find((a) => a.id === advanceId);
+    if (!advance) return undefined;
+    const outstanding = advance.amount - advance.repaidAmount;
+    const amount = mapNum(input.amount);
+    if (amount <= 0) throw new Error("Repayment amount must be positive");
+    if (amount > outstanding + 0.001) throw new Error(`Repayment exceeds outstanding balance (${outstanding})`);
+    advance.repaymentLog = [
+      ...(Array.isArray(advance.repaymentLog) ? advance.repaymentLog : []),
+      {
+        date: String(input.date ?? new Date().toISOString()).slice(0, 10),
+        amount,
+        method: input.method === undefined ? undefined : String(input.method),
+        reference: input.reference === undefined ? undefined : String(input.reference),
+        recordedBy: input.recordedBy === undefined ? undefined : String(input.recordedBy),
+      },
+    ];
+    advance.repaidAmount = Math.round((advance.repaidAmount + amount) * 100) / 100;
+    advance.status = advance.repaidAmount >= advance.amount ? "SETTLED" : "OUTSTANDING";
+    advance.updatedAt = new Date().toISOString();
+    this.db.persist();
+    return advance;
+  }
+  // ---- payslips & dashboard (§18.5/§18.8) ----
+
+  /**
+   * Issue payslips for every approved line of a period. Figures are COPIED at
+   * issue time — later profile/line edits never rewrite an issued document.
+   * Reissuing an already-issued staff line is a no-op (idempotent).
+   */
+  issuePayslips(periodId: string, actor: string): Payslip[] {
+    const period = this.findPeriod(periodId);
+    if (!period) throw new Error("Period not found");
+    if (!period.approvedAt) throw new Error("Approve the period before issuing payslips");
+    const now = new Date().toISOString();
+    const issued: Payslip[] = [];
+    for (const item of this.periodItems(periodId)) {
+      const staff = this.findStaff(item.staffId);
+      if (!staff) continue;
+      const already = this.db.payslips.find((p) => p.periodId === periodId && p.staffId === item.staffId);
+      if (already) {
+        issued.push(already);
+        continue;
+      }
+      const record: Payslip = {
+        id: makeId("pslip"),
+        periodId,
+        staffId: item.staffId,
+        itemId: item.id,
+        periodLabel: period.label || `${period.startDate} → ${period.endDate}`,
+        staffName: staff.name,
+        basicSalary: item.basicSalary,
+        allowances: item.allowances,
+        bonuses: item.bonuses,
+        deductions: item.deductions,
+        advanceAmount: item.advanceAmount,
+        otherPayments: item.otherPayments,
+        netAmount: item.netAmount,
+        paidAmount: item.paidAmount,
+        issuedAt: now,
+        issuedBy: actor,
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.db.payslips.push(record);
+      issued.push(record);
+    }
+    this.db.persist();
+    return issued;
+  }
+
+  payslips(periodId?: string, staffId?: string): Payslip[] {
+    return this.db.payslips
+      .filter((p) => (periodId ? p.periodId === periodId : true))
+      .filter((p) => (staffId ? p.staffId === staffId : true))
+      .sort((a, b) => String(b.issuedAt ?? b.createdAt).localeCompare(String(a.issuedAt ?? a.createdAt)));
+  }
+
+  /**
+   * §18.5 — the Admin's period dashboard: totals due/paid/pending, allowances,
+   * deductions, outstanding advances, status and upcoming payment dates, with
+   * drill-down ids. Everything derives from live rows, never cached figures.
+   */
+  remunerationDashboard(periodId?: string): Record<string, unknown> {
+    const periods = this.remunerationPeriods();
+    const period = periodId ? this.findPeriod(periodId) : periods.find((p) => p.status !== "CLOSED") ?? periods[0];
+    const items = period ? this.periodItems(period.id) : [];
+    const sum = (pick: (i: RemunerationItem) => number) => Math.round(items.reduce((n, i) => n + pick(i), 0) * 100) / 100;
+    const outstandingAdvances = Math.round(
+      this.db.staffAdvances.filter((a) => a.status === "OUTSTANDING").reduce((n, a) => n + (a.amount - a.repaidAmount), 0) * 100,
+    ) / 100;
+    const upcoming = periods
+      .filter((p) => p.intendedPaymentDate && p.status !== "CLOSED" && p.status !== "PAID")
+      .sort((a, b) => String(a.intendedPaymentDate).localeCompare(String(b.intendedPaymentDate)))
+      .slice(0, 5)
+      .map((p) => ({ id: p.id, label: p.label, date: p.intendedPaymentDate, status: p.status, total: p.totalAmount }));
+    return {
+      period,
+      items: period
+        ? items.map((i) => ({ ...i, staffName: this.findStaff(i.staffId)?.name ?? "" }))
+        : [],
+      totals: {
+        due: period?.totalAmount ?? 0,
+        paid: period?.paidAmount ?? 0,
+        pending: Math.round(((period?.totalAmount ?? 0) - (period?.paidAmount ?? 0)) * 100) / 100,
+        allowances: sum((i) => i.allowances),
+        bonuses: sum((i) => i.bonuses),
+        deductions: sum((i) => i.deductions),
+        outstandingAdvances,
+      },
+      upcomingPaymentDates: upcoming,
+      periodStatus: period?.status ?? null,
+    };
   }
 }
 

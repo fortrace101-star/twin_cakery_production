@@ -4,6 +4,7 @@ import { rbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
 import { makeId } from "../utils/make-id.js";
+import { paginate } from "../utils/paginate.js";
 
 const router = Router();
 const authService = new AuthService();
@@ -25,7 +26,12 @@ router.get("/", required("payments.view"), (req, res) => {
   const orderId = req.query.orderId as string | undefined;
   let list = payments;
   if (orderId) list = list.filter((p) => p.orderId === orderId);
-  res.json(list);
+  // §33 — opt-in pagination envelope (plain array without ?page=).
+  res.json(paginate(list, req.query, {
+    sortable: ["createdAt", "amount", "method"],
+    dateField: "createdAt",
+    searchFields: ["reference", "notes", "method"],
+  }));
 });
 
 // ── M-Pesa STK push simulator (E4) ─────────────────────────────────────────
@@ -94,6 +100,11 @@ router.post("/", required("payments.record"), (req, res) => {
   } else {
     store.recomputePaymentStatus(orderId);
   }
+  store.createAuditLog({
+    actor: String(receivedBy || "admin"), action: "payment:created",
+    entityType: "payment", entityId: payment.id, orderId: String(orderId),
+    reason: `${method || "Cash"}${ref ? ` · ${ref}` : ""} · order ${orderId}`,
+  });
   store.persist();
 
   res.status(201).json({

@@ -55,4 +55,12 @@ describe("permission-aware navigation (E5)", () => {
     expect(ids).not.toContain("delivery");
     expect(ids).not.toContain("inventory");
   });
+
+  it("gates Staff & Salary behind staff.view (E7)", () => {
+    expect(MODULE_PERMISSIONS["staff"]).toBe("staff.view");
+    const withStaff = visibleModules(modules, ["staff.view", "orders.view"]).map((m) => m.id);
+    expect(withStaff).toContain("staff");
+    const withoutStaff = visibleModules(modules, ["orders.view", "remuneration.view"]).map((m) => m.id);
+    expect(withoutStaff).not.toContain("staff");
+  });
 });

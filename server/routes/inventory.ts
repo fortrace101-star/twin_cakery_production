@@ -4,6 +4,7 @@ import { rbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
 import { publishLowStockAlert } from "../services/stock-alerts.js";
+import { paginate } from "../utils/paginate.js";
 
 const router = Router();
 const authService = new AuthService();
@@ -27,10 +28,15 @@ router.get("/", required("inventory.view"), (req, res) => {
   let list = items;
   if (name) list = list.filter((i) => i.name.toLowerCase().includes(name.toLowerCase()));
   if (outOfStock) list = list.filter((i) => (i.physicalStock || 0) <= 0);
-  res.json(list.map((i) => ({
-    ...i,
-    availableStock: (i.physicalStock || 0) - (store.stockReservations().filter((r) => r.itemId === i.id).reduce((s, r) => s + r.quantity, 0)),
-  })));
+  // §33 — opt-in pagination envelope (plain array without ?page=).
+  res.json(paginate(
+    list.map((i) => ({
+      ...i,
+      availableStock: (i.physicalStock || 0) - (store.stockReservations().filter((r) => r.itemId === i.id).reduce((s, r) => s + r.quantity, 0)),
+    })),
+    req.query,
+    { sortable: ["name", "physicalStock", "reorderLevel", "createdAt"], dateField: "createdAt", searchFields: ["name", "category"] },
+  ));
 });
 
 router.get("/ledger", required("inventory.view"), (req, res) => {
@@ -73,6 +79,11 @@ router.post("/adjustments", required("inventory.adjust"), (req, res) => {
   const previousStock = store.inventoryItems().find((i) => i.id === itemId)?.physicalStock ?? 0;
   const transaction = store.adjustInventory(itemId, quantity, unit || "unit", type || "ADJUSTMENT_IN", reference || "", user || "admin", unitCost || null, notes || "");
   if (!transaction) throw new NotFoundError("Inventory item not found");
+  store.createAuditLog({
+    actor: session?.userId ?? String(user || "admin"), action: "inventory:adjusted",
+    entityType: "inventory_item", entityId: String(itemId),
+    reason: `${type || "ADJUSTMENT"} ${quantity} ${unit || "unit"}${reference ? ` · ${reference}` : ""}`,
+  });
   store.persist();
   if (session) publishLowStockAlert(itemId, previousStock, { userId: session.userId, role: session.userId, isAdmin: true });
   res.status(201).json(transaction);

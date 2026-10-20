@@ -35,6 +35,13 @@ const PERMS = [
   "content.view","content.create","content.edit",
   "quotations.view","quotations.create","quotations.accept","quotations.edit",
   "inquiries.view","inquiries.create","inquiries.edit","sales.analytics",
+  // E7 staff & remuneration (governing doc §21 + payslip.print per plan §6.2).
+  // All 12 land in role-admin via the admin grant loop below — salary stays
+  // Admin-only by default (§18.2); role-production gets staff.view only.
+  "staff.view","staff.manage","staff.attendance",
+  "remuneration.view","remuneration.create","remuneration.edit",
+  "remuneration.approve","remuneration.process","remuneration.record_payment",
+  "remuneration.close_period","remuneration.view_reports","payslip.print",
 ];
 
 export async function seed(): Promise<void> {
@@ -52,7 +59,23 @@ export async function seed(): Promise<void> {
       ('role-csr','Customer Service Representative','Inbound support', TRUE)`,
   );
   for (const [i, key] of PERMS.entries()) {
-    await pool.query(`INSERT INTO permissions (id, key) VALUES ($1, $2)`, [`perm-${i + 1}`, key]);
+    // Migrations 012/015/017 run BEFORE the seed on a fresh DB and already
+    // inserted some keys with their own ids (e.g. perm-staff-view). Without
+    // ON CONFLICT the positional insert died on UNIQUE(key), and the admin
+    // grant below referenced `perm-${i+1}` ids that never existed. Insert
+    // conflict-safely, then resolve the REAL id by key.
+    await pool.query(`INSERT INTO permissions (id, key) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`, [
+      `perm-${i + 1}`,
+      key,
+    ]);
+    const perm = (await pool.query(`SELECT id FROM permissions WHERE key = $1`, [key])).rows[0] as { id: string } | undefined;
+    if (perm) {
+      await pool.query(
+        `INSERT INTO role_permissions (id, role_id, permission_id) VALUES ($1,'role-admin',$2)
+         ON CONFLICT (role_id, permission_id) DO NOTHING`,
+        [`rp-admin-${perm.id}`, perm.id],
+      );
+    }
   }
   const users = [
     ["usr-manager","manager","Manager","manager@twincakery.com","0700 000 001","Admin / Proprietor",true,"role-admin"],
@@ -68,12 +91,10 @@ export async function seed(): Promise<void> {
     );
     await pool.query(`INSERT INTO user_roles (id, user_id, role_id) VALUES ($1,$2,$3)`, [`ur-${id}`, id, roleId]);
   }
-  for (const [i] of PERMS.entries()) {
-    await pool.query(`INSERT INTO role_permissions (id, role_id, permission_id) VALUES ($1,'role-admin',$2)`, [
-      `rp-admin-${i + 1}`,
-      `perm-${i + 1}`,
-    ]);
-  }
+  // Admin grants for every permission run inside the PERMS loop above (key-
+  // resolved). The old positional loop that lived here duplicated them and
+  // referenced `perm-${i+1}` ids that migrations 012/015/017 can displace on
+  // a fresh DB — an FK violation waiting to happen. Gone.
   // Non-admin roles need their grants too — without them every required()
   // route 403s for Production/Sales/CSR users (and a permission-aware nav
   // would hide the whole workspace). Keys mirror migration 014.
@@ -85,6 +106,7 @@ export async function seed(): Promise<void> {
       "purchasing.view","purchasing.create","purchasing.receive",
       "deliveries.view","deliveries.create","deliveries.dispatch","deliveries.complete","deliveries.cancel",
       "orders.view","orders.confirm","customers.view","catalogue.view",
+      "staff.view",
     ],
     "role-sales": [
       "orders.view","orders.create","orders.cancel","orders.confirm",
@@ -101,6 +123,8 @@ export async function seed(): Promise<void> {
       "feedback.view","feedback.create","feedback.update","quotations.view","catalogue.view",
     ],
   };
+  // E7: Production may see staff identity for scheduling (§18.1) but never a
+  // remuneration key (§18.2 confidential). Mirrors migration 017's grants.
   for (const [roleId, keys] of Object.entries(roleGrants)) {
     for (const key of keys) {
       const perm = (await pool.query(`SELECT id FROM permissions WHERE key = $1`, [key])).rows[0];

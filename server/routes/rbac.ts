@@ -63,6 +63,12 @@ router.post("/:id/permissions/:permissionId", required("roles.manage"), (req, re
   const perm = store.permissions().find((p) => p.id === permissionId);
   if (!perm) throw new NotFoundError("Permission not found");
   rbacService.assignPermissionToRole(role.id, perm.id);
+  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  store.createAuditLog({
+    actor: session?.userId ?? "", action: "role:permission_changed",
+    entityType: "role", entityId: role.id,
+    newStatus: "GRANTED", reason: `${role.name}: ${perm.key}`,
+  });
   store.persist();
   res.json({ ok: true });
 });
@@ -75,6 +81,12 @@ router.delete("/:id/permissions/:permissionId", required("roles.manage"), (req, 
   const perm = store.permissions().find((p) => p.id === permissionId);
   if (!perm) throw new NotFoundError("Permission not found");
   rbacService.removePermissionFromRole(role.id, perm.id);
+  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  store.createAuditLog({
+    actor: session?.userId ?? "", action: "role:permission_changed",
+    entityType: "role", entityId: role.id,
+    newStatus: "REVOKED", reason: `${role.name}: ${perm.key}`,
+  });
   store.persist();
   res.json({ ok: true });
 });

@@ -4,6 +4,7 @@ import { rbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError, ConflictError } from "../utils/errors.js";
 import { makeId } from "../utils/make-id.js";
+import { paginate } from "../utils/paginate.js";
 
 const router = Router();
 const authService = new AuthService();
@@ -32,7 +33,12 @@ router.get("/", required("finance.view"), (req, res) => {
   const category = req.query.category as string | undefined;
   let list = expenses;
   if (category) list = list.filter((e) => e.categoryId === category);
-  res.json(list);
+  // §33 — opt-in pagination envelope (plain array without ?page=).
+  res.json(paginate(list, req.query, {
+    sortable: ["date", "amount", "createdAt"],
+    dateField: "date",
+    searchFields: ["description", "reference"],
+  }));
 });
 
 router.post("/", required("finance.record_expense"), (req, res) => {
@@ -47,6 +53,11 @@ router.post("/", required("finance.record_expense"), (req, res) => {
     description: description || "",
     attachment: attachment || null,
     recordedBy: recordedBy || "admin",
+  });
+  store.createAuditLog({
+    actor: String(expense.recordedBy || "admin"), action: "expense:created",
+    entityType: "expense", entityId: expense.id,
+    reason: `${expense.paymentMethod} · ${expense.description || expense.reference || "expense"}`,
   });
   store.persist();
   res.status(201).json(expense);
@@ -71,6 +82,11 @@ router.patch("/:id", required("finance.record_expense"), (req, res) => {
   if (attachment !== undefined) expense.attachment = attachment;
   if (recordedBy !== undefined) expense.recordedBy = recordedBy;
   expense.updatedAt = new Date().toISOString();
+  store.createAuditLog({
+    actor: String(expense.recordedBy || "admin"), action: "expense:updated",
+    entityType: "expense", entityId: expense.id,
+    reason: expense.description || expense.reference || "Expense edited",
+  });
   store.persist();
   res.json(expense);
 });
