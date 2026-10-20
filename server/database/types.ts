@@ -187,6 +187,49 @@ export interface Order extends BaseEntity {
   followUpCompletedAt: string | null;
 }
 
+export type OrderProposalStatus = "PENDING_REVIEW" | "CONFIRMED" | "CANCELLED";
+
+export interface OrderProposalItem extends BaseEntity {
+  proposalId: string;
+  productId: string;
+  productName: string;
+  variantOptions: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+}
+
+/**
+ * Website order-form submission (E6, §§29–30). One row per public form POST.
+ * Contact fields are stored raw (name/phone/email) — the canonical customers
+ * row is only linked via the OPTIONAL customerId once staff match/create it,
+ * so public submissions can never violate the customers FK. Confirming a
+ * proposal creates the linked inquiry (+ order draft); the proposal itself is
+ * never mutated into an order.
+ */
+export interface OrderProposal extends BaseEntity {
+  proposalNumber: string;
+  customerName: string;
+  phone: string;
+  email: string;
+  productSummary: string;
+  quantity: number;
+  preferredDate: string | null;
+  preferredTime: string;
+  deliveryType: string;
+  deliveryLocation: string;
+  customerNotes: string;
+  referenceImage: string;
+  status: OrderProposalStatus;
+  items: OrderProposalItem[];
+  customerId: string | null;
+  inquiryId: string | null;
+  orderId: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  reviewNotes: string;
+}
+
 export interface ProductionJob extends BaseEntity {
   orderId: string;
   customerId: string;

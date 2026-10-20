@@ -26,6 +26,8 @@ import type {
   Order,
   OrderCustomerSnapshot,
   OrderItem,
+  OrderProposal,
+  OrderProposalItem,
   OrderStatusHistory,
   Payment,
   Permission,
@@ -161,6 +163,8 @@ export interface DbCache {
   customerEventReminders: CustomerEventReminder[];
   expenses: Expense[];
   expenseCategories: ExpenseCategory[];
+  orderProposals: OrderProposal[];
+  orderProposalItems: OrderProposalItem[];
   catalogue: Catalogue;
   blogCategories: BlogCategory[];
   blogPosts: BlogPost[];
@@ -228,6 +232,8 @@ export function createCache(): DbCache {
     customerEventReminders: [],
     expenses: [],
     expenseCategories: [],
+    orderProposals: [],
+    orderProposalItems: [],
     catalogue: { categories: [], types: [], products: [], variants: [], optionDefinitions: [], optionValues: [] },
     blogCategories: [],
     blogPosts: [],
@@ -449,6 +455,13 @@ export async function loadCache(): Promise<void> {
     cache.expenses = (await load<Expense>("expenses")) ?? [];
     cache.expenseCategories = (await load<ExpenseCategory>("expense_categories")) ?? [];
 
+    // public order proposals (E6 §§29-30) — website order form submissions
+    cache.orderProposals = (await load<OrderProposal>("order_proposals")) ?? [];
+    cache.orderProposalItems = (await load<OrderProposalItem>("order_proposal_items")) ?? [];
+    for (const p of cache.orderProposals) {
+      p.items = cache.orderProposalItems.filter((i) => i.proposalId === p.id);
+    }
+
     currentDb = cache;
     logger.boot(`cache loaded: ${cache.users.length} users, ${cache.customers.length} customers, ` +
       `${cache.orders.length} orders, ${cache.quotations.length} quotations, ` +
@@ -586,6 +599,10 @@ const MIRRORS: Mirror[] = [
   { table: "order_customer_snapshots", rows: (c) => c.orderSnapshots },
   { table: "customer_events", rows: (c) => c.customerEvents },
   { table: "customer_event_reminders", rows: (c) => c.customerEventReminders },
+  // FK-safe order: proposals before items; customers/inquiries/orders load via
+  // their own mirrors (proposals only hold OPTIONAL links to them).
+  { table: "order_proposals", rows: (c) => c.orderProposals },
+  { table: "order_proposal_items", rows: (c) => c.orderProposalItems },
   { table: "blog_categories", rows: (c) => c.blogCategories },
   { table: "blog_posts", rows: (c) => c.blogPosts },
   { table: "website_users", rows: (c) => c.websiteUsers },
