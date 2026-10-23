@@ -150,7 +150,7 @@ export function Catalogue({tab,search,setSearch,onNotice,onSignIn}: {tab:string;
   return (<>
     <div className="catalogue-toolbar">
       <label className="search-box"><Search size={16}/><input aria-label="Search catalogue" value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Search ${tab.toLowerCase()}...`}/></label>
-      <span>{loading ? "Loading…" : tab === "Products" ? `${filtered.length} products` : tab === "Categories" ? `${categories.length} categories` : tab === "Product types" ? `${types.length} product types` : "0 variants"}</span>
+      <span>{loading ? "Loading…" : tab === "Products" ? <><span className="inline-count">{filtered.length}</span> products</> : tab === "Categories" ? <><span className="inline-count">{categories.length}</span> categories</> : tab === "Product types" ? <><span className="inline-count">{types.length}</span> product types</> : "0 variants"}</span>
       {tab === "Products" && <Button size="sm" onClick={() => (connected ? setCreating(true) : onSignIn())} title={connected ? "Add a product to the website" : "Sign in to add products"}><Plus size={14}/> New product</Button>}
     </div>
     {!connected && <p className="text-muted-foreground text-xs webapp-note">Sign in to manage the live catalogue — products here appear on the website’s “Our Cakes” page.</p>}

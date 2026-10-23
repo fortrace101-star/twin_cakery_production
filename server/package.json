@@ -12,7 +12,10 @@
     "build": "tsc -p tsconfig.json",
     "build:api": "tsc -p tsconfig.json",
     "db:migrate": "tsx --tsconfig tsconfig.json database/migrate.ts",
-    "db:seed": "tsx --tsconfig tsconfig.json seeds/seed.ts"
+    "db:seed": "tsx --tsconfig tsconfig.json seeds/seed.ts",
+    "wipe": "tsx --tsconfig tsconfig.json scripts/reset-production.ts",
+    "code:admin": "tsx --tsconfig tsconfig.json scripts/code-admin.ts",
+    "code:staff": "tsx --tsconfig tsconfig.json scripts/code-staff.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

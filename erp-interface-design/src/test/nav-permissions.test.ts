@@ -45,17 +45,6 @@ describe("permission-aware navigation (E5)", () => {
     expect(ids).not.toContain("finance");
   });
 
-  it("keeps the CSR on inbound support only", () => {
-    const csr = ["orders.view", "inquiries.view", "customers.view", "feedback.view", "quotations.view", "catalogue.view"];
-    const ids = visibleModules(modules, csr).map((m) => m.id);
-    expect(ids).toEqual(expect.arrayContaining(["crm", "sales", "catalogue"]));
-    expect(ids).not.toContain("production");
-    expect(ids).not.toContain("analytics");
-    expect(ids).not.toContain("administration");
-    expect(ids).not.toContain("delivery");
-    expect(ids).not.toContain("inventory");
-  });
-
   it("gates Staff & Salary behind staff.view (E7)", () => {
     expect(MODULE_PERMISSIONS["staff"]).toBe("staff.view");
     const withStaff = visibleModules(modules, ["staff.view", "orders.view"]).map((m) => m.id);

@@ -11,6 +11,7 @@ export function SignUpPage() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [registerCode, setRegisterCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -41,6 +42,7 @@ export function SignUpPage() {
         phone,
         password,
         confirmPassword,
+        registerCode,
       });
       setSuccess(`Account created — logging you in as ${result.user.username}.`);
       setTimeout(() => navigate("/login", { replace: true }), 1200);
@@ -167,6 +169,23 @@ export function SignUpPage() {
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50"
               />
             </div>
+          </div>
+
+<div>
+            <label htmlFor="registerCode" className="mb-1 block text-xs font-medium text-muted-foreground">
+              Staff register code
+            </label>
+            <input
+              id="registerCode"
+              name="registerCode"
+              type="text"
+              required
+              disabled={busy}
+              placeholder="TWIN-STF-XXXX-XXXX"
+              value={registerCode}
+              onChange={(e) => setRegisterCode(e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50"
+            />
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}

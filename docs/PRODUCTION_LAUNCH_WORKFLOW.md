@@ -42,7 +42,7 @@ Spiro's production launch is a 4-phase, code-gated, auditable flow:
 | Asset | Location | Notes |
 |---|---|---|
 | `users` table | `server/migrations/001_core.sql:28` | `password_hash TEXT NOT NULL` — **must become nullable** for activation flow |
-| RBAC roles | `server/migrations/001_core.sql` + `server/seeds/seed.ts` | 4 roles: `role-admin` (Admin/Proprietor), `role-production`, `role-sales`, `role-csr` |
+| RBAC roles | `server/migrations/001_core.sql` + `server/seeds/seed.ts` | 3 roles: `role-admin` (Admin/Proprietor), `role-production`, `role-sales` |
 | `audit_logs` table | `server/migrations/006_finance_delivery.sql:114` | Already used for audit trail |
 | `/signup` page | `erp-interface-design/src/pages/SignUpPage.tsx` | Anyone can create an account — **no gating** |
 | `hasExistingUser()` | `erp-interface-design/src/lib/api.ts:433` | Routes first visitor to `/signup` if no active users |

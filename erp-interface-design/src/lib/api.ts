@@ -394,10 +394,34 @@ export interface RegisterInput {
   confirmPassword: string;
   role?: string;
   isAdmin?: boolean;
+  registerCode: string;
+}
+
+export interface ClaimAdminInput {
+  code: string;
+  username: string;
+  displayName: string;
+  email: string;
+  phone: string;
+  password: string;
+  confirmPassword: string;
 }
 
 export async function register(payload: RegisterInput): Promise<LoginResult> {
   return request<LoginResult>("/auth/register", { method: "POST", body: payload });
+}
+
+export async function claimAdmin(payload: ClaimAdminInput): Promise<LoginResult> {
+  const result = await request<LoginResult>("/auth/claim-admin", { method: "POST", body: payload });
+  if (result.token) setToken(result.token);
+  return result;
+}
+
+export async function resetCredentials(userId: string): Promise<{ userId: string; username: string; tempPassword: string }> {
+  return request<{ userId: string; username: string; tempPassword: string }>("/auth/reset-credentials", {
+    method: "POST",
+    body: { userId },
+  });
 }
 
 

@@ -250,15 +250,7 @@ function seed(): void {
     ),
   ];
 
-  store.customers = [
-    co("Sarah Mwangi", "07XX XXX XXX", "sarah@example.com"),
-    co("David Ochieng", "07YY YYY YYY", "david@example.com"),
-    co("Grace Wanjiku", "07ZZ ZZZ ZZZ", "grace@example.com"),
-    co("James Kamau", "07AA AAA AAA", "james@example.com"),
-    co("Faith Akinyi", "07BB BBB BBB", "faith@example.com"),
-    co("Peter Njoroge", "07CC CCC CCC", "peter@example.com"),
-    co("Twin Cakery Wholesale", "07DD DDD DDD", "wholesale@example.com"),
-  ];
+  store.customers = [];
 
   store.roles = [
     { id: next(), name: "Admin / Proprietor", label: "Full business control", active: true, grantedAt: now },
@@ -428,10 +420,7 @@ function seed(): void {
     { id: next(), itemId: "INV-002", quantity: 5, unit: "kg", type: "OPENING_BALANCE", reference: "Opening", user: "admin", timestamp: now, unitCost: 850, notes: "Opening position" },
   ];
 
-  store.stockReservations = [
-    { id: next(), itemId: "INV-001", quantity: 2, unit: "kg", orderId: "TC-1048", reference: "TC-1048", reservedAt: now },
-    { id: next(), itemId: "INV-002", quantity: 0.5, unit: "kg", orderId: "TC-1047", reference: "TC-1047", reservedAt: now },
-  ];
+  store.stockReservations = [];
 
   store.supplierPriceHistory = [
     { id: next(), supplierId: ids[0], productId: "ING-001", unit: "kg", price: 120, effectiveDate: new Date(Date.now() - 30 * 86400000).toISOString(), note: "Base price" },

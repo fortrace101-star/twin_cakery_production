@@ -7,6 +7,7 @@ import { modules } from "./components/erp/data";
 import { PrivateRoute } from "./components/erp/PrivateRoute";
 import { LoginPage } from "./pages/LoginPage";
 import { SignUpPage } from "./pages/SignUpPage";
+import { ClaimAdminPage } from "./pages/ClaimAdminPage";
 import { hasExistingUser } from "./lib/api";
 
 function applyMeta(title: string, description: string) {
@@ -108,12 +109,28 @@ function GuestPage() {
   );
 }
 export default function App() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    (async () => {
+      try {
+        const exists = await hasExistingUser();
+        if (!exists) {
+          localStorage.clear();
+          sessionStorage.clear();
+          navigate("/claim-admin", { replace: true });
+        }
+      } catch {
+        // ignore
+      }
+    })();
+  }, [navigate]);
   return (
     <WorkspaceProvider>
       <DensityProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignUpPage />} />
+          <Route path="/claim-admin" element={<ClaimAdminPage />} />
           <Route path="/" element={<GuestPage />} />
           <Route
             path="/workspace/:module"

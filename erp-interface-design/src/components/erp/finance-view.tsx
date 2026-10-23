@@ -36,13 +36,13 @@ function applySort<T>(rows: T[], sort: SortState, accessors: Record<string, (row
   });
 }
 
-export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
+export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNotice: (s: string) => void }) {
   const { user, orders } = useWorkspace();
   // Order payments recorded as "Processing" on the order modal are surfaced here;
   // every unsettled order is also listed with its payment status below.
   const processingOrders = orders.filter((o) => o.payment === "Processing");
   const outstandingOrders = orders.filter((o) => o.payment !== "Paid");
-  const [tab, setTab] = useState("Payments");
+  const activeTab = tab || "Payments";
   // One sort state per table so the Finance tables sort independently.
   const [paySort, setPaySort] = useState<SortState>(null);
   const [statusSort, setStatusSort] = useState<SortState>(null);
@@ -242,16 +242,10 @@ export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
     : [];
 
   return (
-    <div className="workspace">
-      <div className="module-tabs">
-        {["Payments", "Expenses", "Profitability", "Reports"].map((t) => (
-          <Button key={t} variant={tab === t ? "default" : "secondary"} onClick={() => setTab(t)}>{t}</Button>
-        ))}
-      </div>
-
-      {tab === "Payments" && (
-        <section className="panel">
-          <div className="panel-heading"><h2>Payments</h2><p>Record and review payments against orders.</p></div>
+    <div className="finance-view">
+      {activeTab === "Payments" && (
+        <section className="panel module-table">
+          <div className="panel-heading"><div><h2>Payments <span className="inline-count">{payments.length}</span></h2><p>Record and review payments against orders.</p></div></div>
           {processingOrders.length > 0 && (
             <div className="payments-processing tone-violet" role="status">
               <Clock3 size={16} />
@@ -270,7 +264,7 @@ export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
           <div className="flex justify-end gap-2"><Button variant="secondary" onClick={onRecordPayment} disabled={recording || !orderId || !amount}>{recording ? "Recording…" : "Record payment"}</Button></div>
           {pasa && (
             <div className="form-note-wrap" style={{ marginTop: 16 }}>
-              <div className="panel-heading"><h2>M-Pesa — confirm payment</h2><p className="text-muted-foreground text-xs">Staged by Safaricom. Confirm to credit the order.</p></div>
+              <div className="panel-heading"><div><h2>M-Pesa — confirm payment</h2><p className="text-muted-foreground text-xs">Staged by Safaricom. Confirm to credit the order.</p></div></div>
               <div className="form-field"><Label htmlFor="pasa-ref">Reference</Label><Input id="pasa-ref" value={pasa.reference} readOnly /></div>
               <div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setPasa(null)}>Cancel</Button><Button onClick={() => onConfirmPasa()}><Check size={16}/>Confirm</Button></div>
             </div>
@@ -315,9 +309,9 @@ export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
       )}
 
 
-      {tab === "Expenses" && (
-        <section className="panel">
-          <div className="panel-heading"><h2>Expenses</h2><p>Record business expenses with categories.</p></div>
+      {activeTab === "Expenses" && (
+        <section className="panel module-table">
+          <div className="panel-heading"><div><h2>Expenses <span className="inline-count">{expenses.length}</span></h2><p>Record business expenses with categories.</p></div></div>
           <div className="form-grid">
             <div className="form-field"><Label htmlFor="exp-amount">Amount (USh)</Label><Input id="exp-amount" type="number" value={expenseAmount} onChange={(e) => setExpenseAmount(e.target.value)} placeholder="25000" /></div>
             <div className="form-field"><Label htmlFor="exp-category">Category</Label><select id="exp-category" className="input" value={expenseCategory} onChange={(e) => setExpenseCategory(e.target.value)}>{categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
@@ -357,9 +351,9 @@ export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
       )}
 
 
-      {tab === "Profitability" && (
-        <section className="panel">
-          <div className="panel-heading"><h2>Profitability</h2><p>Revenue, costs and profit for the selected period.</p></div>
+      {activeTab === "Profitability" && (
+        <section className="panel module-table">
+          <div className="panel-heading"><div><h2>Profitability</h2><p>Revenue, costs and profit for the selected period.</p></div></div>
           <div className="form-grid">
             <div className="form-field"><Label htmlFor="period">Period</Label><select id="period" className="input" value={period} onChange={(e) => setPeriod(e.target.value)}><option>day</option><option>week</option><option>month</option><option>year</option></select></div>
           </div>
@@ -384,9 +378,9 @@ export function FinanceView({ onNotice }: { onNotice: (s: string) => void }) {
         </section>
       )}
 
-      {tab === "Reports" && (
-        <section className="panel">
-          <div className="panel-heading"><h2>Financial reports</h2><p>Downloaded statements for the selected period.</p></div>
+      {activeTab === "Reports" && (
+        <section className="panel module-table">
+          <div className="panel-heading"><div><h2>Financial reports</h2><p>Downloaded statements for the selected period.</p></div></div>
           <div className="form-grid">
             <div className="form-field"><Label htmlFor="rperiod">Period</Label><select id="rperiod" className="input" value={period} onChange={(e) => setPeriod(e.target.value)}><option>day</option><option>week</option><option>month</option><option>year</option></select></div>
           </div>

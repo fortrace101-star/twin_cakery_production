@@ -1377,6 +1377,20 @@ export class MemoryStore {
     return this.db.users.find((u) => u.username === username);
   }
 
+  updateUser(id: string, input: Patch): User | undefined {
+    const user = this.db.users.find((u) => u.id === id);
+    if (!user) return undefined;
+    if (input.passwordHash !== undefined) user.passwordHash = String(input.passwordHash);
+    if (input.displayName !== undefined) user.displayName = String(input.displayName);
+    if (input.email !== undefined) user.email = String(input.email);
+    if (input.phone !== undefined) user.phone = String(input.phone);
+    if (input.role !== undefined) user.role = String(input.role) as User["role"];
+    if (input.status !== undefined) user.status = String(input.status) as User["status"];
+    user.updatedAt = new Date().toISOString();
+    this.db.persist();
+    return user;
+  }
+
   createUser(input: Patch): User {
     const now = new Date().toISOString();
     const record: User = {

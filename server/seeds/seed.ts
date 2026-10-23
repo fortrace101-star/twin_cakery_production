@@ -55,8 +55,7 @@ export async function seed(): Promise<void> {
     `INSERT INTO roles (id, name, label, active) VALUES
       ('role-admin','Admin / Proprietor','Full business control', TRUE),
       ('role-production','Production Manager','Operational fulfillment', TRUE),
-      ('role-sales','Sales Manager','Sales growth & commercial analytics', TRUE),
-      ('role-csr','Customer Service Representative','Inbound support', TRUE)`,
+      ('role-sales','Sales Manager','Sales growth & commercial analytics', TRUE)`,
   );
   for (const [i, key] of PERMS.entries()) {
     // Migrations 012/015/017 run BEFORE the seed on a fresh DB and already
@@ -81,7 +80,6 @@ export async function seed(): Promise<void> {
     ["usr-manager","manager","Manager","manager@twincakery.com","0700 000 001","Admin / Proprietor",true,"role-admin"],
     ["usr-alex","alex","Alex","alex@twincakery.com","0700 000 002","Production Manager",true,"role-production"],
     ["usr-jordan","jordan","Jordan","jordan@twincakery.com","0700 000 003","Sales Manager",false,"role-sales"],
-    ["usr-priya","priya","Priya","priya@twincakery.com","0700 000 004","Customer Service Representative",false,"role-csr"],
   ] as const;
   for (const [id, username, display, email, phone, role, admin, roleId] of users) {
     await pool.query(
@@ -117,11 +115,6 @@ export async function seed(): Promise<void> {
       "sales.analytics","payments.view","payments.record",
       "deliveries.view","catalogue.view",
     ],
-    "role-csr": [
-      "orders.view","inquiries.view","inquiries.create",
-      "customers.view","customers.create","customers.interact",
-      "feedback.view","feedback.create","feedback.update","quotations.view","catalogue.view",
-    ],
   };
   // E7: Production may see staff identity for scheduling (§18.1) but never a
   // remuneration key (§18.2 confidential). Mirrors migration 017's grants.
@@ -136,27 +129,7 @@ export async function seed(): Promise<void> {
       );
     }
   }
-  const customers = [
-    ["cust-sarah","Sarah Mwangi","+256 700 000 011","sarah@example.com"],
-    ["cust-david","David Ochieng","+256 700 000 012","david@example.com"],
-    ["cust-grace","Grace Wanjiku","+256 700 000 013","grace@example.com"],
-    ["cust-james","James Kamau","+256 700 000 014","james@example.com"],
-    ["cust-faith","Faith Akinyi","+256 700 000 015","faith@example.com"],
-    ["cust-peter","Peter Njoroge","+256 700 000 016","peter@example.com"],
-    ["cust-wholesale","Twin Cakery Wholesale","+256 700 000 017","wholesale@example.com"],
-  ] as const;
-  for (const [id, name, phone, email] of customers) {
-    await pool.query(
-      `INSERT INTO customers (id, name, phone, email, preferred_contact_method, source, status)
-       VALUES ($1,$2,$3,$4,'phone','In-house','Active')`,
-      [id, name, phone, email],
-    );
-    await pool.query(
-      `INSERT INTO customer_addresses (id, customer_id, label, line1, city, country, is_default)
-       VALUES ($1,$2,'Home','Plot 12 Kampala Road','Kampala','Uganda', TRUE)`,
-      [`addr-${id}`, id],
-    );
-  }
+  // Dummy customers intentionally removed � production seed creates none.
   await pool.query(
     `INSERT INTO catalogue_categories (id, name, code, description, display_order) VALUES
       ('cat-celebration','Celebration cakes','CELEB','Cakes for celebrations',1),
@@ -215,58 +188,7 @@ export async function seed(): Promise<void> {
       ('tx-open-5','inv-eggs',90,'pcs','OPENING_BALANCE','Opening','usr-manager',18,'Opening position'),
       ('tx-open-6','inv-cream',8,'L','OPENING_BALANCE','Opening','usr-manager',650,'Opening position')`,
   );
-  // stock_reservations inserted after orders (FK to orders.order_number) — see below.
-  const SEED_ORDERS = [
-    ["ord-1048","TC-1048","cust-sarah","prod-choc","2 kg · Chocolate · Birthday",4500,"CONFIRMED","PARTIALLY_PAID","PENDING","2026-10-07 10:00","WhatsApp"],
-    ["ord-1047","TC-1047","cust-david","prod-red","1.5 kg · Red velvet · Anniversary",3800,"READY_FOR_DELIVERY","PAID","READY_FOR_DISPATCH","2026-10-07 11:30","Website"],
-    ["ord-1046","TC-1046","cust-grace","prod-vanilla","24 pieces · Vanilla · Corporate",2400,"CONFIRMED","PAID","PENDING","2026-10-07 13:00","Phone"],
-    ["ord-1045","TC-1045","cust-james","prod-wedding","3 tiers · Vanilla & lemon",18000,"IN_PRODUCTION","PARTIALLY_PAID","PENDING","2026-10-08 09:00","Walk-in"],
-    ["ord-1044","TC-1044","cust-faith","prod-carrot","1 kg · Cream cheese frosting",3200,"AWAITING_CONFIRMATION","UNPAID","PENDING","2026-10-08 14:00","WhatsApp"],
-    ["ord-1043","TC-1043","cust-peter","prod-choccup","12 pieces · Chocolate",1800,"COMPLETED_DELIVERED","PAID","COMPLETED_DELIVERED","2026-10-09 10:30","Website"],
-  ] as const;
-  for (const [id, num, cust, prod, variant, total, status, pay, del, at, channel] of SEED_ORDERS) {
-    const paid = pay === "UNPAID" ? 0 : pay === "PARTIALLY_PAID" ? total / 2 : total;
-    await pool.query(
-      `INSERT INTO orders (id, order_number, customer_id, subtotal, total, currency, required_at, notes, status, payment_status, delivery_status, created_by)
-       VALUES ($1,$2,$3,$4,$4,'UGX',$5,$6,$7,$8,$9,'usr-manager')`,
-      [id, num, cust, total, at, `${variant} · ${channel}`, status, pay, del],
-    );
-    await pool.query(
-      `INSERT INTO order_items (id, order_id, product_id, variant_options, quantity, unit_price, total, recipe_version)
-       VALUES ($1,$2,$3,$4,1,$5,$5,'v1.2')`,
-      [`oi-${id}`, id, prod, variant, total],
-    );
-    await pool.query(
-      `INSERT INTO order_status_history (id, order_id, previous_status, new_status, changed_by, reason)
-       VALUES ($1,$2,'INQUIRY',$3,'usr-manager','Seeded order')`,
-      [`osh-${id}`, id, status],
-    );
-    await pool.query(
-      `INSERT INTO payments (id, order_id, amount, method, reference, received_by, notes)
-       VALUES ($1,$2,$3,'Cash',$4,'usr-manager','Seed payment')`,
-      [`pay-${id}`, id, paid, num],
-    );
-    await pool.query(
-      `INSERT INTO deliveries (id, order_id, type, destination, status, notes)
-       VALUES ($1,$2,'HOME_DELIVERY','Kampala',$3,'Seed delivery')`,
-      [`del-${id}`, id, del],
-    );
-    await pool.query(
-      `INSERT INTO customer_feedback (id, customer_id, order_id, rating, type, comment, recorded_by)
-       VALUES ($1,$2,$3,5,'GENERAL','Beautiful cake and excellent service!','usr-priya')`,
-      [`fb-${id}`, cust, id],
-    );
-    await pool.query(
-      `INSERT INTO audit_logs (id, order_id, actor, action, entity_type, entity_id, previous_status, new_status, reason)
-       VALUES ($1,$2,'usr-manager','order:status_changed','order',$2,'INQUIRY',$3,'Seeded order')`,
-      [`audit-${id}`, id, status],
-    );
-  }
-  await pool.query(
-    `INSERT INTO stock_reservations (id, item_id, quantity, unit, order_id, reference) VALUES
-      ('res-1','inv-flour',2,'kg','ord-1048','TC-1048'),
-      ('res-2','inv-butter',0.5,'kg','ord-1047','TC-1047')`,
-  );
+  // Dummy/sample orders intentionally removed � production seed creates no orders.
   await pool.query(
     `INSERT INTO expense_categories (id, name) VALUES ('exp-ing','Ingredients'),('exp-pack','Packaging'),('exp-util','Utilities')`,
   );
@@ -284,16 +206,7 @@ export async function seed(): Promise<void> {
     `INSERT INTO notifications (id, event_type_id, title, message, priority, entity_type, entity_id, created_by)
      VALUES ('notif-1','StockShortageDetected','3 ingredients are running low','Review stock before the next batch.','HIGH','inventory','inv-flour','usr-manager')`,
   );
-  await pool.query(
-    `INSERT INTO inquiries (id, customer_id, channel, subject, summary, status, priority, source)
-     VALUES ('inq-1','cust-faith','WhatsApp','Carrot cake enquiry','1kg carrot cake for Friday','NEW','MEDIUM','WHATSAPP')`,
-  );
-  await pool.query(
-    `INSERT INTO quotations (id, quotation_number, customer_id, notes, status, total, created_by)
-     VALUES ('qt-1','QT-1044','cust-faith','Carrot cake quote','SENT',3200,'usr-manager')`,
-  );
-
-  // ---- E2: website content (blog + website users) ----
+  // Dummy inquiry/quotation intentionally removed.
   await pool.query(
     `INSERT INTO blog_categories (id, name, slug, description, display_order, active) VALUES
       ('bcat-studio','Studio notes','studio-notes','Behind-the-counter notes from the kitchen',1,TRUE),
@@ -334,3 +247,4 @@ if (invokedDirectly) {
       process.exit(1);
     });
 }
+

@@ -31,7 +31,7 @@ import {
   type ServerAuditLog,
   type ServerUser,
 } from "@/lib/api";
-import { initialOrders, type Order } from "./data";
+import { type Order } from "./data";
 
 /**
  * Connects the ERP workspace UI (workspace.tsx) to the Express API (src/lib/api.ts).
@@ -83,7 +83,7 @@ function byId<T extends { id: string }>(rows: T[]): Record<string, T> {
 }
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
-  const [orders, setOrders] = useState<Order[]>(initialOrders);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [audit, setAudit] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<ServerUser | null>(null);
@@ -133,7 +133,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         ),
       );
     } else {
-      setOrders(initialOrders);
+      setOrders([]);
     }
     setAudit((logs as ServerAuditLog[]).map(formatAudit));
     setLoading(false);
@@ -181,7 +181,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setAuthError("");
     setPermissions(null);
-    setOrders(initialOrders);
+    setOrders([]);
     setAudit([]);
   }, []);
 
