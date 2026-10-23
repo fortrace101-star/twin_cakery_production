@@ -83,6 +83,14 @@ router.post("/:id/complete", required("deliveries.complete"), (req, res) => {
   if (order && order.status !== "COMPLETED_DELIVERED") {
     const updated = store.updateOrder(order.id, { status: "COMPLETED_DELIVERED", deliveryStatus: "DELIVERED", followUpCompletedAt: null });
     if (updated) businessService.requestCustomerFollowUp(updated, session.userId);
+    // Delivery is the moment of truth for Cash-on-Delivery orders: settle the
+    // outstanding balance so paymentStatus flips to PAID (ledger-derived, §14).
+    // Non-fatal — a payment-record anomaly must never roll back a completed delivery.
+    try {
+      businessService.markOrderPaid(order.id, session.userId);
+    } catch {
+      /* delivered; payment reconciliation surfaces elsewhere */
+    }
   }
   store.createAuditLog({
     actor: session.userId, action: "delivery:completed",
@@ -90,7 +98,9 @@ router.post("/:id/complete", required("deliveries.complete"), (req, res) => {
     newStatus: "COMPLETED_DELIVERED", reason: `Delivered for order ${delivery.orderId}`,
   });
   store.persist();
-  res.json(delivery);
+  // Surface the order (with its freshly-derived paymentStatus) so the client can
+  // reflect "Paid" immediately on completion instead of refetching.
+  res.json({ delivery, order: order ?? null });
 });
 
 router.get("/:id", required("deliveries.view"), (req, res) => {

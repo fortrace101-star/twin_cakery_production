@@ -841,6 +841,19 @@ export function getProductionConsumption(id: string): Promise<ServerProductionCo
   return safe(() => request<{ consumption: ServerProductionConsumption[] }>(`/production/jobs/${id}/consumption`).then((r) => r?.consumption ?? []), []);
 }
 
+export interface ServerDeliveryCompletion {
+  delivery: ServerDelivery;
+  /** The order after delivery completion — carries the derived paymentStatus. */
+  order: ServerOrder | null;
+}
+
+/** POST /deliveries/:id/complete — mark a delivery delivered. The server also
+ * settles the order's outstanding Cash-on-Delivery balance (spec §14) so the
+ * returned `order.paymentStatus` reads "PAID" once the balance is covered. */
+export function completeDelivery(id: string): Promise<ServerDeliveryCompletion | null> {
+  return safe(() => request<ServerDeliveryCompletion>(`/deliveries/${id}/complete`, { method: "POST" }), null);
+}
+
 export interface ServerMaterialInput {
   itemId: string;
   quantity: number;
@@ -1334,10 +1347,6 @@ export async function cancelOrderProposal(id: string, reviewNotes?: string): Pro
 
 export async function dispatchDelivery(id: string): Promise<ServerDelivery | null> {
   return safe(() => request<ServerDelivery>(`/deliveries/${id}/dispatch`, { method: "POST" }), null);
-}
-
-export async function completeDelivery(id: string): Promise<ServerDelivery | null> {
-  return safe(() => request<ServerDelivery>(`/deliveries/${id}/complete`, { method: "POST" }), null);
 }
 
 export async function cancelDelivery(id: string): Promise<ServerDelivery | null> {

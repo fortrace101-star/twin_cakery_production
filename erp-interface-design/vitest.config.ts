@@ -9,8 +9,15 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    // Allow importing server-side modules that live outside the FE root.
+    server: {
+      fs: { allow: [".."] },
+    },
   },
   resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+      "@server": path.resolve(__dirname, "../server"),
+    },
   },
 });

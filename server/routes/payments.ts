@@ -5,6 +5,7 @@ import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
 import { makeId } from "../utils/make-id.js";
 import { paginate } from "../utils/paginate.js";
+import { businessService } from "../services/business.service.js";
 
 const router = Router();
 const authService = new AuthService();
@@ -99,6 +100,14 @@ router.post("/", required("payments.record"), (req, res) => {
     }
   } else {
     store.recomputePaymentStatus(orderId);
+    // Ensure a production job exists when a paid order is already in the
+    // production pipeline. Mirrors markOrderPaid — every paid pipeline order
+    // surfaces on the Jobs board.
+    try {
+      businessService.prepareOrderForProduction(String(orderId), String(receivedBy || "admin"));
+    } catch {
+      /* Non-fatal — order may not be in a production-ready status yet. */
+    }
   }
   store.createAuditLog({
     actor: String(receivedBy || "admin"), action: "payment:created",
@@ -128,6 +137,14 @@ router.post("/:id/callback", required("payments.record"), (req, res) => {
     // Money landed: the staged payment was already in the ledger at POST, so
     // the derived status now recomputes to PAID (or OVERPAID when covered).
     store.recomputePaymentStatus(payment.orderId);
+    // Ensure a production job exists when a paid order is already in the
+    // production pipeline — mirrors the markOrderPaid flow so every paid
+    // pipeline order surfaces on the Jobs board.
+    try {
+      businessService.prepareOrderForProduction(payment.orderId, actor);
+    } catch {
+      /* Non-fatal — order may not be in a production-ready status yet. */
+    }
     store.createNotification({
       eventTypeId: "PaymentReceived",
       title: "Payment received",
