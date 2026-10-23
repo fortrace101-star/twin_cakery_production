@@ -3,7 +3,18 @@ import { store } from "../database/store.js";
 import type { Patch } from "../database/store.js";
 import { notificationService } from "./notification.service.js";
 import { publishLowStockAlert } from "./stock-alerts.js";
-import type { Order, OrderStatus, User, OrderItem, ProductionJob, ProductionConsumption, OrderStatusHistory, NotificationPriority } from "../database/types.js";
+import type { Order, OrderStatus, User, OrderItem, Payment, ProductionJob, ProductionConsumption, OrderStatusHistory, NotificationPriority } from "../database/types.js";
+
+/**
+ * Resolve required_by for production job from order data.
+ * Uses order.requiredBy when present (non-empty), otherwise
+ * falls back to order.requiredAt (date-only string).
+ */
+function mapRequiredBy(order: { requiredBy?: string | null; requiredAt?: string | null }): string | null {
+  const requiredByVal = order.requiredBy ?? "";
+  if (requiredByVal.trim() !== "") return requiredByVal;
+  return order.requiredAt ?? null;
+}
 
 export class BusinessService {
   validateOrderStatusTransition(current: OrderStatus, next: OrderStatus): void {
@@ -55,7 +66,9 @@ export class BusinessService {
       variantOptions: order.items?.[0]?.variantOptions || "",
       quantity: order.items?.[0]?.quantity || 0,
       recipeVersion: order.items?.[0]?.recipeVersion || "v1.0",
-      requiredBy: order.requiredBy,
+        // Resolve required_by: use order.requiredBy when present,
+        // otherwise fall back to order.requiredAt (date-only string).
+        requiredBy: mapRequiredBy(order),
       requiredAt: order.requiredAt,
       notes: "Created from confirmed order",
     });
@@ -380,6 +393,87 @@ export class BusinessService {
     return store.orders().find((o) => o.id === job.orderId);
   }
 
+  /**
+   * Cash-on-Delivery settlement (spec §14 — "Outstanding balance must be
+   * calculated server-side"). Called from the delivery-completion flow: the
+   * moment a delivery is marked COMPLETED_DELIVERED we credit the outstanding
+   * balance and let the ledger derive the new payment status
+   * (UNPAID → PARTIALLY_PAID → PAID / OVERPAID).
+   *
+   * PROCESSING (money in flight on an M-Pesa STK push) is deliberately left
+   * untouched — that status is flipped by the Safaricom callback, not by a
+   * delivery — and REFUNDED is never auto-overwritten (manual correction only).
+   * Idempotent: a second call on an already-PAID order is a no-op. Mirrors the
+   * `PaymentReceived` notification fired by the M-Pesa callback in
+   * routes/payments.ts.
+   */
+  markOrderPaid(orderId: string, changedBy: string): { order: Order; payment: Payment | null } {
+    const order = store.findOrder(orderId);
+    if (!order) throw new NotFoundError(`Order ${orderId} not found`);
+    // Only UNPAID / PARTIALLY_PAID orders carry a balance to collect on delivery;
+    // PAID / REFUNDED / OVERPAID / PROCESSING are governed by their own flows.
+    if (order.paymentStatus !== "UNPAID" && order.paymentStatus !== "PARTIALLY_PAID") {
+      return { order, payment: null };
+    }
+    const previousStatus = order.paymentStatus;
+    // Outstanding balance is derived server-side from the payment ledger (§14).
+    const paid = store.db.payments
+      .filter((p) => p.orderId === orderId)
+      .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    const balance = (Number(order.total) || 0) - paid;
+    const amount = balance > 0 ? Math.round((balance + Number.EPSILON) * 100) / 100 : 0;
+    const payment = store.createPayment({
+      orderId,
+      amount,
+      method: "Cash",
+      reference: "",
+      receivedBy: changedBy,
+      notes: "Balance settled on delivery (Cash on delivery)",
+    });
+    // createPayment only pushes the ledger row; recomputePaymentStatus derives the
+    // resulting status from sum(payments) vs order.total. Its return value is
+    // the authoritative new status (it mutates order.paymentStatus in place).
+    const newStatus = store.recomputePaymentStatus(orderId) ?? order.paymentStatus;
+    store.createAuditLog({
+      orderId: order.id,
+      actor: changedBy,
+      action: "order:payment_received",
+      entityType: "order",
+      entityId: order.id,
+      previousStatus: previousStatus,
+      newStatus,
+      reason: `Cash payment of USh ${Number(amount).toLocaleString("en-UG")} recorded on delivery completion`,
+      timestamp: new Date().toISOString(),
+    });
+    if (newStatus === "PAID") {
+      // Ensure a production job exists for orders that entered the pipeline
+      // before payment was settled. No-op when the order is already past the
+      // pipeline (e.g. COMPLETED_DELIVERED) or already carries a job —
+      // prepareOrderForProduction is idempotent and returns the existing job.
+      try {
+        this.prepareOrderForProduction(order.id, changedBy);
+      } catch {
+        /* Non-fatal: order may not be in a production-pipeline status, or a
+           job may already exist and have been reused. */
+      }
+      notificationService.publishEvent(
+        {
+          eventTypeId: "PaymentReceived",
+          title: "Payment received",
+          message: `Order ${order.orderNumber} paid in full on delivery (Cash, USh ${Number(amount).toLocaleString("en-UG")}).`,
+          priority: "HIGH" as NotificationPriority,
+          entityType: "order",
+          entityId: order.id,
+          actionUrl: `/workspace/orders/${order.id}`,
+          deepLink: `/workspace/orders/${order.id}`,
+          createdBy: changedBy,
+        },
+        { userId: changedBy, role: changedBy, isAdmin: true },
+      );
+    }
+    return { order, payment };
+  }
+
   recordWastage(jobId: string, itemId: string, quantity: number, unit: string, reason: string, cost: number, recordedBy: string): void {
     const job = store.productionJobs().find((j) => j.id === jobId);
     if (!job) throw new NotFoundError("Production job not found");
@@ -557,7 +651,9 @@ export class BusinessService {
       variantOptions: order.items?.[0]?.variantOptions || "",
       quantity: order.items?.[0]?.quantity || 0,
       recipeVersion: order.items?.[0]?.recipeVersion || "v1.0",
-      requiredBy: order.requiredBy,
+        // Resolve required_by: use order.requiredBy when present,
+        // otherwise fall back to order.requiredAt (date-only string).
+        requiredBy: mapRequiredBy(order),
       requiredAt: order.requiredAt,
       stage: "CHECK_INVENTORY",
       progress: 10,
@@ -593,3 +689,4 @@ export class BusinessService {
 }
 
 export const businessService = new BusinessService();
+
