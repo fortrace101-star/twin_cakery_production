@@ -245,6 +245,9 @@ export class BusinessService {
     job.stage = "PRODUCE";
     job.progress = 20;
     store.updateProductionJob(jobId, job as unknown as Patch);
+    // Orders must follow Production: starting the job moves the linked
+    // order into IN_PRODUCTION (idempotent, non-fatal).
+    this.advanceOrderToInProduction(job, userId);
     return job;
   }
 
@@ -407,6 +410,53 @@ export class BusinessService {
    * `PaymentReceived` notification fired by the M-Pesa callback in
    * routes/payments.ts.
    */
+  /**
+   * Production → Orders sync: starting a job moves its order into
+   * IN_PRODUCTION, walking forward through the legal chain and writing
+   * one status history row per hop plus one audit row for the final
+   * transition. Non-fatal and idempotent: an order that is already at or
+   * past In production, already cancelled, or not in the production leg
+   * is left untouched, and a missing order never stops a job start.
+   */
+  advanceOrderToInProduction(job: ProductionJob, changedBy: string): Order | undefined {
+    const order = store.orders().find((o) => o.id === job.orderId);
+    if (!order) return undefined;
+    const atOrPast: OrderStatus[] = [
+      'IN_PRODUCTION', 'QUALITY_CHECK', 'READY_FOR_DELIVERY',
+      'AWAITING_COLLECTION', 'IN_TRANSIT', 'COMPLETED_DELIVERED', 'CANCELLED',
+    ];
+    if (atOrPast.includes(order.status)) return order;
+    const chain: OrderStatus[] = [
+      'CONFIRMED', 'PRODUCTION_REVIEW', 'READY_FOR_PRODUCTION', 'IN_PRODUCTION',
+    ];
+    if (!chain.includes(order.status)) return order;
+    const originalStatus = order.status;
+    let current = order.status;
+    for (let hops = 0; current !== 'IN_PRODUCTION' && hops <= chain.length; hops++) {
+      const idx = chain.indexOf(current);
+      const next: OrderStatus | undefined =
+        idx >= 0 && idx < chain.length - 1 ? chain[idx + 1] : undefined;
+      if (!next) break;
+      this.validateOrderStatusTransition(current, next);
+      const reason = 'Production started for job ' + job.id + ' - order in production';
+      const persisted = store.updateOrderStatus(order.id, next, changedBy, reason);
+      if (!persisted) break;
+      current = next;
+    }
+    if (current === 'IN_PRODUCTION' && originalStatus !== 'IN_PRODUCTION') {
+      store.createAuditLog({
+        orderId: order.id,
+        actor: changedBy,
+        action: 'order:status_changed',
+        previousStatus: originalStatus,
+        newStatus: 'IN_PRODUCTION',
+        reason: 'Production started for job ' + job.id + ' - order in production',
+        timestamp: new Date().toISOString(),
+      });
+    }
+    return store.orders().find((o) => o.id === job.orderId);
+  }
+
   markOrderPaid(orderId: string, changedBy: string): { order: Order; payment: Payment | null } {
     const order = store.findOrder(orderId);
     if (!order) throw new NotFoundError(`Order ${orderId} not found`);

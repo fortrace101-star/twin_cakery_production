@@ -269,7 +269,7 @@ const ORDER_STATUS_ENUMS: Record<string, string> = {
   Confirmed: "CONFIRMED",
   "Production review": "PRODUCTION_REVIEW",
   "Ready for production": "READY_FOR_PRODUCTION",
-  "In production": "READY_FOR_PRODUCTION",
+  "In production": "IN_PRODUCTION",
   "Quality check": "QUALITY_CHECK",
   "Rework required": "REWORK_REQUIRED",
   Ready: "READY_FOR_DELIVERY",
@@ -950,6 +950,10 @@ export interface ServerInventoryTransaction {
 
 export function listInventoryItems(): Promise<ServerInventoryItem[]> {
   return safe(() => request<ServerInventoryItem[]>("/inventory"), []);
+}
+
+export function createInventoryItem(input: Partial<ServerInventoryItem> & { name: string }): Promise<ServerInventoryItem | null> {
+  return safe(() => request<ServerInventoryItem>("/inventory", { method: "POST", body: input }), null);
 }
 
 export function getInventoryLedger(itemId?: string, limit?: number): Promise<ServerInventoryTransaction[]> {

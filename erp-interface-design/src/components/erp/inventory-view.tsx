@@ -11,7 +11,7 @@ import { DataTable, type Column } from "../data-table/DataTable";
 import { useDensity } from "@/lib/density";
 import { useWorkspace } from "./store";
 import {
-  adjustInventory, createPurchaseRequirement, getInventoryLedger, listInventoryAlerts, listInventoryItems, listPurchaseOrders, receivePurchaseOrder,
+  adjustInventory, createInventoryItem, createPurchaseRequirement, getInventoryLedger, listInventoryAlerts, listInventoryItems, listPurchaseOrders, receivePurchaseOrder,
   type ServerInventoryAlert, type ServerInventoryItem, type ServerInventoryTransaction, type ServerPurchaseOrder,
 } from "@/lib/api";
 
@@ -91,6 +91,8 @@ export function Inventory({ tab, search, setSearch, onNotice, onSignIn }: { tab:
   const [ledgerFor, setLedgerFor] = useState<ServerInventoryItem | null>(null);
   const [adjusting, setAdjusting] = useState<ServerInventoryItem | null>(null);
   const [form, setForm] = useState({ quantity: "", type: "ADJUSTMENT_IN", notes: "" });
+  const [creatingItem, setCreatingItem] = useState(false);
+  const [itemForm, setItemForm] = useState({ name: "", sku: "", category: "", unit: "unit", physicalStock: "", reorderLevel: "", cost: "" });
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -127,6 +129,27 @@ export function Inventory({ tab, search, setSearch, onNotice, onSignIn }: { tab:
     await refresh();
   }
 
+  async function submitNewItem() {
+    if (!connected) { onSignIn(); return; }
+    if (!itemForm.name.trim()) { onNotice("Item name is required"); return; }
+    setBusy(true);
+    const created = await createInventoryItem({
+      name: itemForm.name.trim(),
+      sku: itemForm.sku.trim() || itemForm.name.trim().toLowerCase().replace(/\s+/g, "-"),
+      category: itemForm.category.trim() || "General",
+      unit: itemForm.unit || "unit",
+      physicalStock: Number(itemForm.physicalStock) || 0,
+      reorderLevel: Number(itemForm.reorderLevel) || 0,
+      cost: Number(itemForm.cost) || 0,
+    });
+    setBusy(false);
+    if (!created) { onNotice("Could not create item — check your permissions"); return; }
+    onNotice(`${created.name} created`);
+    setCreatingItem(false);
+    setItemForm({ name: "", sku: "", category: "", unit: "unit", physicalStock: "", reorderLevel: "", cost: "" });
+    await refresh();
+  }
+
   async function raiseRequirement(a: ServerInventoryAlert) {
     if (!connected) { onSignIn(); return; }
     setBusy(true);
@@ -148,7 +171,10 @@ export function Inventory({ tab, search, setSearch, onNotice, onSignIn }: { tab:
 
   return <section className="panel module-table">
     <div className="panel-heading"><div><h2>{tab}</h2><p>{loading?'Loading stock…':isAlerts?`${alerts.length} items at or below reorder level`: `${filtered.length} ingredients · ${lowStockCount} need attention`}</p></div>
-      <Button variant="outline" onClick={()=>{ if(!connected){onSignIn();return;} const first=items[0]??null; setLedgerFor(first); setAdjusting(first); }}>Adjust stock</Button>
+      <div style={{display:"flex",gap:8}}>
+        <Button variant="outline" onClick={()=>{ if(!connected){onSignIn();return;} setCreatingItem(true); }}>New item</Button>
+        <Button variant="outline" onClick={()=>{ if(!connected){onSignIn();return;} const first=items[0]??null; setLedgerFor(first); setAdjusting(first); }}>Adjust stock</Button>
+      </div>
     </div>
     <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label={isAlerts?'Search stock alerts':'Search ingredients'} value={search} onChange={e=>setSearch(e.target.value)} placeholder={isAlerts?'Search alerts, SKU…':'Search ingredients, SKU…'}/></label></div>
     {isAlerts ? <>
@@ -183,6 +209,15 @@ export function Inventory({ tab, search, setSearch, onNotice, onSignIn }: { tab:
     />
     <div className="table-foot"><span>{filtered.length} ingredients</span><span>{ledger.length} ledger entries</span></div>
     </>}
+    {creatingItem&&<Dialog open onOpenChange={v=>{if(!v)setCreatingItem(false);}}><DialogContent className="order-detail-dialog"><DialogTitle>New item</DialogTitle><DialogDescription>Register a new inventory item and its opening stock.</DialogDescription><div className="erp-form">
+      <div className="form-row"><Label>Name</Label><Input value={itemForm.name} onChange={e=>setItemForm({...itemForm,name:e.target.value})}/></div>
+      <div className="form-row"><Label>SKU</Label><Input value={itemForm.sku} onChange={e=>setItemForm({...itemForm,sku:e.target.value})}/></div>
+      <div className="form-row"><Label>Category</Label><Input value={itemForm.category} onChange={e=>setItemForm({...itemForm,category:e.target.value})}/></div>
+      <div className="form-row"><Label>Unit</Label><Input value={itemForm.unit} onChange={e=>setItemForm({...itemForm,unit:e.target.value})}/></div>
+      <div className="form-row"><Label>Opening stock</Label><Input type="number" value={itemForm.physicalStock} onChange={e=>setItemForm({...itemForm,physicalStock:e.target.value})}/></div>
+      <div className="form-row"><Label>Reorder level</Label><Input type="number" value={itemForm.reorderLevel} onChange={e=>setItemForm({...itemForm,reorderLevel:e.target.value})}/></div>
+      <div className="form-row"><Label>Unit cost</Label><Input type="number" value={itemForm.cost} onChange={e=>setItemForm({...itemForm,cost:e.target.value})}/></div>
+    </div><div className="dialog-actions"><Button disabled={busy||!itemForm.name} onClick={()=>void submitNewItem()}>Create item</Button><Button variant="ghost" onClick={()=>setCreatingItem(false)}>Cancel</Button></div></DialogContent></Dialog>}
     {ledgerFor&&<LedgerDialog item={ledgerFor} ledger={ledger} onClose={()=>{setLedgerFor(null);setAdjusting(null);}} adjusting={adjusting} setAdjusting={setAdjusting} form={form} setForm={setForm} submitAdjustment={()=>void submitAdjustment()} busy={busy}/>}
   </section>;
 }

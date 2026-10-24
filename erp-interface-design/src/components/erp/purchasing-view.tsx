@@ -10,7 +10,7 @@ import { DataTable, type Column } from "../data-table/DataTable";
 import { useDensity } from "@/lib/density";
 import { useWorkspace } from "./store";
 import {
-  acknowledgePurchaseRequirement, createPurchaseOrder, listGoodsReceipts, listInventoryItems, listPurchaseOrders, listPurchaseRequirements, listSuppliers, receivePurchaseOrder,
+  acknowledgePurchaseRequirement, createInventoryItem, createPurchaseOrder, listGoodsReceipts, listInventoryItems, listPurchaseOrders, listPurchaseRequirements, listSuppliers, receivePurchaseOrder,
   type ServerGoodsReceipt, type ServerInventoryItem, type ServerPurchaseOrder, type ServerPurchaseRequirement, type ServerSupplier,
 } from "@/lib/api";
 
@@ -38,7 +38,7 @@ function reqStatusLabel(s: string): string {
   return map[s] ?? s;
 }
 
-type PoLine = { productId: string; quantity: string; unit: string; unitPrice: string };
+type PoLine = { productId: string; quantity: string; unit: string; unitPrice: string; newItem?: boolean; newName?: string; newSku?: string; newCategory?: string };
 type PoForm = { supplierId: string; expectedDate: string; notes: string; lines: PoLine[]; requirementId?: string };
 
 function CreatePoDialog(props: {
@@ -66,18 +66,26 @@ function CreatePoDialog(props: {
         <div className="form-row"><Label htmlFor="po-expected">Expected date</Label><Input id="po-expected" type="date" value={form.expectedDate} onChange={e => setForm({ ...form, expectedDate: e.target.value })}/></div>
         <h3 className="text-sm font-semibold">Lines</h3>
         {form.lines.map((l, idx) => <div key={idx} className="form-row" style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          <select aria-label={`Item ${idx + 1}`} className="input" style={{flex:2,minWidth:160}} value={l.productId} onChange={e => {
-            const it = items.find(i => i.id === e.target.value);
-            setLine(idx, { productId: e.target.value, unit: it?.unit ?? l.unit });
-          }}>
-            <option value="">Select item…</option>
-            {items.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
-          </select>
+          <label style={{display:"flex",alignItems:"center",gap:4,fontSize:12}}><input type="checkbox" checked={!!l.newItem} onChange={e => setLine(idx, { newItem: e.target.checked, productId: e.target.checked ? "" : l.productId })}/> New item</label>
+          {l.newItem ? <>
+            <Input aria-label={`New item name ${idx + 1}`} placeholder="Item name" style={{flex:2,minWidth:160}} value={l.newName ?? ""} onChange={e => setLine(idx, { newName: e.target.value })}/>
+            <Input aria-label={`New item SKU ${idx + 1}`} placeholder="SKU (optional)" style={{flex:1,minWidth:100}} value={l.newSku ?? ""} onChange={e => setLine(idx, { newSku: e.target.value })}/>
+            <Input aria-label={`New item category ${idx + 1}`} placeholder="Category" style={{flex:1,minWidth:100}} value={l.newCategory ?? ""} onChange={e => setLine(idx, { newCategory: e.target.value })}/>
+            <Input aria-label={`Unit ${idx + 1}`} placeholder="Unit" style={{flex:1,minWidth:80}} value={l.unit} onChange={e => setLine(idx, { unit: e.target.value })}/>
+          </> : <>
+            <select aria-label={`Item ${idx + 1}`} className="input" style={{flex:2,minWidth:160}} value={l.productId} onChange={e => {
+              const it = items.find(i => i.id === e.target.value);
+              setLine(idx, { productId: e.target.value, unit: it?.unit ?? l.unit });
+            }}>
+              <option value="">Select item…</option>
+              {items.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
+            </select>
+          </>}
           <Input aria-label={`Quantity ${idx + 1}`} type="number" min="0" placeholder="Qty" style={{flex:1,minWidth:80}} value={l.quantity} onChange={e => setLine(idx, { quantity: e.target.value })}/>
           <Input aria-label={`Unit price ${idx + 1}`} type="number" min="0" placeholder={`Price / ${l.unit}`} style={{flex:1,minWidth:100}} value={l.unitPrice} onChange={e => setLine(idx, { unitPrice: e.target.value })}/>
           <Button variant="ghost" size="icon" aria-label={`Remove line ${idx + 1}`} disabled={form.lines.length === 1} onClick={() => setForm({ ...form, lines: form.lines.filter((_, i) => i !== idx) })}><Trash2/></Button>
         </div>)}
-        <Button variant="outline" size="sm" onClick={() => setForm({ ...form, lines: [...form.lines, { productId: "", quantity: "", unit: "unit", unitPrice: "" }] })}><Plus/> Add line</Button>
+        <Button variant="outline" size="sm" onClick={() => setForm({ ...form, lines: [...form.lines, { productId: "", quantity: "", unit: "unit", unitPrice: "", newItem: false, newName: "", newSku: "", newCategory: "" }] })}><Plus/> Add line</Button>
         <div className="form-row"><Label htmlFor="po-notes">Notes</Label><Input id="po-notes" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Optional"/></div>
         <p className="cell-sub">Total: {money(form.lines.reduce((s, l) => s + (Number(l.unitPrice) || 0) * (Number(l.quantity) || 0), 0))}{form.lines.some(l => !Number(l.unitPrice)) ? " (lines without a price count as 0)" : ""}</p>
       </div>
@@ -162,11 +170,30 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
   async function submitPo() {
     if (!connected) { onSignIn(); return; }
     if (!form.supplierId) { onNotice("Select a supplier"); return; }
-    const items = form.lines
-      .filter(l => l.productId && Number(l.quantity) > 0)
-      .map(l => ({ productId: l.productId, quantity: Number(l.quantity), unit: l.unit, unitPrice: Number(l.unitPrice) || 0 }));
-    if (items.length === 0) { onNotice("Add at least one line with a quantity"); return; }
     setBusy(true);
+    // Resolve "new item" lines by creating inventory items first.
+    const resolvedLines: { productId: string; quantity: number; unit: string; unitPrice: number }[] = [];
+    for (const l of form.lines) {
+      if (!Number(l.quantity) || Number(l.quantity) <= 0) continue;
+      if (l.newItem) {
+        if (!l.newName?.trim()) continue;
+        const created = await createInventoryItem({
+          name: l.newName.trim(),
+          sku: (l.newSku?.trim() || l.newName.trim().toLowerCase().replace(/\s+/g, "-")),
+          category: l.newCategory?.trim() || "General",
+          unit: l.unit || "unit",
+          physicalStock: 0,
+          reorderLevel: 0,
+          cost: Number(l.unitPrice) || 0,
+        });
+        if (!created) { onNotice("Could not create new item — check your permissions"); setBusy(false); return; }
+        resolvedLines.push({ productId: created.id, quantity: Number(l.quantity), unit: l.unit || "unit", unitPrice: Number(l.unitPrice) || 0 });
+      } else if (l.productId) {
+        resolvedLines.push({ productId: l.productId, quantity: Number(l.quantity), unit: l.unit, unitPrice: Number(l.unitPrice) || 0 });
+      }
+    }
+    const items = resolvedLines;
+    if (items.length === 0) { setBusy(false); onNotice("Add at least one line with a quantity"); return; }
     const po = await createPurchaseOrder({ supplierId: form.supplierId, expectedDate: form.expectedDate, notes: form.notes, items });
     if (po && form.requirementId) await acknowledgePurchaseRequirement(form.requirementId);
     setBusy(false);

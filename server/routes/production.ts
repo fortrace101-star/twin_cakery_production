@@ -53,6 +53,11 @@ router.post("/jobs/:id/start", required("production.start"), (req, res) => {
   const job = store.updateProductionJob(id, { status: "IN_PRODUCTION", stage: "PRODUCE", progress: 20, updatedAt: new Date().toISOString() });
   if (!job) throw new NotFoundError("Production job not found");
   store.persist();
+  // Orders must follow Production: starting the job moves the linked
+  // order into IN_PRODUCTION (walks the legal status graph, writes history
+  // rows + audit log; non-fatal if the order is already at/past In
+  // production or not linked to the production leg).
+  businessService.advanceOrderToInProduction(job, session.userId);
   res.json(job);
 });
 

@@ -150,8 +150,8 @@ export function Production({tab,search,setSearch,onNotice,onSignIn}: {tab:string
 
   const refresh=useCallback(async()=>{
     setLoading(true);
-    const [j,inv]=await Promise.all([listProductionJobs(),listInventoryItems()]);
-    setJobs(j); setInvItems(inv); setLoading(false);
+    const [j,inv,os]=await Promise.all([listProductionJobs(),listInventoryItems(),listOrders()]);
+    setJobs(j); setInvItems(inv); setOrders(os); setLoading(false);
   },[]);
   useEffect(()=>{ void refresh(); },[refresh]);
 

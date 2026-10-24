@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, within, act } from "@testing-library/react";
+import { listProductionJobs, startProductionJob } from "@/lib/api";
+
 
 import { Production } from "@/components/erp/production-view";
 
@@ -7,7 +9,7 @@ import { Production } from "@/components/erp/production-view";
 // materials POST so the submit payload can be asserted without a server.
 // Fixtures live inside vi.hoisted because vi.mock factories are hoisted above
 // top-level consts (ReferenceError: Cannot access 'job' before initialization).
-const { job, qcJob, flour, cream, order, customer, product, recordJobMaterialsMock } = vi.hoisted(() => {
+const { job, qcJob, flour, cream, order, order2, customer, product, startJob, recordJobMaterialsMock } = vi.hoisted(() => {
   const job = { id: "job-1", orderId: "ord-1", customerId: "cust-1", productId: "prod-choc", variantOptions: "", quantity: 1, recipeVersion: "v1.2", requiredBy: null, requiredAt: null, status: "IN_PRODUCTION", stage: "PRODUCE", progress: 40, notes: "", createdAt: "", updatedAt: "" };
   const qcJob = { ...job, id: "job-2", status: "READY_FOR_QUALITY" };
   const flour = { id: "inv-flour", sku: "ING-001", name: "Wheat flour", category: "Flour", unit: "kg", physicalStock: 10, reorderLevel: 4, supplierId: "", cost: 400, lastUpdated: "" };
@@ -15,14 +17,17 @@ const { job, qcJob, flour, cream, order, customer, product, recordJobMaterialsMo
   // Order/customer/catalogue fixtures — the board shows the order a job represents.
   const order = { id: "ord-1", orderNumber: "TC-2001", customerId: "cust-1", items: [{ productId: "prod-choc", variantOptions: "", quantity: 2, unitPrice: 4500 }] };
   const customer = { id: "cust-1", name: "Ada Okafor" };
+  const order2 = { id: "ord-2", orderNumber: "TC-2002", customerId: "cust-1", items: [{ productId: "prod-choc", variantOptions: "", quantity: 1, unitPrice: 4000 }] };
+  const startJob = { id: "job-3", orderId: "ord-2", customerId: "cust-1", productId: "prod-choc", variantOptions: "", quantity: 1, recipeVersion: "v1.0", requiredBy: null, requiredAt: null, status: "SCHEDULED", stage: "CHECK_INVENTORY", progress: 10, notes: "", createdAt: "", updatedAt: "" };
   const product = { id: "prod-choc", name: "Chocolate celebration cake" };
-  return { job, qcJob, flour, cream, order, customer, product, recordJobMaterialsMock: vi.fn() };
+  return { job, qcJob, flour, cream, order, order2, customer, product, startJob, recordJobMaterialsMock: vi.fn() };
 });
 
 vi.mock("@/lib/api", () => ({
   listProductionJobs: vi.fn().mockResolvedValue([job, qcJob]),
   listInventoryItems: vi.fn().mockResolvedValue([flour, cream]),
-  listOrders: vi.fn().mockResolvedValue([order]),
+    listOrders: vi.fn().mockResolvedValue([order, { id: "ord-2", orderNumber: "TC-2002", customerId: "cust-1", items: [{ productId: "prod-choc", variantOptions: "", quantity: 1, unitPrice: 4000 }] }]),
+  listProductionJobs: vi.fn().mockResolvedValue([job, qcJob, startJob]),
   listCustomers: vi.fn().mockResolvedValue([customer]),
   listCatalogueProducts: vi.fn().mockResolvedValue([product]),
   getProductionCosts: vi.fn().mockResolvedValue([]),
@@ -119,5 +124,26 @@ describe("Production job materials entry (used materials → inventory)", () => 
     expect(screen.getByText("Materials used")).toBeInTheDocument();
     expect(screen.queryByLabelText("Ingredient")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Record materials used/ })).not.toBeInTheDocument();
+  });
+  it("shows the linked order moving to IN_PRODUCTION after the job starts", async () => {
+    const onNotice = vi.fn();
+    render(<Production tab="Jobs" search="" setSearch={() => {}} onNotice={onNotice} onSignIn={() => {}} />);
+    const openButton = await screen.findByRole("button", { name: "Open job-3" });
+    fireEvent.click(openButton);
+    listProductionJobs.mockResolvedValue([job, qcJob, startJob]);
+    startProductionJob.mockImplementation(async () => {
+      listProductionJobs.mockResolvedValue([job, qcJob, { ...startJob, status: "IN_PRODUCTION" }]);
+      return startJob;
+    });
+    const startButton = screen.getByRole("button", { name: "Start production" });
+    expect(startButton).not.toBeDisabled();
+    await act(async () => {
+      fireEvent.click(startButton);
+    });
+    await waitFor(() => {
+      expect(onNotice).toHaveBeenCalledWith("Production started");
+    });
+    expect(screen.queryByText(/Scheduled/)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/In production/).length).toBe(2);
   });
 });

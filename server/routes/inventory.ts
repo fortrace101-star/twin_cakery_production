@@ -65,6 +65,16 @@ router.get("/alerts", required("inventory.view"), (req, res) => {
   res.json({ count: alerts.length, alerts });
 });
 
+router.post("/", required("inventory.adjust"), (req, res) => {
+  const { name, sku, category, unit, physicalStock, reorderLevel, cost, supplierId } = req.body || {};
+  if (!name) return res.status(400).json({ error: "name is required" });
+  const item = store.createInventoryItem({ name, sku: sku ?? "", category: category ?? "", unit: unit ?? "unit", physicalStock: physicalStock ?? 0, reorderLevel: reorderLevel ?? 0, cost: cost ?? 0, supplierId: supplierId ?? "" });
+  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  store.createAuditLog({ actor: session?.userId ?? "system", action: "inventory:created", entityType: "inventory_item", entityId: item.id, reason: `Created ${name}` });
+  store.persist();
+  res.status(201).json(item);
+});
+
 router.get("/:id", required("inventory.view"), (req, res) => {
   const item = store.inventoryItems().find((i) => i.id === String(req.params.id));
   if (!item) throw new NotFoundError("Inventory item not found");

@@ -102,9 +102,9 @@ export class AuthService {
     const session = this.getCurrentSession(token);
     if (!session) return false;
     const rolePermissions = store.rolePermissionsForRole(session.role);
-    const permissionIds = rolePermissions.map((rp) => rp.permissionId);
-    const permissionRecord = store.permissions().find((p) => permissionIds.includes(p.id));
-    return Boolean(permissionRecord);
+    const rolePermissionIds = rolePermissions.map((rp) => rp.permissionId);
+    const requested = store.permissions().find((p) => p.key === permission);
+    return Boolean(requested && rolePermissionIds.includes(requested.id));
   }
 
   static getSession(token: string | null): AuthSession | null {
