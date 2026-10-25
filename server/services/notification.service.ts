@@ -38,7 +38,8 @@ export type NotificationEventType =
   | "SettingsUpdated"
   | "CatalogueCreated"
   | "CatalogueUpdated"
-  | "CatalogueArchived";
+  | "CatalogueArchived"
+  | "JobCompleted";
 
 export type NotificationChannel_ = "IN_APP" | "WHATSAPP" | "EMAIL" | "SMS";
 
@@ -217,6 +218,12 @@ const TEMPLATES: Record<NotificationEventType, { [K in NotificationChannel_]: { 
     EMAIL: { title: "Catalogue archived", message: "A catalogue item has been archived." },
     SMS: { title: "Catalogue archived", message: "Catalogue archived." },
   },
+  JobCompleted: {
+    IN_APP: { title: "Job archived", message: "A production job has been archived to history." },
+    WHATSAPP: { title: "Job archived", message: "Production job archived." },
+    EMAIL: { title: "Job archived", message: "A production job has been archived to history." },
+    SMS: { title: "Job archived", message: "Job archived." },
+  },
 };
 
 const ROLES_FOR_EVENT: Record<NotificationEventType, string[]> = {
@@ -247,6 +254,7 @@ const ROLES_FOR_EVENT: Record<NotificationEventType, string[]> = {
   CatalogueCreated: ["Admin / Proprietor"],
   CatalogueUpdated: ["Admin / Proprietor"],
   CatalogueArchived: ["Admin / Proprietor"],
+  JobCompleted: ["Production Manager", "Admin / Proprietor"],
 };
 
 function resolveRecipients(session: { userId: string; role: string; isAdmin: boolean }, event: NotificationEvent): User[] {

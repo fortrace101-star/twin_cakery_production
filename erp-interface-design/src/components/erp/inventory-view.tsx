@@ -44,36 +44,44 @@ function LedgerDialog(props: {
   const { item, ledger, onClose, adjusting, setAdjusting, form, setForm, submitAdjustment, busy } = props;
   const rows = ledger.filter(t => t.itemId === item.id);
   return <Dialog open onOpenChange={v => { if (!v) onClose(); }}>
-    <DialogContent className="order-detail-dialog">
+    <DialogContent className={adjusting ? "order-detail-dialog adjusting" : "order-detail-dialog"}>
       <DialogTitle>{item.name}</DialogTitle>
       <DialogDescription>{item.sku} · ledger ({rows.length} entries)</DialogDescription>
-      <div className="configuration-list">
-        <p><span>On hand</span><strong>{item.physicalStock} {item.unit}</strong></p>
-        <p><span>Available</span><strong>{item.availableStock ?? item.physicalStock} {item.unit}</strong></p>
-        <p><span>Reorder level</span><strong>{item.reorderLevel}</strong></p>
-        <p><span>Status</span><Status value={stockStatus(item)} /></p>
-      </div>
-      <h3 className="text-sm font-semibold">Transactions</h3>
-      {rows.length === 0 ? <p className="cell-sub">No transactions recorded yet.</p> :
-        <div className="configuration-list">{rows.map(t => <p key={t.id}><span>{txLabel(t)} · {new Date(t.createdAt).toLocaleDateString()}</span><strong>{t.quantity > 0 ? "+" : ""}{t.quantity} {t.unit}</strong></p>)}</div>}
-      <div className="dialog-actions">
-        <Button variant="outline" onClick={() => setAdjusting(adjusting ? null : item)}>Adjust stock</Button>
-      </div>
-      {adjusting && <div className="erp-form">
-        <h3 className="text-sm font-semibold">Stock adjustment — {adjusting.name}</h3>
-        <div className="form-row"><Label htmlFor="adj-qty">Quantity (+ in / − out)</Label><Input id="adj-qty" type="number" value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} /></div>
-        <div className="form-row"><Label htmlFor="adj-type">Type</Label>
-          <select id="adj-type" className="input" value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
-            <option value="ADJUSTMENT_IN">Adjustment in</option>
-            <option value="ADJUSTMENT_OUT">Adjustment out</option>
-          </select>
+      <div className="ledger-body">
+        <div className="ledger-column">
+          <div className="configuration-list">
+            <p><span>On hand</span><strong>{item.physicalStock} {item.unit}</strong></p>
+            <p><span>Available</span><strong>{item.availableStock ?? item.physicalStock} {item.unit}</strong></p>
+            <p><span>Reorder level</span><strong>{item.reorderLevel}</strong></p>
+            <p><span>Status</span><Status value={stockStatus(item)} /></p>
+          </div>
+          <h3 className="text-sm font-semibold">Transactions</h3>
+          {rows.length === 0 ? <p className="cell-sub">No transactions recorded yet.</p> :
+            <div className="configuration-list">{rows.map(t => <p key={t.id}><span>{txLabel(t)} · {new Date(t.createdAt).toLocaleDateString()}</span><strong>{t.quantity > 0 ? "+" : ""}{t.quantity} {t.unit}</strong></p>)}</div>}
+          <div className="dialog-actions">
+            <Button variant="outline" onClick={() => setAdjusting(adjusting ? null : item)}>Adjust stock</Button>
+          </div>
         </div>
-        <div className="form-row"><Label htmlFor="adj-notes">Notes</Label><Input id="adj-notes" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="e.g. Stock count correction" /></div>
-        <div className="dialog-actions">
-          <Button disabled={busy || !form.quantity} onClick={submitAdjustment}>Submit</Button>
-          <Button variant="ghost" onClick={() => setAdjusting(null)}>Cancel</Button>
-        </div>
-      </div>}
+        {adjusting && (
+          <div className="adjust-panel">
+            <div className="erp-form">
+              <h3 className="text-sm font-semibold">Stock adjustment — {adjusting.name}</h3>
+              <div className="form-row"><Label htmlFor="adj-qty">Quantity (+ in / − out)</Label><Input id="adj-qty" type="number" value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} /></div>
+              <div className="form-row"><Label htmlFor="adj-type">Type</Label>
+                <select id="adj-type" className="input" value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
+                  <option value="ADJUSTMENT_IN">Adjustment in</option>
+                  <option value="ADJUSTMENT_OUT">Adjustment out</option>
+                </select>
+              </div>
+              <div className="form-row"><Label htmlFor="adj-notes">Notes</Label><Input id="adj-notes" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="e.g. Stock count correction" /></div>
+              <div className="dialog-actions">
+                <Button disabled={busy || !form.quantity} onClick={submitAdjustment}>Submit</Button>
+                <Button variant="ghost" onClick={() => setAdjusting(null)}>Cancel</Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </DialogContent>
   </Dialog>;
 }

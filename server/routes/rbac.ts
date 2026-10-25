@@ -7,10 +7,10 @@ import { NotFoundError } from "../utils/errors.js";
 const router = Router();
 const authService = new AuthService();
 
-const required = (perm: string): RequestHandler => (req, res, next) => {
+const required = (perm: string): RequestHandler => async (req, res, next) => {
   try {
     const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
-    rbacService.requirePermission(session.userId, perm);
+    await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
     if (err instanceof Error && err.name === "UnauthorizedError") return res.status(401).json({ error: err.message });
@@ -50,19 +50,19 @@ router.get("/permissions", required("roles.manage"), (req, res) => {
   res.json(store.permissions());
 });
 
-router.get("/:id/permissions", required("roles.manage"), (req, res) => {
+router.get("/:id/permissions", required("roles.manage"), async (req, res) => {
   const role = store.roles().find((r) => r.id === String(req.params.id));
   if (!role) throw new NotFoundError("Role not found");
-  res.json({ role, permissions: rbacService.getRolePermissions(role) });
+  res.json({ role, permissions: await rbacService.getRolePermissions(role.id) });
 });
 
-router.post("/:id/permissions/:permissionId", required("roles.manage"), (req, res) => {
+router.post("/:id/permissions/:permissionId", required("roles.manage"), async (req, res) => {
   const id = String(req.params.id); const permissionId = String(req.params.permissionId);
   const role = store.roles().find((r) => r.id === id);
   if (!role) throw new NotFoundError("Role not found");
   const perm = store.permissions().find((p) => p.id === permissionId);
   if (!perm) throw new NotFoundError("Permission not found");
-  rbacService.assignPermissionToRole(role.id, perm.id);
+  await rbacService.assignPermissionToRole(role.id, perm.id);
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   store.createAuditLog({
     actor: session?.userId ?? "", action: "role:permission_changed",
@@ -74,13 +74,13 @@ router.post("/:id/permissions/:permissionId", required("roles.manage"), (req, re
 });
 
 // Revoke — the roles editor needs the inverse of the grant above (E5).
-router.delete("/:id/permissions/:permissionId", required("roles.manage"), (req, res) => {
+router.delete("/:id/permissions/:permissionId", required("roles.manage"), async (req, res) => {
   const id = String(req.params.id); const permissionId = String(req.params.permissionId);
   const role = store.roles().find((r) => r.id === id);
   if (!role) throw new NotFoundError("Role not found");
   const perm = store.permissions().find((p) => p.id === permissionId);
   if (!perm) throw new NotFoundError("Permission not found");
-  rbacService.removePermissionFromRole(role.id, perm.id);
+  await rbacService.removePermissionFromRole(role.id, perm.id);
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   store.createAuditLog({
     actor: session?.userId ?? "", action: "role:permission_changed",

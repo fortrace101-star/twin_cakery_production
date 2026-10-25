@@ -10,7 +10,7 @@ import { store } from "../database/store.js";
 const router = Router();
 const authService = new AuthService();
 
-router.post("/login", (req, res) => {
+router.post("/login", async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
     return res.status(400).json({ error: "Username and password are required" });
@@ -26,7 +26,7 @@ router.post("/login", (req, res) => {
         role: session.role,
         isAdmin: session.isAdmin,
       },
-      permissions: rbacService.getPermissionsForUser(session.userId),
+      permissions: await rbacService.getPermissionsForUser(session.userId),
     });
   } catch (err) {
     return res.status(401).json({ error: "Invalid credentials" });
@@ -121,7 +121,7 @@ router.post("/claim-admin", claimRateLimit, async (req, res) => {
       role: session.role,
       isAdmin: session.isAdmin,
     },
-    permissions: rbacService.getPermissionsForUser(session.userId),
+    permissions: await rbacService.getPermissionsForUser(session.userId),
   });
 });
 
@@ -202,14 +202,14 @@ router.post("/register", async (req, res) => {
       role: session.role,
       isAdmin: session.isAdmin,
     },
-    permissions: rbacService.getPermissionsForUser(session.userId),
+    permissions: await rbacService.getPermissionsForUser(session.userId),
   });
 });
 
 router.post("/reset-credentials", async (req, res) => {
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
-  try { rbacService.requirePermission(session.userId, "users.manage"); } catch { return res.status(403).json({ error: "Forbidden" }); }
+  try { await rbacService.requirePermission(session.userId, "users.manage"); } catch { return res.status(403).json({ error: "Forbidden" }); }
 
   const { userId } = req.body || {};
   if (!userId || typeof userId !== "string") {
@@ -233,7 +233,7 @@ router.post("/logout", (req, res) => {
   res.json({ ok: true });
 });
 
-router.get("/me", (req, res) => {
+router.get("/me", async (req, res) => {
   const token = extractToken(req.headers.authorization as string | undefined);
   const session = authService.getCurrentSession(token);
   if (!session) {
@@ -247,7 +247,7 @@ router.get("/me", (req, res) => {
       role: session.role,
       isAdmin: session.isAdmin,
     },
-    permissions: rbacService.getPermissionsForUser(session.userId),
+    permissions: await rbacService.getPermissionsForUser(session.userId),
   });
 });
 

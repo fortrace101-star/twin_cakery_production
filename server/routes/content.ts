@@ -28,10 +28,10 @@ const bcrypt = requireFromFrontend("bcryptjs") as typeof import("bcryptjs");
 const router = Router();
 const authService = new AuthService();
 
-const required = (perm: string) => (req: any, res: any, next: any) => {
+const required = (perm: string) => async (req: any, res: any, next: any) => {
   try {
     const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
-    rbacService.requirePermission(session.userId, perm);
+    await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
     if (err instanceof Error && err.name === "UnauthorizedError") return res.status(401).json({ error: err.message });

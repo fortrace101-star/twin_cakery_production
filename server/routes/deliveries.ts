@@ -8,10 +8,10 @@ import { NotFoundError } from "../utils/errors.js";
 const router = Router();
 const authService = new AuthService();
 
-const required = (perm: string): RequestHandler => (req, res, next) => {
+const required = (perm: string): RequestHandler => async (req, res, next) => {
   try {
     const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
-    rbacService.requirePermission(session.userId, perm);
+    await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
     if (err instanceof Error && err.name === "UnauthorizedError") return res.status(401).json({ error: err.message });
@@ -90,6 +90,14 @@ router.post("/:id/complete", required("deliveries.complete"), (req, res) => {
       businessService.markOrderPaid(order.id, session.userId);
     } catch {
       /* delivered; payment reconciliation surfaces elsewhere */
+    }
+    // Order is now Delivered (left the "ready to deliver" stage): archive its
+    // production job so it drops off the live "Active" lane into the History
+    // tab on the production board. Non-fatal — the delivery above persisted.
+    if (updated) try {
+      businessService.archiveCompletedJob(updated, session.userId);
+    } catch {
+      /* Non-fatal: delivery completion already persisted. */
     }
   }
   store.createAuditLog({

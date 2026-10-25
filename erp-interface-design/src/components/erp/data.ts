@@ -49,7 +49,29 @@ export function visibleModules<T extends { id: string }>(mods: readonly T[], per
   });
 }
 
-export type Order = { id: string; customer: string; initials: string; product: string; options: string; date: string; time: string; amount: number; status: string; payment: string; paymentNote?: string; delivery: string; channel: string; followUpCompletedAt?: string | null; /** Amount paid at order creation / last payment record. */ paidAmount?: number; /** Delivery location fields (Stage 5). */ deliveryLocation?: string; locationNote?: string; };
+export type Order = { 
+  id: string; 
+  customer: string; 
+  initials: string; 
+  product: string; 
+  options: string; 
+  date: string; 
+  time: string; 
+  amount: number; 
+  status: string; 
+  payment: string; 
+  paymentNote?: string; 
+  delivery: string; 
+  channel: string; 
+  followUpCompletedAt?: string | null; 
+  /** Amount paid at order creation / last payment record. */ 
+  paidAmount?: number; 
+  /** Delivery location fields (Stage 5). */ 
+  deliveryLocation?: string; 
+  locationNote?: string; 
+  station?: "pendingConfirm" | "confirmed" | "baking" | "done"; 
+  notes?: string; 
+};
 export const initialOrders: Order[] = [
   { id: 'TC-1048', customer: 'Sarah Mwangi', initials: 'SM', product: 'Chocolate celebration cake', options: '2 kg · Chocolate · Birthday', date: '2026-10-07', time: '10:00 AM', amount: 4500, paidAmount: 1500, status: 'In production', payment: 'Partially paid', delivery: 'Pending', channel: 'WhatsApp' },
   { id: 'TC-1047', customer: 'David Ochieng', initials: 'DO', product: 'Red velvet cake', options: '1.5 kg · Red velvet · Anniversary', date: '2026-10-07', time: '11:30 AM', amount: 3800, status: 'Ready', payment: 'Paid', delivery: 'Awaiting dispatch', channel: 'Website' },

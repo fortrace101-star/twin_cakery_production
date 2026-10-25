@@ -24,7 +24,7 @@ const subtitles: Record<string,string> = { crm:'Every conversation, every custom
 
 export function Workspace({module='dashboard'}: {module?:string}) {
  const { orders, audit, connected, user, authError, signIn, signOut, completeFollowUp, permissions }=useWorkspace();
- const [collapsed,setCollapsed]=useState(()=>localStorage.getItem('tc-sidebar-collapsed')==='1');
+ const [collapsed,setCollapsed]=useState(false);
  const [search,setSearch]=useState('');
  const [tab,setTab]=useState('');
  const [newOrder,setNewOrder]=useState(false);
@@ -35,13 +35,9 @@ export function Workspace({module='dashboard'}: {module?:string}) {
  const [period,setPeriod]=useState('This month');
  const [statusFilter,setStatusFilter]=useState('All statuses');
  const [notice,setNotice]=useState('');
- const [theme,setTheme]=useState<'light'|'dark'|null>(null);
- useEffect(()=>{const saved=localStorage.getItem('tc-theme');const prefers=window.matchMedia('(prefers-color-scheme: dark)').matches;setTheme(saved==='dark'||saved==='light'?saved:prefers?'dark':'light');},[]);
- useEffect(()=>{if(!theme)return;document.documentElement.classList.toggle('dark',theme==='dark');localStorage.setItem('tc-theme',theme);},[theme]);
- // Persist the sidebar collapsed flag so it survives navigation between modules
- // and page reloads (it should only change when the user explicitly toggles it).
- useEffect(()=>{localStorage.setItem('tc-sidebar-collapsed',collapsed?'1':'0')},[collapsed]);
- const config=modules.find(m=>m.id===module);
+ const [theme,setTheme]=useState<'light'|'dark'>(() => (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+ useEffect(()=>{document.documentElement.classList.toggle('dark',theme==='dark');},[theme]);
+const config=modules.find(m=>m.id===module);
  const activeTab=tab || config?.tabs[0] || '';
  const showHistory=(module==='sales'||module==='analytics') && activeTab==='Order history';
  const showOrders=module==='dashboard' || (module==='sales' && activeTab==='Orders') || showHistory;

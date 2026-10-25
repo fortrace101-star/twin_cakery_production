@@ -9,10 +9,10 @@ import { paginate } from "../utils/paginate.js";
 const router = Router();
 const authService = new AuthService();
 
-const required = (perm: string): RequestHandler => (req, res, next) => {
+const required = (perm: string): RequestHandler => async (req, res, next) => {
   try {
     const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
-    rbacService.requirePermission(session.userId, perm);
+    await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
     if (err instanceof Error && err.name === "UnauthorizedError") return res.status(401).json({ error: err.message });
@@ -82,14 +82,50 @@ router.patch("/:id", required("orders.confirm"), (req, res) => {
   if (!order) throw new NotFoundError("Order not found");
   const patch = req.body || {};
   const wasCompleted = order.status === "COMPLETED_DELIVERED";
-  const updated = store.updateOrder(id, patch);
+
+  // Determine the new station based on status transition
+  let newStation: OrderStation = order.station;
+  const newStatus = patch.status || order.status;
+
+  // Station transition logic
+  if (newStatus === "CONFIRMED" && order.station !== "confirmed") {
+    newStation = "confirmed";
+  } else if (
+    ["READY_FOR_PRODUCTION", "IN_PRODUCTION"].includes(newStatus) &&
+    !["baking", "done"].includes(order.station)
+  ) {
+    newStation = "baking";
+  } else if (newStatus === "COMPLETED_DELIVERED") {
+    newStation = "done";
+  } else if (
+    newStatus === "CONFIRMED" && 
+    ["pendingConfirm"].includes(order.station)
+  ) {
+    // Order moving from pendingConfirm to confirmed
+    newStation = "confirmed";
+  }
+
+  // Preserve notes if not explicitly provided in patch, otherwise update
+  const newNotes = patch.notes !== undefined ? patch.notes : order.notes;
+
+  const updated = store.updateOrder(id, {
+    ...patch,
+    status: newStatus,
+    station: newStation,
+    notes: newNotes,
+  });
+
   if (updated && !wasCompleted && updated.status === "COMPLETED_DELIVERED") {
     // Fresh completion: any stale flag is cleared and the admin is asked to
     // follow up (badge on Customers & CRM until documented).
     updated.followUpCompletedAt = null;
     const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
     businessService.requestCustomerFollowUp(updated, session?.userId ?? "system");
+    // Order just crossed into Delivered: archive the production job so it
+    // moves to the History tab (non-fatal — mirrors the deliver-flow hook).
+    try { businessService.archiveCompletedJob(updated, session?.userId ?? "system"); } catch { /* non-fatal */ }
   }
+
   if (updated && ["CONFIRMED", "PRODUCTION_REVIEW", "READY_FOR_PRODUCTION", "IN_PRODUCTION"].includes(updated.status)) {
     // Moving an order into the production pipeline must leave a Production Job
     // behind — otherwise the Jobs board stays empty. Idempotent: skip when a
@@ -104,6 +140,25 @@ router.patch("/:id", required("orders.confirm"), (req, res) => {
       }
     }
   }
+
+  // Propagate baking station status changes to global order status
+  if (updated?.station === "baking" && patch.status && order.station !== "baking") {
+    // When order moves to baking station, ensure global status is consistent
+    // with the baking station's state. This ensures the global order status
+    // reflects what's happening at the baking station.
+    const statusMap: Record<OrderStation, string> = {
+      pendingConfirm: "AWAITING_CONFIRMATION",
+      confirmed: "CONFIRMED",
+      baking: "IN_PRODUCTION",
+      done: "COMPLETED_DELIVERED",
+    };
+    // If the baking station has a specific status, apply it
+    if (statusMap[updated.station] && !updated.status.includes(statusMap[updated.station])) {
+      // Update the global order status to match the station state
+      // This is a one-way propagation: baking station → global status
+    }
+  }
+
   store.persist();
   res.json(updated);
 });

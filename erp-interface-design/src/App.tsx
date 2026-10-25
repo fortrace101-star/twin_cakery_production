@@ -115,8 +115,6 @@ export default function App() {
       try {
         const exists = await hasExistingUser();
         if (!exists) {
-          localStorage.clear();
-          sessionStorage.clear();
           navigate("/claim-admin", { replace: true });
         }
       } catch {

@@ -27,10 +27,10 @@ function parseDate(value: unknown): string | null {
   return null;
 }
 
-const required = (perm: string): RequestHandler => (req, res, next) => {
+const required = (perm: string): RequestHandler => async (req, res, next) => {
   try {
     const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
-    rbacService.requirePermission(session.userId, perm);
+    await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
     if (err instanceof Error && err.name === "UnauthorizedError") return res.status(401).json({ error: err.message });

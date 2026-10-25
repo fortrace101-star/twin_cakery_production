@@ -18,6 +18,8 @@ export type OrderStatus =
   | "INQUIRY" | "QUOTATION" | "AWAITING_CONFIRMATION" | "CONFIRMED" | "PRODUCTION_REVIEW" | "READY_FOR_PRODUCTION"
   | "IN_PRODUCTION" | "QUALITY_CHECK" | "REWORK_REQUIRED" | "READY_FOR_DELIVERY" | "IN_TRANSIT"
   | "AWAITING_COLLECTION" | "COMPLETED_DELIVERED" | "CANCELLED";
+
+export type OrderStation = "pendingConfirm" | "confirmed" | "baking" | "done";
 export type PaymentTransactionStatus = "PENDING" | "COMPLETED" | "FAILED" | "REFUNDED";
 export type GoodsReceiptStatus = "PENDING" | "COMPLETED" | "PARTIALLY_RECEIVED" | "CANCELLED";
 export type PurchaseOrderStatus = "DRAFT" | "SENT" | "ACCEPTED" | "PARTIALLY_RECEIVED" | "COMPLETED" | "CANCELLED";
@@ -191,6 +193,7 @@ export interface Order extends BaseEntity {
   deliveredAt: string | null;
   /** Stamped when the post-delivery CRM follow-up has been done & documented. */
   followUpCompletedAt: string | null;
+  station: OrderStation;
 }
 
 export type OrderProposalStatus = "PENDING_REVIEW" | "CONFIRMED" | "CANCELLED";

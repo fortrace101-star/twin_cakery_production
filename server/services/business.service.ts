@@ -250,6 +250,52 @@ export class BusinessService {
     this.advanceOrderToInProduction(job, userId);
     return job;
   }
+/** Create a production job from an order when it reaches the confirmed station. */
+  createProductionJob(order: Order, createdBy: string): ProductionJob {
+    const job: ProductionJob = {
+      id: `pj-${order.id}-${Date.now()}`,
+      orderId: order.id,
+      customerId: order.customerId,
+      productId: order.items?.[0]?.productId || "",
+      variantOptions: order.items?.[0]?.variantOptions || "",
+      quantity: order.items?.[0]?.quantity || 0,
+      recipeVersion: order.items?.[0]?.recipeVersion || "v1.0",
+      requiredBy: order.requiredBy ?? order.requiredAt ?? null,
+      requiredAt: order.requiredAt,
+      status: "PENDING",
+      stage: "PENDING_CONFIRM",
+      notes: `Production job for order ${order.orderNumber}`,
+    };
+    store.productionJobs.push(job);
+    store.updateOrder(order.id, {
+      status: "CONFIRMED" as OrderStatus,
+      station: "confirmed" as OrderStation,
+    });
+    store.createAuditLog({
+      orderId: order.id,
+      actor: createdBy,
+      action: "production:job_created",
+      previousStatus: order.status,
+      newStatus: "CONFIRMED",
+      reason: "Admin confirmed order and created production job",
+      timestamp: new Date().toISOString(),
+    });
+    return job;
+  }
+
+  /** Propagate the baking station status to the global order status. */
+  propagateBakingStatus(order: Order): void {
+    const statusMap: Record<OrderStation, OrderStatus> = {
+      pendingConfirm: "AWAITING_CONFIRMATION" as OrderStatus,
+      confirmed: "CONFIRMED" as OrderStatus,
+      baking: "IN_PRODUCTION" as OrderStatus,
+      done: "COMPLETED_DELIVERED" as OrderStatus,
+    };
+    const newStatus = statusMap[order.station];
+    if (newStatus && order.status !== newStatus) {
+      store.updateOrderStatus(order.id, newStatus, order.updatedBy ?? "system", "Station status propagation");
+    }
+  }
 
   completeProduction(jobId: string, userId: string): ProductionJob {
     const job = store.productionJobs().find((j) => j.id === jobId);
@@ -455,6 +501,53 @@ export class BusinessService {
       });
     }
     return store.orders().find((o) => o.id === job.orderId);
+  }
+
+  /**
+   * Deliveries → Jobs sync: when an order reaches COMPLETED_DELIVERED
+   * (a delivery is marked complete), its production job is archived so the
+   * board can move it off the live "Active" lane into History.
+   *
+   * This is the order-side mirror of the QualityCheck-pass write in
+   * recordQualityCheck(): it drives the job to its terminal `COMPLETED`
+   * state instead of READY_FOR_DELIVERY, then writes one audit row and
+   * raises a `JobCompleted` notification. Idempotent — a job already
+   * COMPLETED (or CANCELLED) is left untouched — and non-fatal so the
+   * delivery-completion transaction never rolls back (callers wrap it).
+   */
+  archiveCompletedJob(order: Order, changedBy: string): ProductionJob | undefined {
+    const job = store.productionJobs().find((j) => j.orderId === order.id);
+    if (!job) return undefined;
+    if (job.status === "COMPLETED" || job.status === "CANCELLED") return job;
+    const previousStatus = job.status;
+    job.status = "COMPLETED";
+    job.stage = "DONE";
+    job.progress = 100;
+    job.updatedAt = new Date().toISOString();
+    store.updateProductionJob(job.id, job as unknown as Patch);
+    store.createAuditLog({
+      orderId: order.id,
+      actor: changedBy,
+      action: "production:job_archived",
+      entityType: "production_job",
+      entityId: job.id,
+      previousStatus,
+      newStatus: "COMPLETED",
+      reason: `Order ${order.orderNumber} delivered — job archived to history`,
+      timestamp: new Date().toISOString(),
+    });
+    notificationService.publishEvent({
+      eventTypeId: "JobCompleted" as const,
+      title: "Job archived",
+      message: `Production job ${job.id} for order ${order.orderNumber} archived to history.`,
+      priority: "LOW" as NotificationPriority,
+      entityType: "order",
+      entityId: order.id,
+      actionUrl: `/workspace/production/jobs/${job.id}`,
+      deepLink: `/workspace/production/jobs/${job.id}`,
+      createdBy: changedBy,
+    }, { userId: changedBy, role: changedBy, isAdmin: true });
+    return job;
   }
 
   markOrderPaid(orderId: string, changedBy: string): { order: Order; payment: Payment | null } {
