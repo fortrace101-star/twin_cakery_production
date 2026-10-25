@@ -17,10 +17,9 @@ import {
   type ServerOrder, type ServerCustomer, type ServerCatalogueProduct,
 } from "@/lib/api";
 
-// Station Workflow Types
-type Station = "pendingConfirm" | "confirmed" | "baking" | "done";
+// ── Station Workflow Types ────────────────────────────────────────────────
 
-// Station Workflow Types
+type Station = "pendingConfirm" | "confirmed" | "baking" | "done";
 
 const stationOrder: Station[] = ["pendingConfirm", "confirmed", "baking", "done"];
 const isValidTransition = (from: Station, to: Station) => {
@@ -39,7 +38,8 @@ const getPreviousStation = (station: Station): Station | undefined => {
   return idx > 0 ? stationOrder[idx - 1] : undefined;
 };
 
-// Tab State
+// ── Tab State ─────────────────────────────────────────────────────────────
+
 type JobTab = "active" | "confirmed" | "history";
 
 const useJobTab = (): [JobTab, (tab: JobTab) => void] => {
@@ -48,7 +48,8 @@ const useJobTab = (): [JobTab, (tab: JobTab) => void] => {
   return [tab, setJobTab];
 };
 
-// Station Predicates
+// ── Station Predicates ────────────────────────────────────────────────────
+
 const isPendingConfirm = (station?: Station | undefined): boolean =>
   station === "pendingConfirm";
 
@@ -61,7 +62,8 @@ const isBaking = (station?: Station | undefined): boolean =>
 const isDone = (station?: Station | undefined): boolean =>
   station === "done";
 
-// Notes Management
+// ── Notes Management ────────────────────────────────────────────────────────
+
 type UseNotesReturn = {
   notes: string;
   setNotes: (notes: string) => void;
@@ -71,154 +73,12 @@ type UseNotesReturn = {
 const useNotes = (initial: string = ""): UseNotesReturn => {
   const [notes, setNotes] = useState(initial);
   const clearNotes = useCallback(() => setNotes(""), []);
-  };
+  return { notes, setNotes, clearNotes };
+};
 
-// Production-view Component
-export function ProductionView() {
-  const [jobTab, setJobTab] = useJobTab();
-  const { notes, setNotes, clearNotes } = useNotes("");
-  const { connected, userId, onSignIn } = useWorkspace();
 
-// Station-aware Order Filtering
- const filteredOrders = useCallback(() => {
-   const all = orders.filter((o): o is ServerOrder => o !== undefined);
 
-   switch (jobTab) {
-     case "active":
-       return all.filter((o) => o.station !== "done");
-     case "confirmed":
-       return all.filter((o) => o.station === "confirmed");
-     case "history":
-       return all.filter((o) => o.station === "done");
-     default:
-       return all;
-   }
-// Transition Helpers
-  const canTransitionTo = useCallback(
-    (order: ServerOrder, targetStation: Station) => {
-      if (!isValidTransition(order.station, targetStation)) return false;
-      if (isPendingConfirm(order.station) && targetStation !== "confirmed")
-        return false;
-      return true;
-    },
-    []
-  );
-
-  const handleStationTransition = useCallback(
-    async (orderId: string, targetStation: Station) => {
-      const order = orders.find((o) => o.id === orderId);
-      if (!order) return;
-
-      if (!canTransitionTo(order, targetStation)) {
-        onNotice("Cannot transition from " + order.station + " to " + targetStation);
-        return;
-      }
-
-      const updated = await updateOrderStation(orderId, targetStation);
-      if (!updated) return;
-
-      if (targetStation === "confirmed" && order.station !== "confirmed") {
-        await createProductionJob(order, userId ?? "system");
-      }
-
-      if (targetStation === "baking") {
-        await propagateBakingStatus(updated);
-      }
-
-      onNotice("Order moved from " + order.station + " to " + targetStation);
-    },
-    [orders, userId, onNotice, updateOrderStation, createProductionJob, propagateBakingStatus]
-[orders, userId, onNotice, updateOrderStation, createProductionJob, propagateBakingStatus]
-  );
-
-  // Create Production Job
-  const createProductionJob = useCallback(
-    async (order: ServerOrder, createdBy: string) => {
-      if (!connected) { onSignIn(); return; }
-      try {
-        const job = await startProductionJob({
-          orderId: order.id,
-          orderNumber: order.orderNumber,
-          productId: order.items?.[0]?.productId || "",
-          quantity: order.items?.length?.toString() || "1",
-          status: "PLAN" as const,
-          stage: "PLAN" as const,
-          progress: 0,
-          notes: order.notes || "",
-          createdBy,
-        });
-        onNotice("Production job created for order #" + order.id);
-        return job;
-      } catch (err) {
-        onNotice("Failed to create production job");
-        throw err;
-      }
-    },
-    [connected, onSignIn, onNotice]
-  );
-
-  // Propagate Baking Status
-}, [connected, onSignIn, onNotice]
-  );
-
-// Update Order Station
-  const updateOrderStation = useCallback(
-    async (orderId: string, targetStation: Station) => {
-      if (!connected) { onSignIn(); return false; }
-      try {
-        await updateOrderStatus(orderId, targetStation, userId ?? "system", "Station update from UI");
-        onNotice("Order station updated to " + targetStation);
-        return true;
-      } catch (err) {
-        onNotice("Failed to update order station");
-        return false;
-      }
-    },
-    [connected, onSignIn, updateOrderStatus, onNotice]
-  );
-
-  // Update Order Status
-  const updateOrderStatus = useCallback(
-    async (orderId: string, status: OrderStatus, updatedBy: string, reason: string) => {
-      if (!connected) { onSignIn(); return false; }
-      try {
-        await api.put(`/api/orders/${orderId}/status`, {
-          status,
-          updatedBy,
-          reason,
-        });
-        onNotice("Order status updated to " + status);
-        return true;
-      } catch (err) {
-        onNotice("Failed to update order status");
-        return false;
-      }
-    },
-    [connected, onSignIn, onNotice]
-  );
-// Propagate Baking Status
-  const propagateBakingStatus = useCallback(
-    async (order: ServerOrder) => {
-      if (!connected) { onSignIn(); return; }
-      const statusMap: Record<OrderStation, OrderStatus> = {
-        pendingConfirm: "AWAITING_CONFIRMATION" as OrderStatus,
-        confirmed: "CONFIRMED" as OrderStatus,
-        baking: "IN_PRODUCTION" as OrderStatus,
-        done: "COMPLETED_DELIVERED" as OrderStatus,
-      };
-
-      const newStatus = statusMap[order.station];
-      if (newStatus && order.status !== newStatus) {
-        await updateOrderStatus(order.id, newStatus, userId ?? "system", "Station status propagation");
-        onNotice("Order status propagated to " + newStatus);
-      }
-    },
-    [connected, onSignIn, updateOrderStatus, onNotice]
-  );
-
-  // Update Order Station
-  );
- }, [orders, jobTab]/* ── Production (live; E3) ─────────────────────────────────────────────── */
+// ── Production (live; E3) ─────────────────────────────────────────────────
 // Job board fed by GET /production/jobs. Row actions advance the state machine
 // (Start → Complete → Quality check) and record wastage, all RBAC-guarded and
 // persisted to Postgres. Falls back to a sign-in prompt when signed out.
@@ -456,7 +316,10 @@ export function Production({tab,search,setSearch,onNotice,onSignIn}: {tab:string
   </section>;
 }
 
-
-
 // Production-view logic placeholder
+
+// ── ProductionView (thin wrapper; rendered by workspace.tsx) ──────────────
+
+export function ProductionView() {
+  return <Production tab="Jobs" search="" setSearch={() => {}} onNotice={() => {}} onSignIn={() => {}} />;
 }
