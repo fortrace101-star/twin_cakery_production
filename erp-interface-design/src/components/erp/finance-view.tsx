@@ -18,6 +18,9 @@ import {
   updateExpense,
   deleteExpense,
   listFinanceReports,
+  listProductionJobs,
+  getProductionCosts,
+  createExpenseCategory,
 } from "@/lib/api";
 import type { ServerExpense, ServerExpenseCategory, ServerPayment, FinanceReport } from "@/lib/api";
 
@@ -69,6 +72,22 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
 
   useEffect(() => { void refreshPayments(); }, [refreshPayments]);
 
+  // ---- production costs for profitability KPI ----
+  // Jobs themselves carry no cost fields; the ledger lives per job behind
+  // GET /production/jobs/:id/costs (docs: finance_production.md task 2.1).
+  const [productionCosts, setProductionCosts] = useState<number>(0);
+  const refreshProductionCosts = useCallback(async () => {
+    try {
+      const jobs = await listProductionJobs();
+      const costLists = await Promise.all(jobs.map((job) => getProductionCosts(job.id)));
+      const totalCost = costLists.flat().reduce((sum, cost) => sum + (cost.total || 0), 0);
+      setProductionCosts(totalCost);
+    } catch {
+      // silently fail - production costs are optional
+    }
+  }, []);
+  useEffect(() => { void refreshProductionCosts(); }, [refreshProductionCosts]);
+
   async function onRecordPayment() {
     if (!orderId || !amount) return onNotice("Enter an order and an amount");
     setRecording(true);
@@ -117,7 +136,15 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
   const refreshExpenses = useCallback(async () => {
     const [e, c] = await Promise.all([listExpenses(), listExpenseCategories()]);
     setExpenses(e);
-    setCategories(c);
+    // Ensure "Production costs" is always available as a category. It must
+    // exist server-side: expense rows FK-reference expense_categories, so a
+    // locally invented id would fail the insert (created once, then stable).
+    let list = c;
+    if (!list.some((cat) => cat.name === "Production costs")) {
+      const created = await createExpenseCategory("Production costs");
+      if (created) list = [...list, created];
+    }
+    setCategories(list);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -364,6 +391,12 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
               ))}
             </div>
           ) : null}
+          {productionCosts > 0 && (
+            <div className="kpi">
+              <span className="kpi-label">Production costs</span>
+              <strong className="kpi-value">{money(productionCosts)}</strong>
+            </div>
+          )}
           {reports && (
             <DataTable
               columns={[

@@ -524,6 +524,9 @@ export class MemoryStore {
       quotationId: mapStr(input.quotationId),
       inquiryId: mapStr(input.inquiryId),
       createdBy: String(input.createdBy ?? ""),
+      // Fresh orders enter the bakery board at the first station; callers can
+      // override on import/create payloads.
+      station: String(input.station ?? "pendingConfirm") as Order["station"],
       deliveredAt: mapDate(input.deliveredAt),
       followUpCompletedAt: mapDate(input.followUpCompletedAt),
       createdAt: now,
@@ -556,6 +559,10 @@ export class MemoryStore {
       "orderNumber", "customerId", "salespersonId", "subtotal", "discount", "deliveryCharge",
       "taxAmount", "total", "requiredBy", "requiredAt", "notes", "status", "paymentStatus",
       "deliveryStatus", "quotationId", "inquiryId", "createdBy", "deliveredAt", "followUpCompletedAt",
+      // The bakery station board transitions orders through
+      // pendingConfirm → confirmed → baking → done; dropping `station` here
+      // made every station write a silent no-op.
+      "station",
     ]);
     // Keep the UNIQUE(order_number) constraint safe even when the patch swaps
     // in a number that another order already holds.

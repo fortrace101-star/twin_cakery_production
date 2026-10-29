@@ -42,7 +42,9 @@ export const MODULE_PERMISSIONS: Record<string, string> = {
  *   (modules without a mapping are always visible).
  */
 export function visibleModules<T extends { id: string }>(mods: readonly T[], permissions: string[] | null): readonly T[] {
-  if (permissions === null || permissions.length === 0) return mods;
+  // `null` = preview / not signed in → everything is visible. An empty array is
+  // a signed-in user with no grants: every gated module stays hidden (E5).
+  if (permissions === null) return mods;
   return mods.filter((m) => {
     const need = MODULE_PERMISSIONS[m.id];
     return !need || permissions.includes(need);

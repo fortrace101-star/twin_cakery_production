@@ -22,6 +22,9 @@ dist-server
 .env
 .env.local
 
+# Stable dev HMR ws token (per machine)
+.vite-ws-token
+
 # Server file-store fallback (Postgres is the source of truth)
 server/data/store.json
 

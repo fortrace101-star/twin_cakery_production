@@ -140,14 +140,16 @@ export interface ServerOrder {
   requiredAt: string | null;
   notes: string;
   status: string;
-  paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PROCESSING" | "PAID" | "REFUNDED" | "OVERPAID";
-  deliveryStatus: string;
+  paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PROCESSING" | "PAID" | "REFUNDED" | "OVERPAID";  deliveryStatus: string;
   createdBy: string;
   deliveredAt: string | null;
   /** Stamped when the post-delivery CRM follow-up has been done & documented. */
   followUpCompletedAt?: string | null;
+  /** Bakery station workflow (plan: pendingConfirm → confirmed → baking → done). 
+   *  Present once the backend writes station on orders; unknown order rows drop
+   *  back to `undefined` so station-aware filtering degrades safely. */
+  station?: "pendingConfirm" | "confirmed" | "baking" | "done" | undefined;
 }
-
 export interface ServerDelivery {
   id: string;
   orderId: string;
@@ -825,6 +827,22 @@ export async function confirmOrderApi(id: string): Promise<{ order: ServerOrder;
 /** POST /production/jobs — create a job for an order (requires production.schedule). */
 export function createProductionJob(orderId: string): Promise<ServerProductionJob | null> {
   return safe(() => request<ServerProductionJob>(`/production/jobs`, { method: "POST", body: { orderId } }), null);
+}
+
+/** Bakery station workflow endpoints (plan Phase 1). 
+ *  Today the backend for these routes is not present in this repo, so each
+ *  degrades to `null` / no-op and the UI stays on bundled sample data. */
+export function updateOrderStation(orderId: string, station: "pendingConfirm" | "confirmed" | "baking" | "done"): Promise<ServerOrder | null> {
+  return safe(() => request<ServerOrder>(`/orders/${orderId}/station`, { method: "PATCH", body: { station } }), null);
+}
+
+export function createProductionJobForOrder(orderId: string): Promise<ServerProductionJob | null> {
+  return safe(() => request<ServerProductionJob>(`/orders/${orderId}/production-job`, { method: "POST", body: { orderId } }), null);
+}
+
+/** After a baking-station transition, sync the order's global status. */
+export function propagateBakingStatus(orderId: string): Promise<ServerOrder | null> {
+  return safe(() => request<ServerOrder>(`/orders/${orderId}/propagate-baking`, { method: "POST" }), null);
 }
 
 export function listProductionJobs(): Promise<ServerProductionJob[]> {

@@ -5,6 +5,7 @@ import { AuthService, extractToken } from "../services/auth.service.js";
 import { businessService } from "../services/business.service.js";
 import { ConflictError, NotFoundError } from "../utils/errors.js";
 import { paginate } from "../utils/paginate.js";
+import type { OrderStation } from "../database/types.js";
 
 const router = Router();
 const authService = new AuthService();

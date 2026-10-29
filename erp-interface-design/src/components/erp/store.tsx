@@ -132,15 +132,18 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           toUiOrder(o, customersById, productsById, paidByOrderId[o.id]),
         ),
       );
-    } else {
-      setOrders([]);
+    } else if (user) {
+      // Backend reached but returned no orders — do not wipe the current UI.
+      // (A wipe only makes sense when clearing a signed-in session.)
     }
     setAudit((logs as ServerAuditLog[]).map(formatAudit));
     setLoading(false);
-  }, []);
-
-  useEffect(() => {
+  }, []);  useEffect(() => {
     void (async () => {
+      // If there is no persisted session at all, the backend is effectively
+      // unreachable for this user and `refresh()` above will just return `[]`.
+      // In that case do not nuke the in-flight orders — treat the workspace as
+      // offline/empty rather than as if the user explicitly signed out.
       // Restore a previously stored session (token survives refresh via
       // api.ts setToken). If none is present we stay on sample data.
       const session = await me();

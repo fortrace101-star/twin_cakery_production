@@ -186,6 +186,23 @@ router.post("/register", async (req, res) => {
     passwordHash,
   });
 
+  // Staff signups must land on a seeded RBAC role: without a user_roles row
+  // getPermissionsForUser() resolves to [] — an empty sidebar (E5 visibleModules)
+  // and a 403 on every required() route check. The submitted label maps onto a
+  // seeded role; unknown labels fall back to the least-privileged one
+  // (role-csr). Admin stays unreachable here: admin bootstrap only goes through
+  // /claim-admin with an admin code.
+  const roleIdByLabel: Record<string, string> = {
+    "sales manager": "role-sales",
+    "production manager": "role-production",
+    "customer service representative": "role-csr",
+  };
+  const roleId = roleIdByLabel[String(role ?? "").trim().toLowerCase()] ?? "role-csr";
+  const { flush: flushDb } = await import("../database/index.new.js");
+  const assignedAt = new Date().toISOString();
+  store.userRoles().push({ id: `ur-${user.id}`, userId: user.id, roleId, createdAt: assignedAt, updatedAt: assignedAt });
+  await flushDb();
+
   // Mark code used
   await pool.query(
     `UPDATE activation_codes SET used_at = now(), used_by = $1 WHERE id = $2`,

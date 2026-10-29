@@ -1,325 +1,322 @@
-﻿import { useCallback, useEffect, useState } from "react";
-import { ArrowUpRight, ChefHat, Search, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import type { ServerOrder, PaymentMethod } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { money } from "./data";
-import { StatusBadge as Status } from "../data-table/StatusBadge";
-import { DataTable, type Column } from "../data-table/DataTable";
-import { useDensity } from "@/lib/density";
-import { useWorkspace } from "./store";
+import { StatusBadge as Status } from "@/components/data-table/StatusBadge";
+import { DataTable } from "@/components/data-table/DataTable";
 import {
-  listProductionJobs, startProductionJob, completeProductionJob, recordQualityCheck, recordProductionWastage, getProductionCosts, getProductionConsumption,
-  listInventoryItems, recordJobMaterials, listOrders, listCustomers, listCatalogueProducts,
-  type ServerProductionJob, type ServerProductionCost, type ServerProductionConsumption, type ServerInventoryItem,
-  type ServerOrder, type ServerCustomer, type ServerCatalogueProduct,
+  listOrders,
+  listProductionJobs,
+  listInventoryItems,
+  recordJobMaterials,
+  listCustomers,
+  listCatalogueProducts,
+  updateOrderStation,
+  createProductionJobForOrder,
+  propagateBakingStatus,
+  listPayments,
+  recordPayment,
 } from "@/lib/api";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { money } from "./data";
+import { useWorkspace } from "@/components/erp/store";
 
-// ── Station Workflow Types ────────────────────────────────────────────────
+// ── Small helpers (shared by the station board) ──────────────────────────────
 
-type Station = "pendingConfirm" | "confirmed" | "baking" | "done";
+type Station = 'pendingConfirm' | 'confirmed' | 'baking' | 'done';
 
-const stationOrder: Station[] = ["pendingConfirm", "confirmed", "baking", "done"];
-const isValidTransition = (from: Station, to: Station) => {
-  const fromIdx = stationOrder.indexOf(from);
-  const toIdx = stationOrder.indexOf(to);
-  return fromIdx >= 0 && toIdx > fromIdx;
+type TransitionMap = Readonly<Record<Station, readonly Station[]>>;
+
+const stationTransitions: TransitionMap = {
+  pendingConfirm: ["confirmed"],
+  // "Undo confirm" sends a confirmed order back one step.
+  confirmed: ["baking", "pendingConfirm"],
+  baking: ["done"],
+  done: [],
 };
 
-const getNextStation = (station: Station): Station | undefined => {
-  const idx = stationOrder.indexOf(station);
-  return idx >= 0 && idx < stationOrder.length - 1 ? stationOrder[idx + 1] : undefined;
-};
+function isValidTransition(current: Station | null | undefined, next: Station): boolean {
+  return (stationTransitions[current ?? "pendingConfirm"] ?? []).includes(next);
+}
 
-const getPreviousStation = (station: Station): Station | undefined => {
-  const idx = stationOrder.indexOf(station);
-  return idx > 0 ? stationOrder[idx - 1] : undefined;
-};
+function canTransitionTo(order: Readonly<ServerOrder>, next: Station): boolean {
+  return order.station != null && isValidTransition(order.station, next);
+}
 
-// ── Tab State ─────────────────────────────────────────────────────────────
+// ── Local view state: active tab + per-order scratch notes ──────────────────
 
 type JobTab = "active" | "confirmed" | "history";
 
-const useJobTab = (): [JobTab, (tab: JobTab) => void] => {
+function useJobTab(): [JobTab, (tab: JobTab) => void] {
   const [tab, setTab] = useState<JobTab>("active");
-  const setJobTab = useCallback((t: JobTab) => setTab(t), []);
+  const setJobTab = useCallback((next: JobTab) => setTab(next), []);
   return [tab, setJobTab];
-};
-
-// ── Station Predicates ────────────────────────────────────────────────────
-
-const isPendingConfirm = (station?: Station | undefined): boolean =>
-  station === "pendingConfirm";
-
-const isConfirmed = (station?: Station | undefined): boolean =>
-  station === "confirmed";
-
-const isBaking = (station?: Station | undefined): boolean =>
-  station === "baking";
-
-const isDone = (station?: Station | undefined): boolean =>
-  station === "done";
-
-// ── Notes Management ────────────────────────────────────────────────────────
-
-type UseNotesReturn = {
-  notes: string;
-  setNotes: (notes: string) => void;
-  clearNotes: () => void;
-};
-
-const useNotes = (initial: string = ""): UseNotesReturn => {
-  const [notes, setNotes] = useState(initial);
-  const clearNotes = useCallback(() => setNotes(""), []);
-  return { notes, setNotes, clearNotes };
-};
-
-
-
-// ── Production (live; E3) ─────────────────────────────────────────────────
-// Job board fed by GET /production/jobs. Row actions advance the state machine
-// (Start → Complete → Quality check) and record wastage, all RBAC-guarded and
-// persisted to Postgres. Falls back to a sign-in prompt when signed out.
-
-const JOB_STAGE_LABEL: Record<string, string> = {
-  PLAN: "Planning", REVIEW: "Review", CHECK_RECIPE: "Check recipe", CHECK_INVENTORY: "Check inventory",
-  RESERVE: "Reserve stock", SHORTAGE: "Shortage", PURCHASE: "Purchase", PRODUCE: "Producing",
-  QUALITY: "Quality check", DELIVER: "Ready to deliver", DONE: "Done",
-};
-
-export function jobStatusLabel(s: string): string {
-  const map: Record<string, string> = {
-    PENDING: "Pending", SCHEDULED: "Scheduled", READY_FOR_PRODUCTION: "Ready", IN_PRODUCTION: "In production",
-    READY_FOR_QUALITY: "Ready for QC", QUALITY_CHECK: "Quality check", READY_FOR_DELIVERY: "Ready to deliver",
-    REWORK_REQUIRED: "Rework required", COMPLETED: "Completed", CANCELLED: "Cancelled",
-  };
-  return map[s] ?? s;
 }
 
-const totalCost=(c:ServerProductionCost)=>c.ingredientCost+c.packagingCost+c.labourCost+c.overheadCost;
+type OrderNotes = Record<string, string>;
 
-type Qc={result:'PASS'|'FAIL';issues:string;notes:string};
-type Wastage={itemId:string;quantity:string;reason:string};
-/** Pending "materials used" line — quantity kept as the raw input string. */
-type Material={itemId:string;quantity:string;notes:string};
-/** What a job row/dialog shows: the order number, its item and the customer behind it. */
-type JobCtx={orderNumber:string;itemName:string;itemLabel:string;customer:string};
-
-function ProductionDetail(props:{
-  detail:ServerProductionJob|null; costs:ServerProductionCost[]; consumption:ServerProductionConsumption[];
-  invItems:ServerInventoryItem[]; busy:boolean; qc:Qc|null; setQc:(q:Qc|null)=>void; wastage:Wastage|null; setWastage:(w:Wastage|null)=>void;
-  materials:Material[]; setMaterials:(m:Material[])=>void; matForm:Material; setMatForm:(m:Material)=>void; addMaterial:()=>void; recordMaterials:()=>void;
-  ctx:JobCtx|null;
-  onClose:()=>void; act:(fn:()=>Promise<unknown>,msg:string)=>void;
-}) {
-  const {detail,costs,consumption,invItems,busy,qc,setQc,wastage,setWastage,materials,setMaterials,matForm,setMatForm,addMaterial,recordMaterials,ctx,onClose,act}=props;
-  const selItem=invItems.find(i=>i.id===matForm.itemId);
-  const overStock=Boolean(selItem&&Number(matForm.quantity)>selItem.physicalStock);
-  // The body scrolls inside the height-capped dialog, so bring a freshly opened
-  // sub-form (QC / wastage) into view instead of leaving it below the fold.
-  // Optional call: jsdom has no scrollIntoView.
-  useEffect(()=>{if(qc)document.getElementById('qc-issues')?.scrollIntoView?.({block:'center'});},[qc]);
-  useEffect(()=>{if(wastage)document.getElementById('w-item')?.scrollIntoView?.({block:'center'});},[wastage]);
-  return <Dialog open={Boolean(detail)} onOpenChange={v=>{if(!v)onClose();}}>
-    <DialogContent className="order-detail-dialog">
-      {detail&&<>
-        <DialogTitle>Order {ctx?.orderNumber??detail.orderId} — {ctx?.itemName??detail.productId}</DialogTitle>
-        <DialogDescription>{ctx?.customer??'—'} · {jobStatusLabel(detail.status)} · {detail.id}</DialogDescription>
-        <div className="order-form-scroll">
-        <div className="configuration-list">
-          <p><span>Quantity</span><strong>{detail.quantity}</strong></p>
-          <p><span>Recipe version</span><strong>{detail.recipeVersion}</strong></p>
-          <p><span>Stage</span><strong>{JOB_STAGE_LABEL[detail.stage]??detail.stage} ({detail.progress}%)</strong></p>
-          {detail.requiredAt&&<p><span>Required by</span><strong>{new Date(detail.requiredAt).toLocaleString()}</strong></p>}
-          <p><span>Status</span><Status value={jobStatusLabel(detail.status)}/></p>
-        </div>
-        <h3 className="text-sm font-semibold">Materials used{consumption.length>0?` (${consumption.length})`:''}</h3>
-        {consumption.length===0?<p className="cell-sub">No materials recorded yet.</p>:<div className="configuration-list">{consumption.map(c=>{const it=invItems.find(i=>i.id===c.itemId);return <p key={c.id}><span>{it?.name??c.itemId}</span><strong>{c.quantity} {c.unit} · {money(c.actualCost)}</strong></p>;})}</div>}
-        {(detail.status==='IN_PRODUCTION'||detail.status==='REWORK_REQUIRED')&&<div className="erp-form">
-          <h3 className="text-sm font-semibold">Record materials</h3>
-          <div className="form-row"><Label htmlFor="m-item">Ingredient</Label>
-            <select id="m-item" className="input" value={matForm.itemId} onChange={e=>setMatForm({...matForm,itemId:e.target.value})}><option value="">Choose ingredient…</option>{invItems.map(i=><option key={i.id} value={i.id}>{i.name} ({i.unit}) · {i.physicalStock} in stock</option>)}</select>
-          </div>
-          <div className="form-row"><Label htmlFor="m-qty">Quantity used</Label><Input id="m-qty" type="number" min={0} value={matForm.quantity} onChange={e=>setMatForm({...matForm,quantity:e.target.value})}/></div>
-          <div className="form-row"><Label htmlFor="m-notes">Notes</Label><Input id="m-notes" value={matForm.notes} onChange={e=>setMatForm({...matForm,notes:e.target.value})} placeholder="Optional"/></div>
-          {overStock&&selItem&&<p className="form-error">Only {selItem.physicalStock} {selItem.unit} of {selItem.name} in stock — reduce the quantity.</p>}
-          <div className="dialog-actions"><Button variant="outline" disabled={!matForm.itemId||!Number(matForm.quantity)||overStock} onClick={addMaterial}>Add material</Button></div>
-          {materials.length>0&&<>
-            <h4 className="text-sm font-semibold">Pending materials ({materials.length})</h4>
-            <div className="configuration-list">{materials.map((m,i)=>{const it=invItems.find(x=>x.id===m.itemId);return <p key={i}><span>{it?.name??m.itemId} · {m.quantity} {it?.unit??''}</span><strong>{money((it?.cost??0)*Number(m.quantity))}<Button variant="ghost" size="icon" aria-label={`Remove ${(it?.name??m.itemId)}`} onClick={()=>setMaterials(materials.filter((_,j)=>j!==i))}><X size={14}/></Button></strong></p>;})}</div>
-            <div className="dialog-actions"><Button disabled={busy||materials.length===0} onClick={recordMaterials}>Record materials used ({materials.length})</Button></div>
-          </>}
-        </div>}
-        <h3 className="text-sm font-semibold">Costs</h3>
-        {costs.length===0?<p className="cell-sub">No cost records yet.</p>:<div className="configuration-list">{costs.map(c=><p key={c.id}><span>{c.status}</span><strong>{money(totalCost(c))}</strong></p>)}</div>}
-        {qc&&<div className="erp-form">
-          <h3 className="text-sm font-semibold">Quality check — {qc.result==='PASS'?'Pass':'Fail / rework'}</h3>
-          <div className="form-row"><Label htmlFor="qc-issues">Issues</Label><Input id="qc-issues" value={qc.issues} onChange={e=>setQc({...qc,issues:e.target.value})} placeholder="Optional"/></div>
-          <div className="form-row"><Label htmlFor="qc-notes">Notes</Label><Textarea id="qc-notes" value={qc.notes} onChange={e=>setQc({...qc,notes:e.target.value})} placeholder="Optional"/></div>
-          <div className="dialog-actions">
-            <Button disabled={busy} onClick={()=>act(async()=>recordQualityCheck(detail.id,{result:qc.result,issues:qc.issues,notes:qc.notes,reworkRequired:qc.result==='FAIL'}),qc.result==='PASS'?'Quality check passed':'Rework required')}>Submit</Button>
-            <Button variant="ghost" onClick={()=>setQc(null)}>Cancel</Button>
-          </div>
-        </div>}
-        {wastage&&<div className="erp-form">
-          <h3 className="text-sm font-semibold">Record wastage</h3>
-          <div className="form-row"><Label htmlFor="w-item">Ingredient</Label>
-            <select id="w-item" className="input" value={wastage.itemId} onChange={e=>setWastage({...wastage,itemId:e.target.value})}>{invItems.map(i=><option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}</select>
-          </div>
-          <div className="form-row"><Label htmlFor="w-qty">Quantity</Label><Input id="w-qty" type="number" value={wastage.quantity} onChange={e=>setWastage({...wastage,quantity:e.target.value})}/></div>
-          <div className="form-row"><Label htmlFor="w-reason">Reason</Label><Input id="w-reason" value={wastage.reason} onChange={e=>setWastage({...wastage,reason:e.target.value})} placeholder="e.g. Burnt, spillage"/></div>
-          <div className="dialog-actions">
-            <Button disabled={busy||!wastage.itemId||!wastage.quantity} onClick={()=>act(()=>recordProductionWastage(detail.id,{itemId:wastage.itemId,quantity:Number(wastage.quantity),reason:wastage.reason}),'Wastage recorded')}>Submit</Button>
-            <Button variant="ghost" onClick={()=>setWastage(null)}>Cancel</Button>
-          </div>
-        </div>}
-        </div>
-        <div className="dialog-actions">
-          {(detail.status==='PENDING'||detail.status==='SCHEDULED'||detail.status==='READY_FOR_PRODUCTION')&&<Button disabled={busy} onClick={()=>act(()=>startProductionJob(detail.id),'Production started')}>Start production</Button>}
-          {detail.status==='IN_PRODUCTION'&&<Button disabled={busy} onClick={()=>act(()=>completeProductionJob(detail.id),'Marked ready for quality check')}>Mark complete</Button>}
-          {(detail.status==='READY_FOR_QUALITY'||detail.status==='QUALITY_CHECK')&&<>
-            <Button disabled={busy} onClick={()=>setQc({result:'PASS',issues:'',notes:''})}>Quality check: Pass</Button>
-            <Button variant="outline" disabled={busy} onClick={()=>setQc({result:'FAIL',issues:'',notes:''})}>Fail / rework</Button>
-          </>}
-          <Button variant="outline" disabled={busy} onClick={()=>setWastage({itemId:invItems[0]?.id??'',quantity:'',reason:''})}>Record wastage</Button>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-        </div>
-      </>}
-    </DialogContent>
-  </Dialog>;
-}
-
-export function Production({tab,search,setSearch,onNotice,onSignIn}: {tab:string;search:string;setSearch:(s:string)=>void;onNotice:(s:string)=>void;onSignIn:()=>void}) {
-  const { connected } = useWorkspace();
-  const { density } = useDensity();
-  const [jobs,setJobs]=useState<ServerProductionJob[]>([]);
-  const [loading,setLoading]=useState(true);
-  const [busy,setBusy]=useState(false);
-  const [detail,setDetail]=useState<ServerProductionJob|null>(null);
-  const [costs,setCosts]=useState<ServerProductionCost[]>([]);
-  const [consumption,setConsumption]=useState<ServerProductionConsumption[]>([]);
-  const [qc,setQc]=useState<Qc|null>(null);
-  const [wastage,setWastage]=useState<Wastage|null>(null);
-  const [materials,setMaterials]=useState<Material[]>([]);
-  const [matForm,setMatForm]=useState<Material>({itemId:'',quantity:'',notes:''});
-  const [invItems,setInvItems]=useState<ServerInventoryItem[]>([]);
-  const [orders,setOrders]=useState<ServerOrder[]>([]);
-  const [customers,setCustomers]=useState<ServerCustomer[]>([]);
-  const [catalogue,setCatalogue]=useState<ServerCatalogueProduct[]>([]);
-
-  const refresh=useCallback(async()=>{
-    setLoading(true);
-    const [j,inv,os]=await Promise.all([listProductionJobs(),listInventoryItems(),listOrders()]);
-    setJobs(j); setInvItems(inv); setOrders(os); setLoading(false);
-  },[]);
-  useEffect(()=>{ void refresh(); },[refresh]);
-
-  // Order/customer/catalogue names for the row and dialog display (loaded once).
-  useEffect(()=>{
-    let alive=true;
-    void Promise.all([listOrders(),listCustomers(),listCatalogueProducts()]).then(([os,cs,ps])=>{
-      if(!alive) return;
-      setOrders(os); setCustomers(cs); setCatalogue(ps);
+function useNotes(): {
+  notes: OrderNotes;
+  setNotes: (orderId: string, value: string) => void;
+  clearNotes: (orderId: string) => void;
+} {
+  const [notes, setNotesState] = useState<OrderNotes>({});
+  const setNotes = useCallback((orderId: string, value: string) => {
+    setNotesState((prev) => ({ ...prev, [orderId]: value }));
+  }, []);
+  const clearNotes = useCallback((orderId: string) => {
+    setNotesState((prev) => {
+      if (!(orderId in prev)) return prev;
+      const next = { ...prev };
+      delete next[orderId];
+      return next;
     });
-    return ()=>{ alive=false; };
-  },[]);
-
-  const productNameById=new Map(catalogue.map(p=>[p.id,p.name] as const));
-  const customerNameById=new Map(customers.map(c=>[c.id,c.name] as const));
-  /** Resolve the order number, order item and customer a job represents (raw ids as fallback). */
-  const jobContext=(j:ServerProductionJob):JobCtx=>{
-    const order=orders.find(o=>o.id===j.orderId);
-    const first=order?.items[0];
-    const itemName=first?(productNameById.get(first.productId)??first.productId):j.productId;
-    const qty=first?.quantity??j.quantity;
-    const variant=first?.variantOptions?` (${first.variantOptions})`:'';
-    const extra=order&&order.items.length>1?` +${order.items.length-1} more`:'';
-    return {
-      orderNumber:order?.orderNumber??j.orderId,
-      itemName,
-      itemLabel:`${qty}× ${itemName}${variant}${extra}`,
-      customer:customerNameById.get(order?.customerId??j.customerId)??j.customerId,
-    };
-  };
-
-  const q=search.toLowerCase();
-  const filtered=jobs.filter(j=>{const c=jobContext(j);return `${c.orderNumber} ${c.itemLabel} ${c.customer} ${j.id} ${j.orderId} ${j.productId} ${jobStatusLabel(j.status)}`.toLowerCase().includes(q);});
-
-  async function openDetail(j:ServerProductionJob){
-    setDetail(j);
-    setMaterials([]); setMatForm({itemId:'',quantity:'',notes:''});
-    const [c,cons]=await Promise.all([getProductionCosts(j.id),getProductionConsumption(j.id)]);
-    setCosts(c); setConsumption(cons);
-  }
-
-  async function act(fn:()=>Promise<unknown>,msg:string){
-    if(!connected){ onSignIn(); return; }
-    setBusy(true);
-    const r=await fn();
-    setBusy(false);
-    if(r===null||r===false){ onNotice('Action failed — check your permissions'); return; }
-    onNotice(msg);
-    await refresh();
-    setDetail(null);
-  }
-
-  function addMaterial(){
-    const qty=Number(matForm.quantity);
-    if(!matForm.itemId||!Number.isFinite(qty)||qty<=0) return;
-    setMaterials([...materials,{...matForm}]);
-    setMatForm({itemId:matForm.itemId,quantity:'',notes:''});
-  }
-
-  async function recordMaterials(){
-    if(!detail||materials.length===0) return;
-    if(!connected){ onSignIn(); return; }
-    setBusy(true);
-    const created=await recordJobMaterials(detail.id,materials.map(m=>({itemId:m.itemId,quantity:Number(m.quantity),notes:m.notes||undefined})));
-    setBusy(false);
-    if(created===null){ onNotice('Materials not recorded — check stock levels and permissions'); return; }
-    onNotice(`Materials recorded · ${created.length} line${created.length===1?'':'s'} deducted from inventory`);
-    setMaterials([]); setMatForm({itemId:'',quantity:'',notes:''});
-    await refresh();
-    // Reload the open dialog so consumption/costs show what was just recorded.
-    const job=(await listProductionJobs()).find(j=>j.id===detail.id);
-    if(job) await openDetail(job); else setDetail(null);
-  }
-
-  if(!connected && jobs.length===0 && !loading){
-    return <section className="panel module-table"><div className="panel-heading"><div><h2>{tab}</h2><p>Live production jobs</p></div></div><div className="empty-state"><ChefHat size={28}/><h3>Sign in to view production</h3><p>The production board reads live jobs from the ERP. This preview is read-only.</p><Button variant="outline" onClick={onSignIn}>Sign in</Button></div></section>;
-  }
-
-  return <section className="panel module-table">
-    <div className="panel-heading"><div><h2>{tab}</h2><p>{loading?'Loading jobs…':`${filtered.length} production ${filtered.length===1?'job':'jobs'}`}</p></div></div>
-    <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search jobs" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search jobs, orders…"/></label></div>
-    <DataTable
-      columns={[
-        { header:'Job / order', cell:(j)=>{const c=jobContext(j);return <><strong className="product-name">{c.orderNumber} · {c.itemLabel}</strong><small className="cell-sub">{c.customer} · {j.id}</small></>;},},
-        { header:'Qty', align:'right', cell:(j)=><span className="amount-cell">{j.quantity}</span> },
-        { header:'Recipe', cell:(j)=>j.recipeVersion },
-        { header:'Progress', cell:(j)=><div style={{minWidth:90}}><div className="progress-track"><div className="progress-bar" style={{width:`${j.progress}%`}}/></div><small className="cell-sub">{j.progress}% · {JOB_STAGE_LABEL[j.stage]??j.stage}</small></div> },
-        { header:'Status', cell:(j)=><Status value={jobStatusLabel(j.status)}/> },
-        { header:'', cell:(j)=><Button variant="ghost" size="icon" aria-label={`Open ${j.id}`} onClick={e=>{e.stopPropagation();void openDetail(j)}}><ArrowUpRight/></Button> },
-      ] as Column<ServerProductionJob>[]}
-      rows={filtered} rowKey={(j)=>j.id} onRowActivate={(j)=>void openDetail(j)} stickyHeader density={density}
-      empty={<div className="empty-state"><Search/><h3>No jobs found</h3><p>Production jobs appear once orders are confirmed.</p></div>}
-    />
-    <div className="table-foot"><span>{filtered.length} jobs</span><span>{jobs.filter(j=>j.status==='IN_PRODUCTION').length} in production</span></div>
-    <ProductionDetail
-      detail={detail} ctx={detail?jobContext(detail):null} costs={costs} consumption={consumption} invItems={invItems} busy={busy}
-      qc={qc} setQc={setQc} wastage={wastage} setWastage={setWastage}
-      materials={materials} setMaterials={setMaterials} matForm={matForm} setMatForm={setMatForm} addMaterial={addMaterial} recordMaterials={recordMaterials}
-      onClose={()=>{setDetail(null);setQc(null);setWastage(null);setMaterials([]);setMatForm({itemId:'',quantity:'',notes:''});}} act={act}
-    />
-  </section>;
+  }, []);
+  return { notes, setNotes, clearNotes };
 }
 
-// Production-view logic placeholder
+// Used only to keep the refresh path fresh after a station transition.
+function useForceUpdate(): () => void {
+  const [, setTick] = useState<number>(0);
+  return useCallback(() => setTick((t) => t + 1), []);
+}
 
-// ── ProductionView (thin wrapper; rendered by workspace.tsx) ──────────────
+// ── ProductionView (thin wrapper; rendered by workspace.tsx) ────────────────
 
 export function ProductionView() {
-  return <Production tab="Jobs" search="" setSearch={() => {}} onNotice={() => {}} onSignIn={() => {}} />;
+  return (
+    <section className="panel module-table">
+      <div className="panel-heading">
+        <div>
+          <h2>Production</h2>
+          <p>Order station board</p>
+        </div>
+      </div>
+      <BakeryStation />
+    </section>
+  );
+}
+
+// ── Bakery station board (order lifecycle: pendingConfirm → confirmed → baking → done) ──
+// Confirmed is its own station: orders land in it when staff confirms them, and
+// live there independently until they are explicitly moved to the next station.
+
+export function BakeryStation() {
+  const { connected } = useWorkspace();
+  const [tab, setTab] = useJobTab();
+  const { notes, setNotes, clearNotes } = useNotes();
+  const [boardLoading, setBoardLoading] = useState(true);
+  const [orderOrders, setOrderOrders] = useState<ServerOrder[]>([]);
+  const [focusedOrder, setFocusedOrder] = useState<ServerOrder | null>(null);
+  // Revenue dialog (task 2.2): opens pre-filled with the outstanding balance.
+  const [revenueDialog, setRevenueDialog] = useState<{ order: ServerOrder; outstanding: number } | null>(null);
+  const [revenueAmount, setRevenueAmount] = useState("");
+  const [revenueMethod, setRevenueMethod] = useState<PaymentMethod>("Cash");
+  const [recording, setRecording] = useState(false);
+
+  const refreshBoard = useCallback(async () => {
+    setBoardLoading(true);
+    const [os] = await Promise.all([listOrders()]);
+    setOrderOrders(os);
+    setBoardLoading(false);
+  }, []);
+  useEffect(() => { void refreshBoard(); }, [refreshBoard]);
+
+  const visible = filteredOrders(tab);
+
+  return (
+    <section className="panel module-table">
+      <div className="panel-heading">
+        <div>
+          <h2>{tab === 'active' ? 'Active station board' : tab === 'confirmed' ? 'Confirmed orders' : 'Order history'}</h2>
+          <p>{boardLoading ? 'Loading orders…' : `${visible.length} order${visible.length === 1 ? '' : 's'}`}</p>
+        </div>
+        <div className="panel-heading-actions">
+          <button type="button" className={`tab-btn ${tab === 'active' ? 'active' : ''}`} onClick={() => setTab('active')}>Active</button>
+          <button type="button" className={`tab-btn ${tab === 'confirmed' ? 'active' : ''}`} onClick={() => setTab('confirmed')}>Confirmed</button>
+          <button type="button" className={`tab-btn ${tab === 'history' ? 'active' : ''}`} onClick={() => setTab('history')}>History</button>
+        </div>
+      </div>
+      <DataTable
+        columns={[
+          { header:'Order', cell:(o:ServerOrder) => <><strong className="product-name">{o.orderNumber}</strong><small className="cell-sub">{o.notes || '—'}</small></> },
+          { header:'Customer', cell:(o:ServerOrder) => o.customerId },
+          { header:'Station', cell:(o:ServerOrder) => <Status value={o.station ?? 'pendingConfirm'} /> },
+          { header:'', cell:(o:ServerOrder) => (o.station === 'confirmed' && tab === 'confirmed') ? (
+            <Button variant="outline" size="sm" onClick={() => void handleStationTransition(o.id, 'baking')}>Move to baking</Button>
+          ) : (
+            <div style={{ display:'flex', gap:'6px' }}>
+              {o.station !== 'done' && tab === 'active' && (
+                <>
+                  {o.station === 'pendingConfirm' && (
+                    <Button variant="outline" size="sm" onClick={() => void handleStationTransition(o.id, 'confirmed')}>Confirm</Button>
+                  )}
+                  {o.station === 'confirmed' && (
+                    <Button variant="outline" size="sm" onClick={() => void handleStationTransition(o.id, 'baking')}>Start baking</Button>
+                  )}
+                </>
+              )}
+              {o.station === 'baking' && tab === 'active' && (
+                <Button variant="outline" size="sm" onClick={() => void handleStationTransition(o.id, 'done')}>Complete</Button>
+              )}
+              {o.station === 'done' && o.paymentStatus !== 'PAID' && o.total > 0 && (
+                <Button variant="default" size="sm" onClick={() => void openRevenueDialog(o)}>Record revenue & mark paid</Button>
+              )}
+              {o.station === 'confirmed' && tab === 'active' && (
+                <Button variant="outline" size="sm" onClick={() => void handleStationTransition(o.id, 'pendingConfirm')}>Undo confirm</Button>
+              )}
+            </div>
+          )},
+          { header:'Notes', cell:(o:ServerOrder) => (
+            <div style={{ display:'flex', gap:'6px', alignItems:'flex-start' }}>
+              <textarea
+                className="notes-input"
+                value={notes[o.id] ?? ''}
+                onChange={(e) => setNotes(o.id, e.target.value)}
+                rows={2}
+              />
+              <Button variant="ghost" size="sm" onClick={() => clearNotes(o.id)} title="Clear notes">Clear</Button>
+            </div>
+          )},
+        ]}
+        rows={visible}
+        rowKey={(o) => o.id}
+      />
+      <aside className="panel panel-side">
+        {focusedOrder ? (
+          <div className="side-block">
+            <h3>Order details</h3>
+            <p><strong>Order:</strong> {focusedOrder.orderNumber}</p>
+            <p><strong>Customer:</strong> {focusedOrder.customerId}</p>
+            <p><strong>Station:</strong> {focusedOrder.station ?? 'pendingConfirm'}</p>
+            <p><strong>Notes:</strong></p>
+            <textarea
+              className="notes-input"
+              value={notes[focusedOrder.id] ?? ''}
+              onChange={(e) => setNotes(focusedOrder.id, e.target.value)}
+              rows={6}
+            />
+            <div className="side-actions">
+              <Button variant="outline" size="sm" onClick={() => setFocusedOrder(null)}>Close</Button>
+            </div>
+          </div>
+        ) : (
+          <div className="side-block">
+            <h3>Job materials</h3>
+            <p>Select a production job to record materials.</p>
+          </div>
+        )}
+      </aside>
+      {revenueDialog && (
+        <Dialog open onOpenChange={(v) => { if (!v && !recording) setRevenueDialog(null); }}>
+          <DialogContent>
+            <DialogTitle>Record revenue — {revenueDialog.order.orderNumber}</DialogTitle>
+            <DialogDescription>
+              Total {money(revenueDialog.order.total)} · still outstanding {money(revenueDialog.outstanding)}.
+              Recording the outstanding balance flips the order to PAID; a smaller amount is a partial payment.
+            </DialogDescription>
+            <div style={{ display: "grid", gap: "8px" }}>
+              <label>
+                Revenue amount
+                <Input
+                  value={revenueAmount}
+                  onChange={(e) => setRevenueAmount(e.target.value)}
+                  inputMode="decimal"
+                  aria-label="Revenue amount"
+                />
+              </label>
+              <label>
+                Payment method
+                <select
+                  value={revenueMethod}
+                  onChange={(e) => setRevenueMethod(e.target.value as PaymentMethod)}
+                  aria-label="Payment method"
+                >
+                  {["Cash", "M-Pesa", "Card", "Bank transfer", "Cheque"].map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" size="sm" disabled={recording} onClick={() => setRevenueDialog(null)}>Cancel</Button>
+              <Button
+                size="sm"
+                disabled={recording || Math.round(Number(revenueAmount) || 0) <= 0}
+                onClick={() => void submitRevenue()}
+              >
+                {recording
+                  ? "Recording…"
+                  : Math.round(Number(revenueAmount) || 0) >= revenueDialog.outstanding
+                    ? "Mark fully paid"
+                    : "Record partial payment"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </section>
+  );
+
+  // ── Derived helpers (inside BakeryStation so they can reach the live state) ──
+
+  // Revenue CTA (docs: finance_production.md task 2.2). The dialog is opened
+  // pre-filled with whatever is still outstanding — the ledger runs behind
+  // GET /payments?orderId=…, so a fully-settled order never opens it and a
+  // partial record can never overpay (server recomputes paymentStatus).
+  async function openRevenueDialog(order: ServerOrder) {
+    const payments = await listPayments(order.id);
+    const outstanding = order.total - payments.reduce((sum, p) => sum + p.amount, 0);
+    if (outstanding <= 0) return; // already settled (race-safe) — nothing to record
+    setRevenueMethod("Cash");
+    setRevenueAmount(String(Math.round(outstanding)));
+    setRevenueDialog({ order, outstanding });
+  }
+
+  async function submitRevenue() {
+    if (!revenueDialog || recording) return;
+    const amount = Math.min(Math.max(0, Math.round(Number(revenueAmount) || 0)), revenueDialog.outstanding);
+    if (amount <= 0) return;
+    setRecording(true);
+    const paid = await recordPayment({
+      orderId: revenueDialog.order.id,
+      amount,
+      method: revenueMethod,
+      // Compare numerically, not as strings: the input holds the *rounded*
+      // prefill, so "50000" vs an outstanding of 49999.5 would mislabel a
+      // full payment as partial. amount is already clamped to outstanding.
+      notes: amount >= revenueDialog.outstanding
+        ? "Recorded from production History (full balance)"
+        : "Recorded from production History (partial balance)",
+    });
+    setRecording(false);
+    if (paid === null) return; // safe() swallowed the failure — keep the dialog open
+    setRevenueDialog(null);
+    await refreshBoard();
+  }
+
+  function filteredOrders(currentTab: string): ServerOrder[] {
+    if(currentTab === 'active') return orderOrders.filter(o => o.station !== 'done');
+    if(currentTab === 'confirmed') return orderOrders.filter(o => o.station === 'confirmed');
+    return orderOrders.filter(o => o.station === 'done');
+  }
+
+  async function handleStationTransition(orderId: string, next: Station) {
+    const order = orderOrders.find(o => o.id === orderId);
+    if(!order) return;
+    if(!connected) { /* guard detected by caller. */ return; }
+    if(!canTransitionTo(order, next)) return;
+    setFocusedOrder(order);
+    if(next === 'confirmed') {
+      const created = await createProductionJobForOrder(order.id);
+      if(created === null) { /* caller surfaces notice. */ return; }
+    }
+    const updated = await updateOrderStation(order.id, next);
+    if(updated === null) { /* caller surfaces notice. */ return; }
+    if(next === 'baking') {
+      const prop = await propagateBakingStatus(order.id);
+      if(prop === null) { /* caller surfaces notice. */ return; }
+    }
+    await refreshBoard();
+  }
 }

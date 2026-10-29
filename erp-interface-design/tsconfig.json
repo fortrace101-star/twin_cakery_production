@@ -1,5 +1,8 @@
 {
   "include": ["src"],
+  // Server-flow suite run by vitest (aliased via vitest.config.ts @server -> ../server).
+  // The FE project must not type-check it: those modules are covered by server/tsconfig.json.
+  "exclude": ["src/test/markorder-paid.test.ts"],
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],

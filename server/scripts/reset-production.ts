@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
+import net from "node:net";
 import { execSync } from "node:child_process";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -73,6 +74,21 @@ async function tableExists(name: string): Promise<boolean> {
   return res.rows.length > 0;
 }
 
+// The API keeps the whole DB in memory and `flush()` upserts that cache back
+// to the tables on every write. Truncating underneath a running server is
+// therefore undone within seconds: the next request re-inserts every pre-wipe
+// row (and flush's deleteStale even removes the wipe's own audit entry).
+async function apiIsRunning(): Promise<boolean> {
+  const port = Number(process.env.PORT || 4000);
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: "127.0.0.1", port });
+    const done = (up: boolean) => { socket.destroy(); resolve(up); };
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+    socket.setTimeout(1500, () => done(false));
+  });
+}
+
 async function countRows(table: string): Promise<number> {
   if (!(await tableExists(table))) return 0;
   const res = await pool.query(`SELECT COUNT(*)::int AS c FROM "${table}"`);
@@ -95,6 +111,24 @@ async function main() {
   if (process.env.NODE_ENV === "production" && !force) {
     console.error("ERROR: NODE_ENV is production. Pass --force to override.");
     process.exit(1);
+  }
+
+  if (await apiIsRunning()) {
+    console.error(`ERROR: the API server is running (port ${process.env.PORT || 4000}).`);
+    console.error("");
+    console.error("The API mirrors the database in memory and flushes that cache back");
+    console.error("on every write, so a wipe performed underneath it re-inserts all");
+    console.error("pre-wipe rows within seconds (stock, notifications, old users). ");
+    console.error("");
+    console.error("Stop the API first, then re-run this wipe, then restart it:");
+    console.error("  1. stop the dev server (Ctrl+C), or: taskkill /F /PID <pid-on-port-4000>");
+    console.error(`  2. npm run wipe -- --confirm "WIPE PRODUCTION"`);
+    console.error("  3. npm run dev");
+    console.error("");
+    if (!force) process.exit(1);
+    console.warn("WARNING: --force passed — wiping while the API is still running.");
+    console.warn("Restart the API IMMEDIATELY afterwards or rows will resurrect again.");
+    console.warn("");
   }
 
   console.log("=== Twin Cakery ERP — Production Wipe ===");

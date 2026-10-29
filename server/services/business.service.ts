@@ -3,7 +3,7 @@ import { store } from "../database/store.js";
 import type { Patch } from "../database/store.js";
 import { notificationService } from "./notification.service.js";
 import { publishLowStockAlert } from "./stock-alerts.js";
-import type { Order, OrderStatus, User, OrderItem, Payment, ProductionJob, ProductionConsumption, OrderStatusHistory, NotificationPriority } from "../database/types.js";
+import type { Order, OrderStatus, User, OrderItem, Payment, ProductionJob, ProductionConsumption, OrderStatusHistory, NotificationPriority, OrderStation } from "../database/types.js";
 
 /**
  * Resolve required_by for production job from order data.
@@ -263,10 +263,14 @@ export class BusinessService {
       requiredBy: order.requiredBy ?? order.requiredAt ?? null,
       requiredAt: order.requiredAt,
       status: "PENDING",
-      stage: "PENDING_CONFIRM",
+      // Fresh pipeline job: matches store.createProductionJob's default stage.
+      stage: "PLAN",
+      progress: 0,
       notes: `Production job for order ${order.orderNumber}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
-    store.productionJobs.push(job);
+    store.productionJobs().push(job);
     store.updateOrder(order.id, {
       status: "CONFIRMED" as OrderStatus,
       station: "confirmed" as OrderStation,
@@ -293,7 +297,7 @@ export class BusinessService {
     };
     const newStatus = statusMap[order.station];
     if (newStatus && order.status !== newStatus) {
-      store.updateOrderStatus(order.id, newStatus, order.updatedBy ?? "system", "Station status propagation");
+      store.updateOrderStatus(order.id, newStatus, "system", "Station status propagation");
     }
   }
 

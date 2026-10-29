@@ -52,7 +52,7 @@ describe("status vocabulary (erp_design.md C2-C4 — locked)", () => {
   });
 });
 
-describe("density preference (persisted in localStorage)", () => {
+describe("density preference (session-only, no browser storage)", () => {
   function Probe({ onReady }: { onReady: (v: Density) => void }) {
     const { density, setDensity } = useDensity();
     onReady(density);
@@ -71,7 +71,7 @@ describe("density preference (persisted in localStorage)", () => {
     expect(screen.getByTestId("density").textContent).toBe("comfortable");
   });
 
-  it("persists a change and re-reads it on remount", () => {
+  it("applies a change for the session and starts fresh on remount", () => {
     localStorage.removeItem("tc-density");
     const { unmount } = render(
       <DensityProvider>
@@ -80,15 +80,15 @@ describe("density preference (persisted in localStorage)", () => {
     );
     fireEvent.click(screen.getByText("spacious"));
     expect(screen.getByTestId("density").textContent).toBe("spacious");
-    expect(localStorage.getItem("tc-density")).toBe("spacious");
+    // E2 keeps the preference session-only — nothing is written to localStorage.
+    expect(localStorage.getItem("tc-density")).toBeNull();
     unmount();
     render(
       <DensityProvider>
         <Probe onReady={() => {}} />
       </DensityProvider>,
     );
-    expect(screen.getByTestId("density").textContent).toBe("spacious");
-    localStorage.removeItem("tc-density");
+    expect(screen.getByTestId("density").textContent).toBe("comfortable");
   });
 });
 
