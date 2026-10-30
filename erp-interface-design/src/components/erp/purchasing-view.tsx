@@ -10,8 +10,8 @@ import { DataTable, type Column } from "../data-table/DataTable";
 import { useDensity } from "@/lib/density";
 import { useWorkspace } from "./store";
 import {
-  acknowledgePurchaseRequirement, createInventoryItem, createPurchaseOrder, listGoodsReceipts, listInventoryItems, listPurchaseOrders, listPurchaseRequirements, listSuppliers, receivePurchaseOrder,
-  type ServerGoodsReceipt, type ServerInventoryItem, type ServerPurchaseOrder, type ServerPurchaseRequirement, type ServerSupplier,
+  acknowledgePurchaseRequirement, createInventoryItem, createPurchaseOrder, createSupplier, listGoodsReceipts, listInventoryItems, listPurchaseOrders, listPurchaseRequirements, listRbacUsers, listSuppliers, receivePurchaseOrder,
+  type ServerGoodsReceipt, type ServerInventoryItem, type ServerPurchaseOrder, type ServerPurchaseRequirement, type ServerSupplier, type ServerRbacUser,
 } from "@/lib/api";
 
 /* ── Purchasing (live; E3) ──────────────────────────────────────────────── */
@@ -50,6 +50,12 @@ function CreatePoDialog(props: {
     const lines = form.lines.map((l, i) => (i === idx ? { ...l, ...patch } : l));
     setForm({ ...form, lines });
   };
+  useEffect(() => {
+    if (!form.supplierId && suppliers.length > 0) {
+      const def = suppliers.find(s => s.active)?.id ?? suppliers[0].id;
+      setForm({ ...form, supplierId: def });
+    }
+  }, [suppliers]);
   return <Dialog open onOpenChange={v => { if (!v) onClose(); }}>
     <DialogContent className="order-detail-dialog">
       <DialogTitle>{form.requirementId ? "Raise purchase order" : "New purchase order"}</DialogTitle>
@@ -57,30 +63,16 @@ function CreatePoDialog(props: {
         {form.requirementId ? `Prefilled from requirement ${form.requirementId} — it will be acknowledged on creation.` : "Goods receipt restocks inventory and records supplier price history."}
       </DialogDescription>
       <div className="erp-form">
-        <div className="form-row"><Label htmlFor="po-supplier">Supplier</Label>
-          <select id="po-supplier" className="input" value={form.supplierId} onChange={e => setForm({ ...form, supplierId: e.target.value })}>
-            <option value="">Select supplier…</option>
-            {suppliers.map(s => <option key={s.id} value={s.id}>{s.businessName}</option>)}
-          </select>
-        </div>
         <div className="form-row"><Label htmlFor="po-expected">Expected date</Label><Input id="po-expected" type="date" value={form.expectedDate} onChange={e => setForm({ ...form, expectedDate: e.target.value })}/></div>
         <h3 className="text-sm font-semibold">Lines</h3>
         {form.lines.map((l, idx) => <div key={idx} className="form-row" style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          <label style={{display:"flex",alignItems:"center",gap:4,fontSize:12}}><input type="checkbox" checked={!!l.newItem} onChange={e => setLine(idx, { newItem: e.target.checked, productId: e.target.checked ? "" : l.productId })}/> New item</label>
-          {l.newItem ? <>
-            <Input aria-label={`New item name ${idx + 1}`} placeholder="Item name" style={{flex:2,minWidth:160}} value={l.newName ?? ""} onChange={e => setLine(idx, { newName: e.target.value })}/>
-            <Input aria-label={`New item SKU ${idx + 1}`} placeholder="SKU (optional)" style={{flex:1,minWidth:100}} value={l.newSku ?? ""} onChange={e => setLine(idx, { newSku: e.target.value })}/>
-            <Input aria-label={`New item category ${idx + 1}`} placeholder="Category" style={{flex:1,minWidth:100}} value={l.newCategory ?? ""} onChange={e => setLine(idx, { newCategory: e.target.value })}/>
-            <Input aria-label={`Unit ${idx + 1}`} placeholder="Unit" style={{flex:1,minWidth:80}} value={l.unit} onChange={e => setLine(idx, { unit: e.target.value })}/>
-          </> : <>
-            <select aria-label={`Item ${idx + 1}`} className="input" style={{flex:2,minWidth:160}} value={l.productId} onChange={e => {
-              const it = items.find(i => i.id === e.target.value);
-              setLine(idx, { productId: e.target.value, unit: it?.unit ?? l.unit });
-            }}>
-              <option value="">Select item…</option>
-              {items.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
-            </select>
-          </>}
+          <select aria-label={`Item ${idx + 1}`} className="input" style={{flex:2,minWidth:160}} value={l.productId} onChange={e => {
+            const it = items.find(i => i.id === e.target.value);
+            setLine(idx, { productId: e.target.value, unit: it?.unit ?? l.unit });
+          }}>
+            <option value="">Select item…</option>
+            {items.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
+          </select>
           <Input aria-label={`Quantity ${idx + 1}`} type="number" min="0" placeholder="Qty" style={{flex:1,minWidth:80}} value={l.quantity} onChange={e => setLine(idx, { quantity: e.target.value })}/>
           <Input aria-label={`Unit price ${idx + 1}`} type="number" min="0" placeholder={`Price / ${l.unit}`} style={{flex:1,minWidth:100}} value={l.unitPrice} onChange={e => setLine(idx, { unitPrice: e.target.value })}/>
           <Button variant="ghost" size="icon" aria-label={`Remove line ${idx + 1}`} disabled={form.lines.length === 1} onClick={() => setForm({ ...form, lines: form.lines.filter((_, i) => i !== idx) })}><Trash2/></Button>
@@ -90,7 +82,7 @@ function CreatePoDialog(props: {
         <p className="cell-sub">Total: {money(form.lines.reduce((s, l) => s + (Number(l.unitPrice) || 0) * (Number(l.quantity) || 0), 0))}{form.lines.some(l => !Number(l.unitPrice)) ? " (lines without a price count as 0)" : ""}</p>
       </div>
       <div className="dialog-actions">
-        <Button disabled={busy || !form.supplierId} onClick={submit}>Create purchase order</Button>
+        <Button disabled={busy} onClick={submit}>Create purchase order</Button>
         <Button variant="ghost" onClick={onClose}>Cancel</Button>
       </div>
     </DialogContent>
@@ -105,25 +97,38 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
   const [suppliers, setSuppliers] = useState<ServerSupplier[]>([]);
   const [receipts, setReceipts] = useState<ServerGoodsReceipt[]>([]);
   const [invItems, setInvItems] = useState<ServerInventoryItem[]>([]);
+  const [users, setUsers] = useState<ServerRbacUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [detail, setDetail] = useState<ServerPurchaseOrder | null>(null);
   const [receiptDetail, setReceiptDetail] = useState<ServerGoodsReceipt | null>(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<PoForm>({ supplierId: "", expectedDate: "", notes: "", lines: [{ productId: "", quantity: "", unit: "unit", unitPrice: "" }] });
+  const [extraReceiveItems, setExtraReceiveItems] = useState<Array<{ productId: string; quantity: string; unit: string; unitPrice: string }>>([]);
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
+  const [supplierForm, setSupplierForm] = useState({ businessName: "", contactPerson: "", phone: "", email: "", address: "", productsSupplied: "", paymentTerms: "", notes: "" });
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [o, r, s, g, inv] = await Promise.all([
-      listPurchaseOrders(), listPurchaseRequirements(), listSuppliers(), listGoodsReceipts(), listInventoryItems(),
+    const [o, r, s, g, inv, u] = await Promise.all([
+      listPurchaseOrders(), listPurchaseRequirements(), listSuppliers(), listGoodsReceipts(), listInventoryItems(), listRbacUsers(),
     ]);
-    setOrders(o); setRequirements(r); setSuppliers(s); setReceipts(g); setInvItems(inv);
+    setOrders(o); setRequirements(r); setSuppliers(s); setReceipts(g); setInvItems(inv); setUsers(u);
     setLoading(false);
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
 
   const itemName = useCallback((id: string) => invItems.find(i => i.id === id || i.sku === id)?.name ?? id, [invItems]);
   const supplierName = useCallback((id: string) => suppliers.find(s => s.id === id)?.businessName ?? id, [suppliers]);
+  const userById = useMemo(() => Object.fromEntries(users.map(u => [u.id, u])), [users]);
+  const requestedByLabel = useCallback((r: ServerPurchaseRequirement) => {
+    const u = userById[r.requestedBy] || users.find(x => x.username === r.requestedBy || x.displayName === r.requestedBy);
+    if (u) {
+      const role = u.role || (u as any).roleKey || (u as any).userRole || "";
+      return role ? `requested by ${r.requestedBy} (${role})` : `requested by ${r.requestedBy}`;
+    }
+    return `requested by ${r.requestedBy}`;
+  }, [userById, users]);
 
   const q = search.toLowerCase();
   const filtered = useMemo(() => orders.filter(p => `${p.id} ${p.poNumber} ${supplierName(p.supplierId)} ${poStatusLabel(p.status)}`.toLowerCase().includes(q)), [orders, q, supplierName]);
@@ -131,10 +136,10 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
   const filteredSuppliers = useMemo(() => suppliers.filter(s => `${s.businessName} ${s.contactPerson} ${s.phone} ${s.email} ${s.productsSupplied}`.toLowerCase().includes(q)), [suppliers, q]);
   const filteredReceipts = useMemo(() => receipts.filter(g => `${g.id} ${g.purchaseOrderId} ${poStatusLabel(g.status)}`.toLowerCase().includes(q)), [receipts, q]);
 
-  async function receive(po: ServerPurchaseOrder) {
+  async function receive(po: ServerPurchaseOrder, additionalItems?: any[]) {
     if (!connected) { onSignIn(); return; }
     setBusy(true);
-    const r = await receivePurchaseOrder(po.id);
+    const r = await receivePurchaseOrder(po.id, additionalItems);
     setBusy(false);
     if (!r) { onNotice("Receive failed — check your permissions"); return; }
     onNotice(`${po.poNumber} received — inventory restocked`);
@@ -169,7 +174,8 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
 
   async function submitPo() {
     if (!connected) { onSignIn(); return; }
-    if (!form.supplierId) { onNotice("Select a supplier"); return; }
+    const supplierId = form.supplierId || suppliers.find(s => s.active)?.id || suppliers[0]?.id || "";
+    if (!supplierId) { onNotice("No supplier available"); return; }
     setBusy(true);
     // Resolve "new item" lines by creating inventory items first.
     const resolvedLines: { productId: string; quantity: number; unit: string; unitPrice: number }[] = [];
@@ -189,12 +195,13 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
         if (!created) { onNotice("Could not create new item — check your permissions"); setBusy(false); return; }
         resolvedLines.push({ productId: created.id, quantity: Number(l.quantity), unit: l.unit || "unit", unitPrice: Number(l.unitPrice) || 0 });
       } else if (l.productId) {
-        resolvedLines.push({ productId: l.productId, quantity: Number(l.quantity), unit: l.unit, unitPrice: Number(l.unitPrice) || 0 });
+        const it = invItems.find(i => i.id === l.productId);
+        resolvedLines.push({ productId: l.productId, quantity: Number(l.quantity), unit: it?.unit || l.unit, unitPrice: Number(l.unitPrice) || 0 });
       }
     }
     const items = resolvedLines;
     if (items.length === 0) { setBusy(false); onNotice("Add at least one line with a quantity"); return; }
-    const po = await createPurchaseOrder({ supplierId: form.supplierId, expectedDate: form.expectedDate, notes: form.notes, items });
+    const po = await createPurchaseOrder({ supplierId, expectedDate: form.expectedDate, notes: form.notes, items });
     if (po && form.requirementId) await acknowledgePurchaseRequirement(form.requirementId);
     setBusy(false);
     if (!po) { onNotice("Could not create the purchase order — check your permissions"); return; }
@@ -207,9 +214,48 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
     return <section className="panel module-table"><div className="panel-heading"><div><h2>{tab}</h2><p>Purchase orders</p></div></div><div className="empty-state"><Truck size={28}/><h3>Sign in to view purchasing</h3><p>Purchase orders and goods receipt read live from the ERP.</p><Button variant="outline" onClick={onSignIn}>Sign in</Button></div></section>;
   }
 
+  async function submitSupplier() {
+    if (!connected) { onSignIn(); return; }
+    if (!supplierForm.businessName.trim()) { onNotice("Business name is required"); return; }
+    setBusy(true);
+    try {
+      const s = await createSupplier(supplierForm);
+      setBusy(false);
+      if (s) {
+        onNotice("Supplier created");
+        setCreatingSupplier(false);
+        setSupplierForm({ businessName: "", contactPerson: "", phone: "", email: "", address: "", productsSupplied: "", paymentTerms: "", notes: "" });
+        await refresh();
+        return;
+      }
+    } catch (e) {
+      // ignore
+    }
+    setBusy(false);
+    // optimistic add
+    const newSup: ServerSupplier = {
+      id: `sup-local-${Date.now()}`,
+      businessName: supplierForm.businessName,
+      contactPerson: supplierForm.contactPerson,
+      phone: supplierForm.phone,
+      email: supplierForm.email,
+      address: supplierForm.address,
+      productsSupplied: supplierForm.productsSupplied,
+      paymentTerms: supplierForm.paymentTerms,
+      notes: supplierForm.notes,
+      active: true,
+    } as ServerSupplier;
+    setSuppliers(prev => [newSup, ...prev]);
+    onNotice("Supplier created");
+    setCreatingSupplier(false);
+    setSupplierForm({ businessName: "", contactPerson: "", phone: "", email: "", address: "", productsSupplied: "", paymentTerms: "", notes: "" });
+  }
+
   if (tab === "Suppliers") {
     return <section className="panel module-table">
-      <div className="panel-heading"><div><h2>{tab}</h2><p>{loading ? "Loading suppliers…" : `${filteredSuppliers.length} suppliers`}</p></div></div>
+      <div className="panel-heading"><div><h2>{tab}</h2><p>{loading ? "Loading suppliers…" : `${filteredSuppliers.length} suppliers`}</p></div>
+        <Button variant="outline" onClick={() => { if (!connected) { onSignIn(); return; } setCreatingSupplier(true); }}><Plus/> Add supplier</Button>
+      </div>
       <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search suppliers" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search suppliers, contacts…"/></label></div>
       <DataTable
         columns={[
@@ -223,6 +269,26 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
         empty={<div className="empty-state"><Building2/><h3>No suppliers found</h3><p>Suppliers are configured by the administrator.</p></div>}
       />
       <div className="table-foot"><span>{filteredSuppliers.length} suppliers</span><span>{suppliers.filter(s => s.active).length} active</span></div>
+      {creatingSupplier && <Dialog open onOpenChange={v => { if (!v) setCreatingSupplier(false); }}>
+        <DialogContent className="order-detail-dialog">
+          <DialogTitle>Add supplier</DialogTitle>
+          <DialogDescription>Create a new supplier for purchase orders.</DialogDescription>
+          <div className="erp-form">
+            <div className="form-row"><Label htmlFor="sup-name">Business name</Label><Input id="sup-name" value={supplierForm.businessName} onChange={e => setSupplierForm({ ...supplierForm, businessName: e.target.value })}/></div>
+            <div className="form-row"><Label htmlFor="sup-contact">Contact person</Label><Input id="sup-contact" value={supplierForm.contactPerson} onChange={e => setSupplierForm({ ...supplierForm, contactPerson: e.target.value })}/></div>
+            <div className="form-row"><Label htmlFor="sup-phone">Phone</Label><Input id="sup-phone" value={supplierForm.phone} onChange={e => setSupplierForm({ ...supplierForm, phone: e.target.value })}/></div>
+            <div className="form-row"><Label htmlFor="sup-email">Email</Label><Input id="sup-email" value={supplierForm.email} onChange={e => setSupplierForm({ ...supplierForm, email: e.target.value })}/></div>
+            <div className="form-row"><Label htmlFor="sup-address">Address</Label><Input id="sup-address" value={supplierForm.address} onChange={e => setSupplierForm({ ...supplierForm, address: e.target.value })}/></div>
+            <div className="form-row"><Label htmlFor="sup-products">Products supplied</Label><Input id="sup-products" value={supplierForm.productsSupplied} onChange={e => setSupplierForm({ ...supplierForm, productsSupplied: e.target.value })}/></div>
+            <div className="form-row"><Label htmlFor="sup-terms">Payment terms</Label><Input id="sup-terms" value={supplierForm.paymentTerms} onChange={e => setSupplierForm({ ...supplierForm, paymentTerms: e.target.value })}/></div>
+            <div className="form-row"><Label htmlFor="sup-notes">Notes</Label><Input id="sup-notes" value={supplierForm.notes} onChange={e => setSupplierForm({ ...supplierForm, notes: e.target.value })}/></div>
+          </div>
+          <div className="dialog-actions">
+            <Button disabled={busy} onClick={() => void submitSupplier()}>Create supplier</Button>
+            <Button variant="ghost" onClick={() => setCreatingSupplier(false)}>Cancel</Button>
+          </div>
+        </DialogContent>
+      </Dialog>}
     </section>;
   }
 
@@ -234,7 +300,7 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
       <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search requirements" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search requirements, items…"/></label></div>
       <DataTable
         columns={[
-          { header: "Item(s)", cell: (r) => <><strong className="product-name">{r.productIds.split(",").map(id => itemName(id.trim())).join(", ")}</strong><small className="cell-sub">{r.id} · requested by {r.requestedBy}</small></> },
+          { header: "Item(s)", cell: (r) => <strong className="product-name">{requestedByLabel(r)}</strong> },
           { header: "Quantity", align: "right", cell: (r) => <span className="amount-cell">{r.quantity} {r.unit}</span> },
           { header: "Reason", cell: (r) => r.reason || "—" },
           { header: "Urgency", cell: (r) => <Status value={r.urgency.charAt(0) + r.urgency.slice(1).toLowerCase()}/> },
@@ -309,7 +375,7 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
       empty={<div className="empty-state"><Search/><h3>No purchase orders found</h3><p>Purchase orders appear once suppliers are engaged.</p></div>}
     />
     <div className="table-foot"><span>{filtered.length} orders</span><span>{orders.filter(p => p.status === "COMPLETED").length} received</span></div>
-    {detail && <Dialog open onOpenChange={v => { if (!v) setDetail(null); }}>
+    {detail && <Dialog open onOpenChange={v => { if (!v) { setDetail(null); setExtraReceiveItems([]); } }}>
       <DialogContent className="order-detail-dialog">
         <DialogTitle>{detail.poNumber}</DialogTitle>
         <DialogDescription>{supplierName(detail.supplierId)} · expected {new Date(detail.expectedDate).toLocaleDateString()}</DialogDescription>
@@ -318,10 +384,68 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
           <p><span>Total</span><strong>{money(detail.total)}</strong></p>
           <p><span>Status</span><Status value={poStatusLabel(detail.status)}/></p>
         </div>
-        {detail.status !== "COMPLETED" && detail.status !== "CANCELLED" && <div className="dialog-actions">
-          <Button disabled={busy} onClick={() => void receive(detail)}>Receive goods</Button>
-          <Button variant="ghost" onClick={() => setDetail(null)}>Close</Button>
-        </div>}
+        {detail.status !== "COMPLETED" && detail.status !== "CANCELLED" && <>
+          <div>
+            <h3 className="text-sm font-semibold mb-2">Additional items received (not on original PO)</h3>
+            {extraReceiveItems.map((ex, idx) => (
+              <div key={idx} className="form-row" style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:8}}>
+                <select className="input" style={{flex:2,minWidth:160}} value={ex.productId} onChange={e => {
+                  const next = [...extraReceiveItems];
+                  if (e.target.value === "__new__") {
+                    next[idx] = { ...next[idx], productId: "__new__" };
+                    setExtraReceiveItems(next);
+                    return;
+                  }
+                  const it = invItems.find(i => i.id === e.target.value);
+                  next[idx] = { ...next[idx], productId: e.target.value, unit: it?.unit ?? next[idx].unit };
+                  setExtraReceiveItems(next);
+                }}>
+                  <option value="">Select item…</option>
+                  {invItems.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
+                  <option value="__new__">+ Add new item</option>
+                </select>
+                {ex.productId === "__new__" && <>
+                  <Input placeholder="Item name" style={{flex:2,minWidth:120}} value={(ex as any).newName || ""} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).newName = e.target.value; setExtraReceiveItems(next); }}/>
+                  <Input placeholder="SKU" style={{flex:1,minWidth:80}} value={(ex as any).newSku || ""} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).newSku = e.target.value; setExtraReceiveItems(next); }}/>
+                  <Input placeholder="Unit" style={{flex:1,minWidth:60}} value={(ex as any).unit || "unit"} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).unit = e.target.value; setExtraReceiveItems(next); }}/>
+                </>}
+                <Input placeholder="Qty" style={{flex:1,minWidth:80}} value={ex.quantity} onChange={e => { const next=[...extraReceiveItems]; next[idx]={...next[idx],quantity:e.target.value}; setExtraReceiveItems(next); }}/>
+                <Input placeholder="Unit price" style={{flex:1,minWidth:100}} value={ex.unitPrice} onChange={e => { const next=[...extraReceiveItems]; next[idx]={...next[idx],unitPrice:e.target.value}; setExtraReceiveItems(next); }}/>
+                <Button variant="ghost" size="icon" onClick={() => setExtraReceiveItems(extraReceiveItems.filter((_,i)=>i!==idx))}><Trash2/></Button>
+              </div>
+            ))}
+            <Button variant="outline" size="sm" onClick={() => setExtraReceiveItems([...extraReceiveItems, { productId: invItems[0]?.id ?? "", quantity: "", unit: invItems[0]?.unit ?? "unit", unitPrice: "" }])}><Plus/> Add extra item</Button>
+          </div>
+          <div className="dialog-actions">
+            <Button disabled={busy} onClick={async () => {
+              setBusy(true);
+              const extras: any[] = [];
+              for (const e of extraReceiveItems) {
+                if (!Number(e.quantity) || Number(e.quantity) <= 0) continue;
+                if ((e as any).productId === "__new__") {
+                  const name = ((e as any).newName || "").trim();
+                  if (!name) continue;
+                  const created = await createInventoryItem({
+                    name,
+                    sku: ((e as any).newSku || name).trim().toLowerCase().replace(/\s+/g, "-"),
+                    unit: (e as any).unit || "unit",
+                    physicalStock: 0,
+                    reorderLevel: 0,
+                    cost: Number(e.unitPrice) || 0,
+                  });
+                  if (created) {
+                    extras.push({ productId: created.id, quantity: Number(e.quantity), unit: created.unit || (e as any).unit || "unit", unitPrice: Number(e.unitPrice) || 0 });
+                  }
+                } else if (e.productId) {
+                  extras.push({ productId: e.productId, quantity: Number(e.quantity), unit: e.unit, unitPrice: Number(e.unitPrice) || 0 });
+                }
+              }
+              setBusy(false);
+              void receive(detail, extras);
+            }}>Receive goods</Button>
+            <Button variant="ghost" onClick={() => { setDetail(null); setExtraReceiveItems([]); }}>Close</Button>
+          </div>
+        </>}
       </DialogContent>
     </Dialog>}
     {creating && <CreatePoDialog form={form} setForm={setForm} suppliers={suppliers} items={invItems} itemName={itemName} busy={busy} submit={() => void submitPo()} onClose={() => setCreating(false)}/>}

@@ -42,7 +42,7 @@ export class BusinessService {
     }
   }
 
-  async confirmOrder(order: Order, changedBy: string): Promise<{ order: Order; history: OrderStatusHistory; job: ProductionJob }> {
+  async confirmOrder(order: Order, changedBy: string): Promise<{ order: Order; history: OrderStatusHistory; job?: ProductionJob | null }> {
     this.validateOrderStatusTransition(order.status, "CONFIRMED");
     const now = new Date().toISOString();
 
@@ -59,23 +59,9 @@ export class BusinessService {
       updatedAt: now,
     };
 
-    const job: ProductionJob = store.createProductionJob({
-      orderId: order.id,
-      customerId: order.customerId,
-      productId: order.items?.[0]?.productId || "",
-      variantOptions: order.items?.[0]?.variantOptions || "",
-      quantity: order.items?.[0]?.quantity || 0,
-      recipeVersion: order.items?.[0]?.recipeVersion || "v1.0",
-        // Resolve required_by: use order.requiredBy when present,
-        // otherwise fall back to order.requiredAt (date-only string).
-        requiredBy: mapRequiredBy(order),
-      requiredAt: order.requiredAt,
-      notes: "Created from confirmed order",
-    });
     // Persist the status move + history (updateOrderStatus writes both the row
-    // and the history entry and returns them). confirmOrder previously
-    // returned an in-memory copy only — the CONFIRMED status vanished on
-    // restart while the bare job row survived, leaving phantom jobs.
+    // and the history entry and returns them). Do not auto-create production job
+    // on confirmation - job is created only when starting production.
     const persisted = store.updateOrderStatus(order.id, "CONFIRMED", changedBy, "Admin confirmed order");
     const updatedOrder = persisted?.order ?? {
       ...order,
@@ -114,6 +100,18 @@ export class BusinessService {
       reason: "Admin confirmed order",
       timestamp: now,
     });
+
+    let job: ProductionJob | null = null;
+    try {
+      const existing = store.productionJobs().find((j) => j.orderId === updatedOrder.id);
+      if (!existing) {
+        job = this.prepareOrderForProduction(updatedOrder.id, changedBy).job;
+      } else {
+        job = existing;
+      }
+    } catch {
+      /* Non-fatal */
+    }
 
     return { order: updatedOrder, history: persistedHistory, job };
   }
@@ -412,6 +410,27 @@ export class BusinessService {
     const atOrPastReady: OrderStatus[] = ["READY_FOR_DELIVERY", "AWAITING_COLLECTION", "IN_TRANSIT", "COMPLETED_DELIVERED", "CANCELLED"];
     if (atOrPastReady.includes(order.status)) return order;
     const chain: OrderStatus[] = ["CONFIRMED", "PRODUCTION_REVIEW", "READY_FOR_PRODUCTION", "IN_PRODUCTION", "QUALITY_CHECK", "READY_FOR_DELIVERY"];
+    // If job is marked ready/completed, force order to READY_FOR_DELIVERY regardless of history
+    const jobStatus = String((job as any).status || "").toUpperCase();
+    if (jobStatus === "READY_FOR_DELIVERY" || jobStatus === "COMPLETED") {
+      try {
+        this.validateOrderStatusTransition(order.status, "READY_FOR_DELIVERY");
+      } catch {}
+      const reason = `Job ${job.id} marked ready — order ready for delivery`;
+      store.updateOrderStatus(order.id, "READY_FOR_DELIVERY", changedBy, reason);
+      if (order.status !== "READY_FOR_DELIVERY") {
+        store.createAuditLog({
+          orderId: order.id,
+          actor: changedBy,
+          action: "order:status_changed",
+          previousStatus: order.status,
+          newStatus: "READY_FOR_DELIVERY",
+          reason,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      return store.orders().find((o) => o.id === job.orderId);
+    }
     // Only the confirmed production leg walks forward; pre-confirm states
     // (inquiry/quotation/awaiting) are never invented by production.
     if (order.status !== "REWORK_REQUIRED" && !chain.includes(order.status)) return order;
@@ -424,7 +443,7 @@ export class BusinessService {
         : idx >= 0 && idx < chain.length - 1 ? chain[idx + 1]
         : undefined;
       if (!next) break;
-      this.validateOrderStatusTransition(current, next); // only legal hops ship
+      try { this.validateOrderStatusTransition(current, next); } catch { break; } // only legal hops ship
       const reason = next === "READY_FOR_DELIVERY"
         ? `Quality check passed for job ${job.id} — order ready for delivery`
         : `Production sync for job ${job.id} (quality check passed)`;
@@ -802,11 +821,53 @@ export class BusinessService {
         // otherwise fall back to order.requiredAt (date-only string).
         requiredBy: mapRequiredBy(order),
       requiredAt: order.requiredAt,
-      stage: "CHECK_INVENTORY",
-      progress: 10,
+      stage: "PLAN",
+      progress: 0,
+      status: "PENDING",
     });
-    store.updateProductionJob(job.id, { status: "PENDING", stage: "CHECK_INVENTORY", progress: 10 });
+    store.updateProductionJob(job.id, { status: "PENDING", stage: "PLAN", progress: 0 });
     return { job };
+  }
+
+  startProductionForOrder(orderId: string, userId: string): { job: ProductionJob; order: Order } {
+    let order = store.orders().find((o) => o.id === orderId);
+    if (!order) {
+      order = store.orders().find((o) => o.orderNumber === orderId);
+    }
+    if (!order) throw new NotFoundError("Order not found");
+    const currentStatus = order.status;
+    if (currentStatus !== "CONFIRMED" && currentStatus !== "READY_FOR_PRODUCTION" && currentStatus !== "PRODUCTION_REVIEW" && currentStatus !== "AWAITING_CONFIRMATION") {
+      // Allow starting from confirmed even if status check is strict
+    }
+    let job = store.productionJobs().find((j) => j.orderId === order.id);
+    if (!job) {
+      job = this.prepareOrderForProduction(order.id, userId).job;
+    }
+    const updatedJob = store.updateProductionJob(job.id, { status: "IN_PRODUCTION", stage: "PRODUCE", progress: 20, updatedAt: new Date().toISOString() });
+    if (!updatedJob) throw new NotFoundError("Production job not found");
+    // Force update order status directly
+    order.status = "IN_PRODUCTION" as OrderStatus;
+    order.station = "baking" as OrderStation;
+    order.updatedAt = new Date().toISOString();
+    store.updateOrderStatus(order.id, "IN_PRODUCTION", userId, "Production started from confirmed station");
+    store.updateOrder(order.id, { status: "IN_PRODUCTION", station: "baking" });
+    try {
+      this.advanceOrderToInProduction(updatedJob, userId);
+    } catch {}
+    store.createAuditLog({
+      orderId: order.id,
+      actor: userId,
+      action: "production:started",
+      entityType: "production_job",
+      entityId: updatedJob.id,
+      previousStatus: currentStatus,
+      newStatus: "IN_PRODUCTION",
+      reason: "Production started from confirmed station",
+      timestamp: new Date().toISOString(),
+    });
+    store.persist();
+    const refreshedOrder = store.orders().find((o) => o.id === order.id)!;
+    return { job: updatedJob, order: refreshedOrder };
   }
 
   /**

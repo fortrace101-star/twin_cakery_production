@@ -56,19 +56,19 @@ export type StatusTone =
 /** Fixed mapping of status word -> tone. Never colour body text with these. */
 export const statusTones: Record<StatusTone, readonly string[]> = {
   green: ["Paid", "Ready", "Completed", "Delivered", "In stock", "Approved", "Active", "Passed"],
-  blue: ["In production", "Sent", "Dispatched"],
+  blue: ["In production", "Sent", "Dispatched", "Queued"],
   red: ["Low stock", "Unpaid", "Rejected", "Out of stock", "Error"],
   amber: ["Pending", "Partially paid", "Awaiting dispatch", "Pending confirmation"],
   violet: ["Confirmed", "Accepted", "Processing"],
-  gray: ["Draft", "Inactive", "Cancelled", "Queued", "Baking", "Decorating", "Packing"],
+  gray: ["Draft", "Inactive", "Cancelled", "Packing"],
   // Order-pipeline extension tones (used via explicit `tone` prop /
   // `orderStageTone()` below so the locked vocabulary above never shifts).
   // Registries stay empty on purpose: `toneOf()` only resolves the six
   // locked tones, so listing words here would imply a mapping that never
   // fires. Stage -> tone lives in `ORDER_STAGE_TONES` (same file).
   teal: [],
-  orange: [],
-  rose: [],
+  orange: ["Decorating"],
+  rose: ["Baking"],
 };
 
 /** Reverse lookup: status word -> tone (falls back to amber for unknowns). */

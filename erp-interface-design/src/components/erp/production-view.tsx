@@ -1,57 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ServerOrder, PaymentMethod } from "@/lib/api";
+import type { ServerOrder } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { StatusBadge as Status } from "@/components/data-table/StatusBadge";
-import { DataTable } from "@/components/data-table/DataTable";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import {
   listOrders,
   listProductionJobs,
+  startProductionJob,
+  createProductionJob,
+  startProductionForOrder,
+  completeProductionJob,
+  recordQualityCheck,
+  getProductionConsumption,
   listInventoryItems,
   recordJobMaterials,
-  listCustomers,
-  listCatalogueProducts,
-  updateOrderStation,
-  createProductionJobForOrder,
-  propagateBakingStatus,
-  listPayments,
-  recordPayment,
 } from "@/lib/api";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { money } from "./data";
 import { useWorkspace } from "@/components/erp/store";
-
-// ── Small helpers (shared by the station board) ──────────────────────────────
-
-type Station = 'pendingConfirm' | 'confirmed' | 'baking' | 'done';
-
-type TransitionMap = Readonly<Record<Station, readonly Station[]>>;
-
-const stationTransitions: TransitionMap = {
-  pendingConfirm: ["confirmed"],
-  // "Undo confirm" sends a confirmed order back one step.
-  confirmed: ["baking", "pendingConfirm"],
-  baking: ["done"],
-  done: [],
-};
-
-function isValidTransition(current: Station | null | undefined, next: Station): boolean {
-  return (stationTransitions[current ?? "pendingConfirm"] ?? []).includes(next);
-}
-
-function canTransitionTo(order: Readonly<ServerOrder>, next: Station): boolean {
-  return order.station != null && isValidTransition(order.station, next);
-}
-
-// ── Local view state: active tab + per-order scratch notes ──────────────────
-
-type JobTab = "active" | "confirmed" | "history";
-
-function useJobTab(): [JobTab, (tab: JobTab) => void] {
-  const [tab, setTab] = useState<JobTab>("active");
-  const setJobTab = useCallback((next: JobTab) => setTab(next), []);
-  return [tab, setJobTab];
-}
 
 type OrderNotes = Record<string, string>;
 
@@ -75,15 +39,7 @@ function useNotes(): {
   return { notes, setNotes, clearNotes };
 }
 
-// Used only to keep the refresh path fresh after a station transition.
-function useForceUpdate(): () => void {
-  const [, setTick] = useState<number>(0);
-  return useCallback(() => setTick((t) => t + 1), []);
-}
-
-// ── ProductionView (thin wrapper; rendered by workspace.tsx) ────────────────
-
-export function ProductionView() {
+export function ProductionView({ onSelect }: { onSelect?: (order: any) => void } = {}) {
   return (
     <section className="panel module-table">
       <div className="panel-heading">
@@ -92,231 +48,438 @@ export function ProductionView() {
           <p>Order station board</p>
         </div>
       </div>
-      <BakeryStation />
+      <BakeryStation onSelect={onSelect} />
     </section>
   );
 }
 
-// ── Bakery station board (order lifecycle: pendingConfirm → confirmed → baking → done) ──
-// Confirmed is its own station: orders land in it when staff confirms them, and
-// live there independently until they are explicitly moved to the next station.
-
-export function BakeryStation() {
-  const { connected } = useWorkspace();
-  const [tab, setTab] = useJobTab();
-  const { notes, setNotes, clearNotes } = useNotes();
-  const [boardLoading, setBoardLoading] = useState(true);
-  const [orderOrders, setOrderOrders] = useState<ServerOrder[]>([]);
-  const [focusedOrder, setFocusedOrder] = useState<ServerOrder | null>(null);
-  // Revenue dialog (task 2.2): opens pre-filled with the outstanding balance.
-  const [revenueDialog, setRevenueDialog] = useState<{ order: ServerOrder; outstanding: number } | null>(null);
-  const [revenueAmount, setRevenueAmount] = useState("");
-  const [revenueMethod, setRevenueMethod] = useState<PaymentMethod>("Cash");
-  const [recording, setRecording] = useState(false);
-
-  const refreshBoard = useCallback(async () => {
-    setBoardLoading(true);
-    const [os] = await Promise.all([listOrders()]);
-    setOrderOrders(os);
-    setBoardLoading(false);
-  }, []);
-  useEffect(() => { void refreshBoard(); }, [refreshBoard]);
-
-  const visible = filteredOrders(tab);
-
+export function JobsView({ onSelect }: { onSelect?: (job: any) => void } = {}) {
   return (
     <section className="panel module-table">
       <div className="panel-heading">
         <div>
-          <h2>{tab === 'active' ? 'Active station board' : tab === 'confirmed' ? 'Confirmed orders' : 'Order history'}</h2>
-          <p>{boardLoading ? 'Loading orders…' : `${visible.length} order${visible.length === 1 ? '' : 's'}`}</p>
-        </div>
-        <div className="panel-heading-actions">
-          <button type="button" className={`tab-btn ${tab === 'active' ? 'active' : ''}`} onClick={() => setTab('active')}>Active</button>
-          <button type="button" className={`tab-btn ${tab === 'confirmed' ? 'active' : ''}`} onClick={() => setTab('confirmed')}>Confirmed</button>
-          <button type="button" className={`tab-btn ${tab === 'history' ? 'active' : ''}`} onClick={() => setTab('history')}>History</button>
+          <h2>Jobs</h2>
+          <p>Job station board</p>
         </div>
       </div>
-      <DataTable
-        columns={[
-          { header:'Order', cell:(o:ServerOrder) => <><strong className="product-name">{o.orderNumber}</strong><small className="cell-sub">{o.notes || '—'}</small></> },
-          { header:'Customer', cell:(o:ServerOrder) => o.customerId },
-          { header:'Station', cell:(o:ServerOrder) => <Status value={o.station ?? 'pendingConfirm'} /> },
-          { header:'', cell:(o:ServerOrder) => (o.station === 'confirmed' && tab === 'confirmed') ? (
-            <Button variant="outline" size="sm" onClick={() => void handleStationTransition(o.id, 'baking')}>Move to baking</Button>
-          ) : (
-            <div style={{ display:'flex', gap:'6px' }}>
-              {o.station !== 'done' && tab === 'active' && (
-                <>
-                  {o.station === 'pendingConfirm' && (
-                    <Button variant="outline" size="sm" onClick={() => void handleStationTransition(o.id, 'confirmed')}>Confirm</Button>
-                  )}
-                  {o.station === 'confirmed' && (
-                    <Button variant="outline" size="sm" onClick={() => void handleStationTransition(o.id, 'baking')}>Start baking</Button>
-                  )}
-                </>
-              )}
-              {o.station === 'baking' && tab === 'active' && (
-                <Button variant="outline" size="sm" onClick={() => void handleStationTransition(o.id, 'done')}>Complete</Button>
-              )}
-              {o.station === 'done' && o.paymentStatus !== 'PAID' && o.total > 0 && (
-                <Button variant="default" size="sm" onClick={() => void openRevenueDialog(o)}>Record revenue & mark paid</Button>
-              )}
-              {o.station === 'confirmed' && tab === 'active' && (
-                <Button variant="outline" size="sm" onClick={() => void handleStationTransition(o.id, 'pendingConfirm')}>Undo confirm</Button>
-              )}
-            </div>
-          )},
-          { header:'Notes', cell:(o:ServerOrder) => (
-            <div style={{ display:'flex', gap:'6px', alignItems:'flex-start' }}>
-              <textarea
-                className="notes-input"
-                value={notes[o.id] ?? ''}
-                onChange={(e) => setNotes(o.id, e.target.value)}
-                rows={2}
-              />
-              <Button variant="ghost" size="sm" onClick={() => clearNotes(o.id)} title="Clear notes">Clear</Button>
-            </div>
-          )},
-        ]}
-        rows={visible}
-        rowKey={(o) => o.id}
-      />
-      <aside className="panel panel-side">
-        {focusedOrder ? (
-          <div className="side-block">
-            <h3>Order details</h3>
-            <p><strong>Order:</strong> {focusedOrder.orderNumber}</p>
-            <p><strong>Customer:</strong> {focusedOrder.customerId}</p>
-            <p><strong>Station:</strong> {focusedOrder.station ?? 'pendingConfirm'}</p>
-            <p><strong>Notes:</strong></p>
-            <textarea
-              className="notes-input"
-              value={notes[focusedOrder.id] ?? ''}
-              onChange={(e) => setNotes(focusedOrder.id, e.target.value)}
-              rows={6}
-            />
-            <div className="side-actions">
-              <Button variant="outline" size="sm" onClick={() => setFocusedOrder(null)}>Close</Button>
-            </div>
-          </div>
-        ) : (
-          <div className="side-block">
-            <h3>Job materials</h3>
-            <p>Select a production job to record materials.</p>
-          </div>
-        )}
-      </aside>
-      {revenueDialog && (
-        <Dialog open onOpenChange={(v) => { if (!v && !recording) setRevenueDialog(null); }}>
-          <DialogContent>
-            <DialogTitle>Record revenue — {revenueDialog.order.orderNumber}</DialogTitle>
-            <DialogDescription>
-              Total {money(revenueDialog.order.total)} · still outstanding {money(revenueDialog.outstanding)}.
-              Recording the outstanding balance flips the order to PAID; a smaller amount is a partial payment.
-            </DialogDescription>
-            <div style={{ display: "grid", gap: "8px" }}>
-              <label>
-                Revenue amount
-                <Input
-                  value={revenueAmount}
-                  onChange={(e) => setRevenueAmount(e.target.value)}
-                  inputMode="decimal"
-                  aria-label="Revenue amount"
-                />
-              </label>
-              <label>
-                Payment method
-                <select
-                  value={revenueMethod}
-                  onChange={(e) => setRevenueMethod(e.target.value as PaymentMethod)}
-                  aria-label="Payment method"
-                >
-                  {["Cash", "M-Pesa", "Card", "Bank transfer", "Cheque"].map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" size="sm" disabled={recording} onClick={() => setRevenueDialog(null)}>Cancel</Button>
-              <Button
-                size="sm"
-                disabled={recording || Math.round(Number(revenueAmount) || 0) <= 0}
-                onClick={() => void submitRevenue()}
-              >
-                {recording
-                  ? "Recording…"
-                  : Math.round(Number(revenueAmount) || 0) >= revenueDialog.outstanding
-                    ? "Mark fully paid"
-                    : "Record partial payment"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
+      <JobsBoard onSelect={onSelect} />
     </section>
   );
+}
 
-  // ── Derived helpers (inside BakeryStation so they can reach the live state) ──
+export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } = {}) {
+  const { connected, orders: uiOrders } = useWorkspace();
+  const { notes, setNotes, clearNotes } = useNotes();
+  const [boardLoading, setBoardLoading] = useState(true);
+  const [orderOrders, setOrderOrders] = useState<ServerOrder[]>([]);
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [confirmedDialogOrder, setConfirmedDialogOrder] = useState<ServerOrder | null>(null);
+  const [starting, setStarting] = useState(false);
 
-  // Revenue CTA (docs: finance_production.md task 2.2). The dialog is opened
-  // pre-filled with whatever is still outstanding — the ledger runs behind
-  // GET /payments?orderId=…, so a fully-settled order never opens it and a
-  // partial record can never overpay (server recomputes paymentStatus).
-  async function openRevenueDialog(order: ServerOrder) {
-    const payments = await listPayments(order.id);
-    const outstanding = order.total - payments.reduce((sum, p) => sum + p.amount, 0);
-    if (outstanding <= 0) return; // already settled (race-safe) — nothing to record
-    setRevenueMethod("Cash");
-    setRevenueAmount(String(Math.round(outstanding)));
-    setRevenueDialog({ order, outstanding });
-  }
+  const refreshBoard = useCallback(async () => {
+    setBoardLoading(true);
+    const [os, js] = await Promise.all([listOrders(), listProductionJobs()]);
+    setOrderOrders(os);
+    setJobs(js || []);
+    setBoardLoading(false);
+  }, []);
+  useEffect(() => { void refreshBoard(); }, [refreshBoard]);
 
-  async function submitRevenue() {
-    if (!revenueDialog || recording) return;
-    const amount = Math.min(Math.max(0, Math.round(Number(revenueAmount) || 0)), revenueDialog.outstanding);
-    if (amount <= 0) return;
-    setRecording(true);
-    const paid = await recordPayment({
-      orderId: revenueDialog.order.id,
-      amount,
-      method: revenueMethod,
-      // Compare numerically, not as strings: the input holds the *rounded*
-      // prefill, so "50000" vs an outstanding of 49999.5 would mislabel a
-      // full payment as partial. amount is already clamped to outstanding.
-      notes: amount >= revenueDialog.outstanding
-        ? "Recorded from production History (full balance)"
-        : "Recorded from production History (partial balance)",
-    });
-    setRecording(false);
-    if (paid === null) return; // safe() swallowed the failure — keep the dialog open
-    setRevenueDialog(null);
-    await refreshBoard();
-  }
-
-  function filteredOrders(currentTab: string): ServerOrder[] {
-    if(currentTab === 'active') return orderOrders.filter(o => o.station !== 'done');
-    if(currentTab === 'confirmed') return orderOrders.filter(o => o.station === 'confirmed');
-    return orderOrders.filter(o => o.station === 'done');
-  }
-
-  async function handleStationTransition(orderId: string, next: Station) {
-    const order = orderOrders.find(o => o.id === orderId);
-    if(!order) return;
-    if(!connected) { /* guard detected by caller. */ return; }
-    if(!canTransitionTo(order, next)) return;
-    setFocusedOrder(order);
-    if(next === 'confirmed') {
-      const created = await createProductionJobForOrder(order.id);
-      if(created === null) { /* caller surfaces notice. */ return; }
+  useEffect(() => {
+    const ensureJobs = async () => {
+      try {
+        let changed = false;
+        for (const order of orderOrders) {
+          const status = String(order.status || "").toUpperCase();
+          if (["CONFIRMED", "PRODUCTION_REVIEW", "READY_FOR_PRODUCTION", "IN_PRODUCTION"].includes(status)) {
+            const hasJob = jobs.some((j: any) => j.orderId === order.id || j.orderId === order.orderNumber);
+            if (!hasJob && connected) {
+              try { await createProductionJob(order.id); changed = true; } catch {}
+            }
+          }
+        }
+        if (changed) await refreshBoard();
+      } catch {}
+    };
+    if (orderOrders.length > 0) {
+      void ensureJobs();
     }
-    const updated = await updateOrderStation(order.id, next);
-    if(updated === null) { /* caller surfaces notice. */ return; }
-    if(next === 'baking') {
-      const prop = await propagateBakingStatus(order.id);
-      if(prop === null) { /* caller surfaces notice. */ return; }
+  }, [orderOrders]);
+
+  const getStationForOrder = (order: ServerOrder): "confirmed" | "baking" | "decorating" | "ready" | null => {
+    const status = String(order.status || "").toUpperCase();
+    const station = (order as any).station;
+    const job = jobs.find((j: any) => j.orderId === order.id || j.orderId === order.orderNumber);
+    const jobStatus = String(job?.status || "").toUpperCase();
+    if (status === "READY_FOR_DELIVERY" || jobStatus === "READY_FOR_DELIVERY" || jobStatus === "COMPLETED" || station === "done") {
+      return "ready";
     }
-    await refreshBoard();
-  }
+    if (status === "COMPLETED_DELIVERED" || status === "AWAITING_COLLECTION" || status === "IN_TRANSIT") {
+      return null;
+    }
+    if (status === "AWAITING_CONFIRMATION" || status === "PENDING_CONFIRMATION") {
+      return null;
+    }
+    if (jobStatus === "READY_FOR_QUALITY" || jobStatus === "QUALITY_CHECK" || jobStatus === "REWORK_REQUIRED") {
+      return "decorating";
+    }
+    if (jobStatus === "IN_PRODUCTION" || status === "IN_PRODUCTION" || station === "baking") {
+      return "baking";
+    }
+    if (station === "decorating") return "decorating";
+    if (station === "confirmed" || status === "CONFIRMED" || status === "PRODUCTION_REVIEW" || status === "READY_FOR_PRODUCTION") {
+      return "confirmed";
+    }
+    return null;
+  };
+
+  const confirmedOrders = orderOrders.filter((o) => getStationForOrder(o) === "confirmed");
+  const bakingOrders = orderOrders.filter((o) => getStationForOrder(o) === "baking");
+  const decoratingOrders = orderOrders.filter((o) => getStationForOrder(o) === "decorating");
+  const readyOrders = orderOrders.filter((o) => getStationForOrder(o) === "ready");
+
+  const handleMoveToProduction = async (orderId: string) => {
+    if (!connected) return;
+    try {
+      let job = jobs.find((j: any) => j.orderId === orderId);
+      if (!job) {
+        const created = await createProductionJob(orderId);
+        if (created) {
+          job = created;
+          await refreshBoard();
+        }
+      }
+      if (job) {
+        await startProductionJob(job.id);
+        await refreshBoard();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const renderOrderCard = (order: ServerOrder, station: "confirmed" | "baking" | "decorating" | "ready") => {
+    const job = jobs.find((j: any) => j.orderId === order.id);
+    const status = String(order.status || "").toUpperCase();
+    const isClickable = station === "confirmed";
+    const handleOpen = () => {
+      if (!isClickable) return;
+      if (station === "confirmed") {
+        setConfirmedDialogOrder(order);
+        return;
+      }
+      if (onSelect) {
+        const uiMatch = (uiOrders as any[])?.find((o: any) => o.id === order.orderNumber || o.id === order.id);
+        onSelect(uiMatch || { id: order.orderNumber || order.id, customer: order.customerId, product: order.notes || "Order", status: order.status, amount: order.total, payment: order.paymentStatus, delivery: order.deliveryStatus } as any);
+      }
+    };
+    const badgeValue = station === "confirmed" ? "" : station === "baking" ? "Baking" : station === "decorating" ? "Decorating" : "Ready";
+    const uiMatch = (uiOrders as any[])?.find((o: any) => o.id === order.orderNumber || o.id === order.id);
+    const customerDisplay = uiMatch?.customer || order.customerId || "—";
+    return (
+      <div key={order.id} className="order-card" style={{ border: "1px solid var(--border)", padding: "12px", marginBottom: "8px", borderRadius: "8px", cursor: isClickable ? "pointer" : "default" }} onClick={handleOpen}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
+          <strong>{order.orderNumber}</strong>
+          {badgeValue ? <Status value={badgeValue} /> : null}
+        </div>
+        <div style={{ fontSize: "12px", color: "var(--muted-foreground)", marginBottom: "6px" }}>{customerDisplay}</div>
+        <div style={{ fontSize: "12px", marginBottom: "6px" }}>{order.notes || "—"}</div>
+
+      </div>
+    );
+  };
+
+  const handleStartProductionFromConfirmed = async () => {
+    if (!confirmedDialogOrder || !connected) return;
+    setStarting(true);
+    try {
+      await startProductionForOrder(confirmedDialogOrder.id);
+      setConfirmedDialogOrder(null);
+      await refreshBoard();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const uiMatchConfirmed = confirmedDialogOrder ? ((uiOrders as any[])?.find((o: any) => o.id === confirmedDialogOrder.orderNumber || o.id === confirmedDialogOrder.id)) : null;
+  const customerDisplayConfirmed = uiMatchConfirmed?.customer || confirmedDialogOrder?.customerId || "—";
+
+  return (
+    <div style={{ padding: "16px" }}>
+      {boardLoading && <p>Loading orders…</p>}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "16px" }}>
+        <div>
+          <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Confirmed</h3>
+          {confirmedOrders.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No orders</p>}
+          {confirmedOrders.map((o) => renderOrderCard(o, "confirmed"))}
+        </div>
+        <div>
+          <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Baking Station</h3>
+          {bakingOrders.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No orders</p>}
+          {bakingOrders.map((o) => renderOrderCard(o, "baking"))}
+        </div>
+        <div>
+          <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Decorating Station</h3>
+          {decoratingOrders.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No orders</p>}
+          {decoratingOrders.map((o) => renderOrderCard(o, "decorating"))}
+        </div>
+        <div>
+          <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Ready</h3>
+          {readyOrders.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No orders</p>}
+          {readyOrders.map((o) => renderOrderCard(o, "ready"))}
+        </div>
+      </div>
+      <Dialog open={!!confirmedDialogOrder} onOpenChange={(v) => { if (!v) setConfirmedDialogOrder(null); }}>
+        <DialogContent className="order-detail-dialog">
+          <DialogTitle>{confirmedDialogOrder?.orderNumber}</DialogTitle>
+          <DialogDescription>Order details</DialogDescription>
+          <div className="configuration-list">
+            <p><span>Customer</span><strong>{customerDisplayConfirmed}</strong></p>
+            <p><span>Order ID</span><strong>{confirmedDialogOrder?.orderNumber}</strong></p>
+            <p><span>Status</span><strong>{confirmedDialogOrder?.status}</strong></p>
+            <p><span>Notes</span><strong>{confirmedDialogOrder?.notes || "—"}</strong></p>
+            <p><span>Total</span><strong>{confirmedDialogOrder?.total}</strong></p>
+          </div>
+          <div className="dialog-actions">
+            <Button onClick={() => void handleStartProductionFromConfirmed()} disabled={starting || !connected}>Start Production</Button>
+            <Button variant="ghost" onClick={() => setConfirmedDialogOrder(null)}>Cancel</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+export function JobsBoard({ onSelect }: { onSelect?: (job: any) => void } = {}) {
+  const { connected, orders: uiOrders } = useWorkspace();
+  const [boardLoading, setBoardLoading] = useState(true);
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [selectedJob, setSelectedJob] = useState<any | null>(null);
+  const [productionJob, setProductionJob] = useState<any | null>(null);
+  const [inventoryItems, setInventoryItems] = useState<any[]>([]);
+  const [consumption, setConsumption] = useState<any[]>([]);
+  const [materialEntries, setMaterialEntries] = useState<Array<{ itemId: string; quantity: number; notes: string }>>([{ itemId: "", quantity: 0, notes: "" }]);
+  const [busyAction, setBusyAction] = useState(false);
+
+  const refreshBoard = useCallback(async () => {
+    setBoardLoading(true);
+    const js = await listProductionJobs();
+    setJobs(js || []);
+    setBoardLoading(false);
+  }, []);
+  useEffect(() => { void refreshBoard(); }, [refreshBoard]);
+
+  const getColumnForJob = (job: any): "queued" | "baking" | "decorating" | "ready" | null => {
+    const status = String(job?.status || "").toUpperCase();
+    if (status === "COMPLETED" || status === "READY_FOR_DELIVERY") {
+      return "ready";
+    }
+    if (status === "IN_PRODUCTION") {
+      return "baking";
+    }
+    if (status === "READY_FOR_QUALITY" || status === "QUALITY_CHECK" || status === "REWORK_REQUIRED") {
+      return "decorating";
+    }
+    if (status === "PENDING" || status === "SCHEDULED" || status === "READY_FOR_PRODUCTION") {
+      return "queued";
+    }
+    return "queued";
+  };
+
+  const queuedJobs = jobs.filter((j) => getColumnForJob(j) === "queued");
+  const bakingJobs = jobs.filter((j) => getColumnForJob(j) === "baking");
+  const decoratingJobs = jobs.filter((j) => getColumnForJob(j) === "decorating");
+  const readyJobs = jobs.filter((j) => getColumnForJob(j) === "ready");
+
+  useEffect(() => {
+    if (!selectedJob) { setProductionJob(null); setConsumption([]); setMaterialEntries([{ itemId: "", quantity: 0, notes: "" }]); return; }
+    let alive = true;
+    void (async () => {
+      const job = jobs.find(j => j.id === selectedJob.id) || selectedJob;
+      if (alive) setProductionJob(job);
+      try {
+        const items = await listInventoryItems();
+        if (alive) setInventoryItems(items || []);
+      } catch { if (alive) setInventoryItems([]); }
+      try {
+        const cons = await getProductionConsumption(job.id);
+        if (alive) setConsumption(cons || []);
+      } catch { if (alive) setConsumption([]); }
+    })();
+    return () => { alive = false; };
+  }, [selectedJob, jobs]);
+
+  const refreshJob = async () => {
+    try {
+      const list = await listProductionJobs();
+      setJobs(list || []);
+      const job = (list || []).find(j => j.id === (productionJob?.id || selectedJob?.id));
+      if (job) { setProductionJob(job); setSelectedJob(job); }
+      const cons = await getProductionConsumption(job?.id || productionJob?.id || selectedJob?.id || '');
+      setConsumption(cons || []);
+    } catch {}
+  };
+
+  const handleStartJob = async () => {
+    const jobId = productionJob?.id || selectedJob?.id;
+    if (!jobId) return;
+    setBusyAction(true);
+    try {
+      const res = await startProductionJob(jobId);
+      if (res) { await refreshJob(); await refreshBoard(); }
+    } finally {
+      setBusyAction(false);
+    }
+  };
+
+  const handleCompleteJob = async () => {
+    const jobId = productionJob?.id || selectedJob?.id;
+    if (!jobId) return;
+    setBusyAction(true);
+    try {
+      const res = await completeProductionJob(jobId);
+      if (res) { await refreshJob(); await refreshBoard(); }
+    } finally {
+      setBusyAction(false);
+    }
+  };
+
+  const handleRecordMaterials = async () => {
+    const jobId = productionJob?.id || selectedJob?.id;
+    if (!jobId) return;
+    const items = materialEntries.filter(m => m.itemId && Number(m.quantity) > 0).map(m => ({ itemId: m.itemId, quantity: Number(m.quantity), notes: m.notes || '' }));
+    if (items.length === 0) return;
+    setBusyAction(true);
+    try {
+      const res = await recordJobMaterials(jobId, items);
+      if (res) { setMaterialEntries([{ itemId: "", quantity: 0, notes: "" }]); await refreshJob(); await refreshBoard(); }
+    } finally {
+      setBusyAction(false);
+    }
+  };
+
+  const handleQualityPass = async () => {
+    const jobId = productionJob?.id || selectedJob?.id;
+    if (!jobId) return;
+    setBusyAction(true);
+    try {
+      const res = await recordQualityCheck(jobId, { result: 'PASS' });
+      if (res) { await refreshJob(); await refreshBoard(); }
+    } finally {
+      setBusyAction(false);
+    }
+  };
+
+  const handleQualityFail = async () => {
+    const jobId = productionJob?.id || selectedJob?.id;
+    if (!jobId) return;
+    setBusyAction(true);
+    try {
+      const res = await recordQualityCheck(jobId, { result: 'FAIL', reworkRequired: true });
+      if (res) { await refreshJob(); await refreshBoard(); }
+    } finally {
+      setBusyAction(false);
+    }
+  };
+
+  const renderJobCard = (job: any, column: "queued" | "baking" | "decorating" | "ready") => {
+    const orderMatch = (uiOrders as any[])?.find((o: any) => o.id === job.orderId || o.orderNumber === job.orderId);
+    const orderInfo = orderMatch;
+    const badgeValue = column === "queued" ? "Queued" : column === "baking" ? "Baking" : column === "decorating" ? "Decorating" : "Ready";
+    const handleOpen = () => {
+      setSelectedJob({ ...job, order: orderInfo });
+      if (onSelect) {
+        onSelect({ ...job, order: orderInfo });
+      }
+    };
+    const productDisplay = orderInfo?.product || job.variantOptions || job.productId || job.notes || "—";
+    const displayId = orderInfo?.orderNumber || orderInfo?.id || (job.orderId ? `TC-${String(job.orderId).replace(/^.*-/, '')}` : job.id);
+    const jobDisplayId = displayId.startsWith('TC-') && !displayId.startsWith('TC-Job') ? displayId.replace('TC-', 'TC-Job-') : displayId;
+    return (
+      <div key={job.id} className="order-card" style={{ border: "1px solid var(--border)", padding: "12px", marginBottom: "8px", borderRadius: "8px", cursor: "pointer" }} onClick={handleOpen}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
+          <strong>{jobDisplayId}</strong>
+          {badgeValue ? <Status value={badgeValue} /> : null}
+        </div>
+        <div style={{ fontSize: "12px", marginBottom: "6px" }}>{productDisplay}</div>
+        {job.requiredBy && <div style={{ fontSize: "11px", color: "var(--muted-foreground)" }}>Due: {String(job.requiredBy).split('T')[0]}</div>}
+      </div>
+    );
+  };
+
+  const orderMatchSel = selectedJob ? ((uiOrders as any[])?.find((o: any) => o.id === selectedJob.orderId || o.orderNumber === selectedJob.orderId)) : null;
+  const jobToShow = productionJob || selectedJob;
+  const displayIdSel = orderMatchSel?.orderNumber || orderMatchSel?.id || (selectedJob?.orderId ? `TC-${String(selectedJob.orderId).replace(/^.*-/, '')}` : selectedJob?.id);
+  const jobDisplayIdSel = displayIdSel && displayIdSel.startsWith('TC-') && !String(displayIdSel).startsWith('TC-Job') ? String(displayIdSel).replace('TC-', 'TC-Job-') : displayIdSel;
+
+  return (
+    <div style={{ padding: "16px" }}>
+      {boardLoading && <p>Loading jobs…</p>}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "16px" }}>
+        <div>
+          <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Queued</h3>
+          {queuedJobs.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No jobs</p>}
+          {queuedJobs.map((j) => renderJobCard(j, "queued"))}
+        </div>
+        <div>
+          <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Baking</h3>
+          {bakingJobs.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No jobs</p>}
+          {bakingJobs.map((j) => renderJobCard(j, "baking"))}
+        </div>
+        <div>
+          <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Decorating</h3>
+          {decoratingJobs.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No jobs</p>}
+          {decoratingJobs.map((j) => renderJobCard(j, "decorating"))}
+        </div>
+        <div>
+          <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Ready</h3>
+          {readyJobs.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No jobs</p>}
+          {readyJobs.map((j) => renderJobCard(j, "ready"))}
+        </div>
+      </div>
+      <Dialog open={!!selectedJob} onOpenChange={(v) => { if (!v) setSelectedJob(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogTitle>{jobDisplayIdSel}</DialogTitle>
+          <DialogDescription>{jobToShow?.id} · Jobs</DialogDescription>
+          <div className="space-y-4">
+            <div className="configuration-list">
+              <p><span>Order/Job</span><strong>{orderMatchSel?.orderNumber || selectedJob?.orderId}</strong></p>
+              <p><span>Product</span><strong>{orderMatchSel?.product || selectedJob?.variantOptions || selectedJob?.productId || "—"}</strong></p>
+              <p><span>Status</span><Status value={jobToShow?.status?.replace(/_/g, ' ') || ''} /></p>
+              <p><span>Progress</span><strong>{jobToShow?.progress ?? "—"}%</strong></p>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Materials/Ingredients/Consumables Used</h3>
+              {consumption.length === 0 ? <p className="text-xs text-muted-foreground">No materials recorded yet.</p> : (<div className="space-y-1">{consumption.map((c: any) => {
+                const item = inventoryItems.find((it: any) => it.id === c.itemId);
+                const name = item?.name || c.itemId;
+                return (<div key={c.id} className="flex justify-between text-xs"><span>{name} × {c.quantity} {c.unit}</span><span>{c.notes || ''}</span></div>);
+              })}</div>)}
+              <div className="mt-3 space-y-2">
+                {materialEntries.map((m, idx) => (<div key={idx} className="flex gap-2 items-center">
+                  <select className="input flex-1" value={m.itemId} onChange={e => { const next = [...materialEntries]; next[idx] = { ...next[idx], itemId: e.target.value }; setMaterialEntries(next); }}>
+                    <option value="">Select item...</option>
+                    {inventoryItems.map((it: any) => <option key={it.id} value={it.id}>{it.name} - {it.physicalStock} {it.unit}</option>)}
+                  </select>
+                  <input className="input w-24" type="number" placeholder="Qty" value={m.quantity || ''} onChange={e => { const next = [...materialEntries]; next[idx] = { ...next[idx], quantity: Number(e.target.value) }; setMaterialEntries(next); }} />
+                  <input className="input flex-1" placeholder="Notes" value={m.notes} onChange={e => { const next = [...materialEntries]; next[idx] = { ...next[idx], notes: e.target.value }; setMaterialEntries(next); }} />
+                </div>))}
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setMaterialEntries([...materialEntries, { itemId: "", quantity: 0, notes: "" }])}>Add Row</Button>
+                  <Button size="sm" onClick={handleRecordMaterials} disabled={busyAction || !connected}>Record Items Used</Button>
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(jobToShow?.status === 'PENDING' || jobToShow?.status === 'SCHEDULED' || jobToShow?.status === 'READY_FOR_PRODUCTION') && <Button size="sm" onClick={handleStartJob} disabled={busyAction || !connected}>Start Production</Button>}
+              {jobToShow?.status === 'IN_PRODUCTION' && <Button size="sm" onClick={handleCompleteJob} disabled={busyAction || !connected}>Mark Production Complete</Button>}
+              {(jobToShow?.status === 'READY_FOR_QUALITY' || jobToShow?.status === 'QUALITY_CHECK') && (<><Button size="sm" onClick={handleQualityPass} disabled={busyAction || !connected}>Pass Quality Check</Button><Button size="sm" variant="outline" onClick={handleQualityFail} disabled={busyAction || !connected}>Fail & Rework</Button></>)}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
 }

@@ -17,7 +17,7 @@ import { useWorkspace } from "./store";
 import {
   archiveProductApi, createProductApi, listCatalogueCategories, listCatalogueProducts, listCatalogueTypes, updateProductApi,
   type ServerCatalogueCategory, type ServerCatalogueProduct, type ServerCatalogueType,
-  listProductionJobs, startProductionJob, completeProductionJob, recordQualityCheck, recordProductionWastage, getProductionCosts, getProductionConsumption,
+  listProductionJobs, startProductionJob, completeProductionJob, recordQualityCheck, recordProductionWastage, getProductionCosts, getProductionConsumption, recordJobMaterials,
   listInventoryItems, getInventoryLedger,
   listRbacUsers, listRbacRoles, listRbacPermissions, getRolePermissionKeys, grantRolePermission, revokeRolePermission,
   type ServerProductionJob, type ServerProductionCost, type ServerProductionConsumption, type ServerInventoryItem, type ServerInventoryTransaction,
@@ -329,9 +329,64 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
   const [record,setRecord] = useState<GridRow|null>(null);
   const { density } = useDensity();
 
-  const rows = moduleRows(module,tab,orders).filter(r=>`${r.id} ${r.name} ${r.detail}`.toLowerCase().includes(search.toLowerCase())&&(filter==='All records'||r.status===filter));
+  const [jobs, setJobs] = useState<ServerProductionJob[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(false);
 
-  const labels:Record<string,string[]> = {crm:['Customer / reference','Last activity','Total spend'],inventory:['Ingredient / SKU','Reorder level','On hand'],purchasing:['Supplier / reference','Expected date','Total amount'],production:['Product / job','Due time','Stage'],delivery:['Customer / order','Due time','Destination'],finance:['Customer / reference','Date','Amount'],sales:['Customer / quote','Due date','Total amount']};
+  useEffect(() => {
+    if (module !== 'production') return;
+    let alive = true;
+    setJobsLoading(true);
+    void (async () => {
+      try {
+        const list = await listProductionJobs();
+        if (alive) setJobs(list || []);
+      } catch (e) {
+        if (alive) setJobs([]);
+      } finally {
+        if (alive) setJobsLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [module, tab]);
+
+  let rows: GridRow[] = [];
+  if (module === 'production') {
+    const jobRows: GridRow[] = jobs.map((job: ServerProductionJob) => {
+      const order = orders.find((o) => o.id === job.orderId);
+      const productName = order?.product || job.variantOptions || job.orderId;
+      const customerName = order?.customer || job.orderId;
+      let status = job.status;
+      if (tab === 'Quality control') {
+        if (job.status === 'READY_FOR_DELIVERY') status = 'Passed';
+        else if (job.status === 'REWORK_REQUIRED') status = 'Pending';
+        else if (job.status === 'QUALITY_CHECK') status = 'In Review';
+        else if (job.status === 'READY_FOR_QUALITY') status = 'Pending';
+        else status = job.status;
+      } else if (tab === 'Production costs') {
+        status = job.status;
+      } else {
+        if (job.status === 'IN_PRODUCTION') status = 'Baking';
+        else if (job.status === 'READY_FOR_PRODUCTION' || job.status === 'PENDING' || job.status === 'SCHEDULED') status = 'Queued';
+        else if (job.status === 'READY_FOR_QUALITY') status = 'Decorating';
+        else if (job.status === 'QUALITY_CHECK' || job.status === 'REWORK_REQUIRED') status = 'Quality';
+        else if (job.status === 'READY_FOR_DELIVERY') status = 'Ready';
+        else status = job.status;
+      }
+      return {
+        id: job.id,
+        name: productName,
+        detail: `${job.orderId}${order?.customer ? ' · ' + order.customer : ''}`,
+        secondary: job.requiredBy ? new Date(job.requiredBy).toLocaleDateString('en-GB') : (order?.time || '—'),
+        value: tab === 'Production costs' ? money((order?.amount || 0) * 0.35) : job.progress ? `${job.progress}%` : '—',
+        status: status.replace(/_/g, ' '),
+      };
+    });
+    rows = jobRows.filter(r=>`${r.id} ${r.name} ${r.detail}`.toLowerCase().includes(search.toLowerCase())&&(filter==='All records'||r.status===filter));
+  } else {
+    rows = moduleRows(module,tab,orders).filter(r=>`${r.id} ${r.name} ${r.detail}`.toLowerCase().includes(search.toLowerCase())&&(filter==='All records'||r.status===filter));
+  }
+
+  const labels:Record<string,string[]> = {crm:['Customer / reference','Last activity','Total spend'],inventory:['Ingredient / SKU','Reorder level','On hand'],purchasing:['Supplier / reference','Expected date','Total amount'],production:['Product / job','Due/Created','Stage/Progress'],delivery:['Customer / order','Due time','Destination'],finance:['Customer / reference','Date','Amount'],sales:['Customer / quote','Due date','Total amount']};
 
   const headings = labels[module]||['Record','Date','Value'];
 
@@ -343,7 +398,14 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
 
     { header: headings[2] ?? 'Value', align: 'right', cell: (r)=><span className="amount-cell">{r.value}</span> },
 
-    { header: 'Status', cell: (r)=><Status value={r.status}/> },
+    { header: 'Status', cell: (r)=>{
+      const status = String(r.status || '');
+      if (module === 'production') {
+        if (status === 'Baking') return <Status value={r.status} tone="orange" />;
+        if (status === 'Queued') return <Status value={r.status} tone="blue" />;
+      }
+      return <Status value={r.status}/>
+    } },
 
     { header: '', cell: (r)=><Button variant="ghost" size="icon" aria-label={`View ${r.id}`} onClick={e=>{e.stopPropagation();setRecord(r)}}><ArrowUpRight/></Button> },
 
@@ -351,7 +413,139 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
 
   if(module==='crm') return <CrmView tab={tab} contacts={contacts} search={search} setSearch={setSearch} connected={connected} followUps={followUps} onCompleteFollowUp={onCompleteFollowUp}/>;
 
-  return <section className="panel module-table"><div className="panel-heading"><div><h2>{tab}</h2><p>{module==='inventory'?'Stock quantities reflect opening, purchases, adjustments, usage and wastage.':`${rows.length} ${tab.toLowerCase()} in your workspace`}</p></div><Button variant="outline" onClick={()=>onNotice('Sample workspace — live records are not connected')}><Plus/>{module==='purchasing'?'Create purchase order':module==='inventory'?'Record adjustment':'Add record'}</Button></div><div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label={`Search ${tab}`} value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Search ${tab.toLowerCase()}...`}/></label><label className="filter-select"><SlidersHorizontal size={14}/><select aria-label="Filter records" value={filter} onChange={e=>setFilter(e.target.value)}><option>All records</option>{Array.from(new Set(moduleRows(module,tab,orders).map(r=>r.status))).map(s=><option key={s}>{s}</option>)}</select></label></div><DataTable columns={columns} rows={rows} rowKey={(r)=>r.id} rowClassName={(r)=>`order-row-tint tone-${tone(r.status)}`} onRowActivate={(r)=>setRecord(r)} stickyHeader density={density} empty={<div className="empty-state"><Search/><h3>No matching records</h3><p>Try a different search or filter.</p></div>}/><div className="table-foot"><span>{rows.length} records</span><span>October 2026</span></div><Dialog open={Boolean(record)} onOpenChange={v=>{if(!v)setRecord(null)}}><DialogContent><DialogTitle>{record?.name}</DialogTitle><DialogDescription>{record?.id} · {tab}</DialogDescription><div className="configuration-list"><p><span>Details</span><strong>{record?.detail}</strong></p><p><span>{headings[1]}</span><strong>{record?.secondary}</strong></p><p><span>{headings[2]}</span><strong>{record?.value}</strong></p>{record&&<p><span>Status</span><Status value={record.status}/></p>}</div>{module==='inventory'&&<><h3 className="text-sm font-semibold">Stock ledger</h3><div className="configuration-list"><p><span>Opening stock</span><strong>20 kg</strong></p><p><span>Purchase receipt</span><strong>+10 kg</strong></p><p><span>Production consumption</span><strong>−21 kg</strong></p><p><span>Recorded wastage</span><strong>−1 kg</strong></p></div><p className="text-xs text-muted-foreground">Illustrative transaction breakdown for all-purpose flour.</p></>}{module==='sales'&&<Button onClick={()=>{const o=orders.find(o=>o.customer===record?.name);if(o){setRecord(null);onSelect(o)}}}>Open related order<ArrowRight/></Button>}</DialogContent></Dialog></section>
+  const [productionJob, setProductionJob] = useState<ServerProductionJob | null>(null);
+  const [inventoryItems, setInventoryItems] = useState<ServerInventoryItem[]>([]);
+  const [consumption, setConsumption] = useState<ServerProductionConsumption[]>([]);
+  const [materialEntries, setMaterialEntries] = useState<Array<{ itemId: string; quantity: number; notes: string }>>([{ itemId: "", quantity: 0, notes: "" }]);
+  const [busyAction, setBusyAction] = useState(false);
+
+  useEffect(() => {
+    if (!record || module !== 'production') { setProductionJob(null); setConsumption([]); setMaterialEntries([{ itemId: "", quantity: 0, notes: "" }]); return; }
+    let alive = true;
+    void (async () => {
+      const job = jobs.find(j => j.id === record.id) || null;
+      if (alive) setProductionJob(job);
+      try {
+        const items = await listInventoryItems();
+        if (alive) setInventoryItems(items || []);
+      } catch { if (alive) setInventoryItems([]); }
+      try {
+        const cons = await getProductionConsumption(record.id);
+        if (alive) setConsumption(cons || []);
+      } catch { if (alive) setConsumption([]); }
+    })();
+    return () => { alive = false; };
+  }, [record, module, jobs]);
+
+  async function refreshJob() {
+    if (!productionJob && !record) return;
+    try {
+      const list = await listProductionJobs();
+      setJobs(list || []);
+      const job = (list || []).find(j => j.id === (productionJob?.id || record?.id));
+      if (job) setProductionJob(job);
+      const cons = await getProductionConsumption(job?.id || productionJob?.id || record?.id || '');
+      setConsumption(cons || []);
+    } catch {}
+  }
+
+  async function handleStartJob() {
+    const jobId = productionJob?.id || record?.id;
+    if (!jobId) return;
+    setBusyAction(true);
+    try {
+      const res = await startProductionJob(jobId);
+      if (res) { onNotice('Production started'); await refreshJob(); }
+      else onNotice('Failed to start production');
+    } finally {
+      setBusyAction(false);
+    }
+  }
+
+  async function handleCompleteJob() {
+    const jobId = productionJob?.id || record?.id;
+    if (!jobId) return;
+    setBusyAction(true);
+    try {
+      const res = await completeProductionJob(jobId);
+      if (res) { onNotice('Production marked complete'); await refreshJob(); }
+      else onNotice('Failed to complete production');
+    } finally {
+      setBusyAction(false);
+    }
+  }
+
+  async function handleRecordMaterials() {
+    const jobId = productionJob?.id || record?.id;
+    if (!jobId) return;
+    const items = materialEntries.filter(m => m.itemId && Number(m.quantity) > 0).map(m => ({ itemId: m.itemId, quantity: Number(m.quantity), notes: m.notes || '' }));
+    if (items.length === 0) { onNotice('Add at least one material with quantity'); return; }
+    setBusyAction(true);
+    try {
+      const res = await recordJobMaterials(jobId, items);
+      if (res) { onNotice('Materials recorded and inventory updated'); setMaterialEntries([{ itemId: "", quantity: 0, notes: "" }]); await refreshJob(); }
+      else onNotice('Failed to record materials');
+    } finally {
+      setBusyAction(false);
+    }
+  }
+
+  async function handleQualityPass() {
+    const jobId = productionJob?.id || record?.id;
+    if (!jobId) return;
+    setBusyAction(true);
+    try {
+      const res = await recordQualityCheck(jobId, { result: 'PASS' });
+      if (res) { onNotice('Quality check passed'); await refreshJob(); }
+      else onNotice('Failed to record quality check');
+    } finally {
+      setBusyAction(false);
+    }
+  }
+
+  async function handleQualityFail() {
+    const jobId = productionJob?.id || record?.id;
+    if (!jobId) return;
+    setBusyAction(true);
+    try {
+      const res = await recordQualityCheck(jobId, { result: 'FAIL', reworkRequired: true });
+      if (res) { onNotice('Quality check failed - marked for rework'); await refreshJob(); }
+      else onNotice('Failed to record quality check');
+    } finally {
+      setBusyAction(false);
+    }
+  }
+
+  return <section className="panel module-table"><div className="panel-heading"><div><h2>{tab}</h2><p>{module==='inventory'?'Stock quantities reflect opening, purchases, adjustments, usage and wastage.':`${rows.length} ${tab.toLowerCase()} in your workspace`}</p></div><Button variant="outline" onClick={()=>onNotice('Sample workspace — live records are not connected')}><Plus/>{module==='purchasing'?'Create purchase order':module==='inventory'?'Record adjustment':'Add record'}</Button></div><div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label={`Search ${tab}`} value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Search ${tab.toLowerCase()}...`}/></label><label className="filter-select"><SlidersHorizontal size={14}/><select aria-label="Filter records" value={filter} onChange={e=>setFilter(e.target.value)}><option>All records</option>{Array.from(new Set(moduleRows(module,tab,orders).map(r=>r.status))).map(s=><option key={s}>{s}</option>)}</select></label></div><DataTable columns={columns} rows={rows} rowKey={(r)=>r.id} rowClassName={(r)=>`order-row-tint tone-${tone(r.status)}`} onRowActivate={(r)=>setRecord(r)} stickyHeader density={density} empty={<div className="empty-state"><Search/><h3>No matching records</h3><p>Try a different search or filter.</p></div>}/><div className="table-foot"><span>{rows.length} records</span><span>October 2026</span></div><Dialog open={Boolean(record)} onOpenChange={v=>{if(!v)setRecord(null)}}><DialogContent className="max-w-2xl"><DialogTitle>{record?.name}</DialogTitle><DialogDescription>{record?.id} · {tab}</DialogDescription>{module === 'production' ? (<div className="space-y-4">
+  <div className="configuration-list"><p><span>Order/Job</span><strong>{record?.detail}</strong></p><p><span>Due/Info</span><strong>{record?.secondary}</strong></p><p><span>Status</span><Status value={record?.status || productionJob?.status || ''}/></p><p><span>Progress</span><strong>{productionJob?.progress ?? record?.value ?? '—'}</strong></p></div>
+  <div className="flex flex-wrap gap-2">
+    {(productionJob?.status === 'PENDING' || productionJob?.status === 'SCHEDULED' || productionJob?.status === 'READY_FOR_PRODUCTION') && <Button size="sm" onClick={handleStartJob} disabled={busyAction}>Start Production</Button>}
+    {productionJob?.status === 'IN_PRODUCTION' && <Button size="sm" onClick={handleCompleteJob} disabled={busyAction}>Mark Production Complete</Button>}
+    {(productionJob?.status === 'READY_FOR_QUALITY' || productionJob?.status === 'QUALITY_CHECK') && (<><Button size="sm" onClick={handleQualityPass} disabled={busyAction}>Pass Quality Check</Button><Button size="sm" variant="outline" onClick={handleQualityFail} disabled={busyAction}>Fail & Rework</Button></>)}
+  </div>
+  <div>
+    <h3 className="text-sm font-semibold mb-2">Materials/Ingredients/Consumables Used</h3>
+    {consumption.length === 0 ? <p className="text-xs text-muted-foreground">No materials recorded yet.</p> : (<div className="space-y-1">{consumption.map(c => {
+      const item = inventoryItems.find(it => it.id === c.itemId);
+      const name = item?.name || c.itemId;
+      return (<div key={c.id} className="flex justify-between text-xs"><span>{name} × {c.quantity} {c.unit}</span><span>{c.notes || ''}</span></div>);
+    })}</div>)}
+    <div className="mt-3 space-y-2">
+      {materialEntries.map((m, idx) => (<div key={idx} className="flex gap-2 items-center">
+        <select className="input flex-1" value={m.itemId} onChange={e => { const next = [...materialEntries]; next[idx] = { ...next[idx], itemId: e.target.value }; setMaterialEntries(next); }}>
+          <option value="">Select item...</option>
+          {inventoryItems.map(it => <option key={it.id} value={it.id}>{it.name} - {it.physicalStock} {it.unit}</option>)}
+        </select>
+        <Input className="w-24" type="number" placeholder="Qty" value={m.quantity || ''} onChange={e => { const next = [...materialEntries]; next[idx] = { ...next[idx], quantity: Number(e.target.value) }; setMaterialEntries(next); }} />
+        <Input className="flex-1" placeholder="Notes" value={m.notes} onChange={e => { const next = [...materialEntries]; next[idx] = { ...next[idx], notes: e.target.value }; setMaterialEntries(next); }} />
+      </div>))}
+      <div className="flex gap-2">
+        <Button size="sm" variant="outline" onClick={() => setMaterialEntries([...materialEntries, { itemId: "", quantity: 0, notes: "" }])}>Add Row</Button>
+        <Button size="sm" onClick={handleRecordMaterials} disabled={busyAction}>Record Materials & Deduct Inventory</Button>
+      </div>
+    </div>
+  </div>
+</div>) : (<div className="configuration-list"><p><span>Details</span><strong>{record?.detail}</strong></p><p><span>{headings[1]}</span><strong>{record?.secondary}</strong></p><p><span>{headings[2]}</span><strong>{record?.value}</strong></p>{record&&<p><span>Status</span><Status value={record.status}/></p>}</div>)}{module==='inventory'&&<><h3 className="text-sm font-semibold">Stock ledger</h3><div className="configuration-list"><p><span>Opening stock</span><strong>20 kg</strong></p><p><span>Purchase receipt</span><strong>+10 kg</strong></p><p><span>Production consumption</span><strong>−21 kg</strong></p><p><span>Recorded wastage</span><strong>−1 kg</strong></p></div><p className="text-xs text-muted-foreground">Illustrative transaction breakdown for all-purpose flour.</p></>}{module==='sales'&&<Button onClick={()=>{const o=orders.find(o=>o.customer===record?.name);if(o){setRecord(null);onSelect(o)}}}>Open related order<ArrowRight/></Button>}</DialogContent></Dialog></section>
 }
 
 export function Administration({tab,audit,onNotice,connected=false}: {tab:string;audit:string[];onNotice:(s:string)=>void;connected?:boolean}){

@@ -829,6 +829,10 @@ export function createProductionJob(orderId: string): Promise<ServerProductionJo
   return safe(() => request<ServerProductionJob>(`/production/jobs`, { method: "POST", body: { orderId } }), null);
 }
 
+export function startProductionForOrder(orderId: string): Promise<{ job: ServerProductionJob; order: ServerOrder } | null> {
+  return safe(() => request<{ job: ServerProductionJob; order: ServerOrder }>(`/production/orders/${orderId}/start`, { method: "POST" }), null);
+}
+
 /** Bakery station workflow endpoints (plan Phase 1). 
  *  Today the backend for these routes is not present in this repo, so each
  *  degrades to `null` / no-op and the UI stays on bundled sample data. */
@@ -1058,8 +1062,8 @@ export interface ServerGoodsReceipt {
   items?: ServerGoodsReceiptItem[];
 }
 
-export function receivePurchaseOrder(poId: string): Promise<{ purchaseOrder: ServerPurchaseOrder; receipt: ServerGoodsReceipt } | null> {
-  return safe(() => request<{ purchaseOrder: ServerPurchaseOrder; receipt: ServerGoodsReceipt }>(`/purchasing/orders/${encodeURIComponent(poId)}/receive`, { method: "POST" }), null);
+export function receivePurchaseOrder(poId: string, additionalItems?: any[]): Promise<{ purchaseOrder: ServerPurchaseOrder; receipt: ServerGoodsReceipt } | null> {
+  return safe(() => request<{ purchaseOrder: ServerPurchaseOrder; receipt: ServerGoodsReceipt }>(`/purchasing/orders/${encodeURIComponent(poId)}/receive`, { method: "POST", body: additionalItems && additionalItems.length ? { additionalItems } : {} }), null);
 }
 
 export function listGoodsReceipts(): Promise<ServerGoodsReceipt[]> {
@@ -1081,6 +1085,10 @@ export interface ServerSupplier {
 
 export function listSuppliers(): Promise<ServerSupplier[]> {
   return safe(() => request<ServerSupplier[]>("/purchasing/suppliers"), []);
+}
+
+export function createSupplier(payload: Partial<ServerSupplier>): Promise<ServerSupplier | null> {
+  return safe(() => request<ServerSupplier>("/purchasing/suppliers", { method: "POST", body: payload }), null);
 }
 
 export interface ServerSupplierPriceRow {
@@ -1148,7 +1156,6 @@ export interface ServerPurchaseOrderInput {
 export function createPurchaseOrder(input: ServerPurchaseOrderInput): Promise<ServerPurchaseOrder | null> {
   return safe(() => request<ServerPurchaseOrder>("/purchasing/orders", { method: "POST", body: input }), null);
 }
-
 
 /* -- E4: finance / payments / expenses / deliveries / notifications (client) --
 

@@ -77,12 +77,31 @@ router.get("/:id/history", required("orders.view"), (req, res) => {
   res.json(history.filter((h) => h.orderId === order.id));
 });
 
-router.patch("/:id", required("orders.confirm"), (req, res) => {
+router.patch("/:id", required("orders.confirm"), async (req, res) => {
   const id = String(req.params.id);
   const order = store.orders().find((o) => o.id === id);
   if (!order) throw new NotFoundError("Order not found");
   const patch = req.body || {};
   const wasCompleted = order.status === "COMPLETED_DELIVERED";
+
+  // If moving to CONFIRMED from a state that needs confirmation, use proper confirmation flow
+  if (patch.status === "CONFIRMED" && order.status !== "CONFIRMED") {
+    try {
+      const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+      if (session) {
+        const result = await businessService.confirmOrder(order, session.userId);
+        if (patch.notes !== undefined) {
+          const updatedWithNotes = store.updateOrder(id, { notes: patch.notes });
+          store.persist();
+          return res.json(updatedWithNotes || result.order);
+        }
+        store.persist();
+        return res.json(result.order);
+      }
+    } catch (e) {
+      // Fall through to normal update if confirmation flow fails
+    }
+  }
 
   // Determine the new station based on status transition
   let newStation: OrderStation = order.station;
@@ -170,26 +189,13 @@ router.post("/:id/confirm", required("orders.confirm"), async (req, res) => {
   if (!order) throw new NotFoundError("Order not found");
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
-  // Route through the service so confirming an order also creates its
-  // Production Job (the Jobs board stays empty otherwise). Falls back to a
-  // plain status write when the transition is invalid (e.g. re-confirm).
   try {
     const result = await businessService.confirmOrder(order, session.userId);
     store.persist();
     res.json({ order: result.order, history: result.history, job: result.job });
   } catch {
-    // Fallback for invalid transitions (e.g. re-confirm) — the job must still
-    // exist, otherwise confirming an order can leave the board empty when
-    // confirmOrder failed past job creation (e.g. inventory reservation).
     const result = store.updateOrderStatus(id, "CONFIRMED", session.userId, "Admin confirmed order");
     if (!result) throw new NotFoundError("Order not found");
-    if (!store.productionJobs().some((j) => j.orderId === id)) {
-      try {
-        businessService.prepareOrderForProduction(id, session.userId);
-      } catch {
-        /* Non-fatal: the status write above already succeeded. */
-      }
-    }
     store.persist();
     res.json({ order: result.order, history: result.history });
   }

@@ -28,6 +28,16 @@ router.get("/jobs", required("production.view"), (req, res) => {
   // so an order already reading "Confirmed" / "In production" can never sit on
   // an empty board (backstop for data stranded by pre-fix writes).
   businessService.reconcileProductionJobs("system");
+  try {
+    const allJobs = store.productionJobs();
+    for (const job of allJobs) {
+      const st = String((job as any).status || "").toUpperCase();
+      if (st === "READY_FOR_DELIVERY" || st === "COMPLETED") {
+        try { businessService.advanceOrderToReadyForDelivery(job as any, "system"); } catch {}
+      }
+    }
+    store.persist();
+  } catch {}
   const jobs = store.productionJobs();
   const status = req.query.status as string | undefined;
   let list = jobs;
@@ -76,17 +86,46 @@ router.post("/jobs", required("production.schedule"), (req, res) => {
   res.status(201).json(job);
 });
 
+router.post("/orders/:orderId/start", required("production.start"), (req, res) => {
+  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  if (!session) return res.status(401).json({ error: "Not authenticated" });
+  let orderId = String(req.params.orderId);
+  try {
+    // Try to find by id or orderNumber
+    let order = store.orders().find((o) => o.id === orderId);
+    if (!order) {
+      order = store.orders().find((o) => o.orderNumber === orderId);
+      if (order) orderId = order.id;
+    }
+    const result = businessService.startProductionForOrder(orderId, session.userId);
+    res.json(result);
+  } catch (err: any) {
+    if (err?.name === "NotFoundError") return res.status(404).json({ error: err.message });
+    if (err?.name === "ConflictError") return res.status(409).json({ error: err.message });
+    throw err;
+  }
+});
+
 router.post("/jobs/:id/complete", required("production.complete"), (req, res) => {
   const id = String(req.params.id);
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   const job = store.updateProductionJob(id, { status: "READY_FOR_QUALITY", stage: "QUALITY", progress: 80, updatedAt: new Date().toISOString() });
   if (!job) throw new NotFoundError("Production job not found");
+  try {
+    const order = store.orders().find((o) => o.id === job.orderId);
+    if (order) {
+      store.updateOrder(order.id, { station: "decorating" } as any);
+    }
+  } catch {}
   store.createAuditLog({
     actor: session.userId, action: "production:completed",
     entityType: "production_job", entityId: job.id, orderId: job.orderId,
     newStatus: "READY_FOR_QUALITY", reason: `Job ${id} marked complete`,
   });
+  try {
+    businessService.advanceOrderToReadyForDelivery({ ...job, status: "READY_FOR_DELIVERY" } as any, session.userId);
+  } catch {}
   store.persist();
   res.json(job);
 });
@@ -112,7 +151,14 @@ router.post("/jobs/:id/quality-check", required("production.quality_check"), (re
   if (result === "PASS") {
     updated = { ...job, status: "READY_FOR_DELIVERY", stage: "DELIVER", progress: 100, updatedAt: new Date().toISOString() };
   } else {
-    updated = { ...job, status: "REWORK_REQUIRED", stage: "QUALITY", progress: 50, updatedAt: new Date().toISOString() };
+    updated = { ...job, status: "PENDING", stage: "PLAN", progress: 10, updatedAt: new Date().toISOString(), notes: (job.notes ? job.notes + ' | ' : '') + 'REWORK_REQUIRED' };
+    try {
+      const order = store.orders().find((o) => o.id === job.orderId);
+      if (order) {
+        store.updateOrder(order.id, { station: "baking" } as any);
+        try { businessService.advanceOrderToInProduction({ ...updated, orderId: order.id } as any, session.userId); } catch {}
+      }
+    } catch {}
   }
   store.updateProductionJob(id, updated);
   if (result === "PASS") {

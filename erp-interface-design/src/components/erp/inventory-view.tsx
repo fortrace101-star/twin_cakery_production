@@ -11,8 +11,8 @@ import { DataTable, type Column } from "../data-table/DataTable";
 import { useDensity } from "@/lib/density";
 import { useWorkspace } from "./store";
 import {
-  adjustInventory, createInventoryItem, createPurchaseRequirement, getInventoryLedger, listInventoryAlerts, listInventoryItems, listPurchaseOrders, receivePurchaseOrder,
-  type ServerInventoryAlert, type ServerInventoryItem, type ServerInventoryTransaction, type ServerPurchaseOrder,
+  adjustInventory, createInventoryItem, createPurchaseOrder, createPurchaseRequirement, getInventoryLedger, listInventoryAlerts, listInventoryItems, listPurchaseOrders, listSuppliers, receivePurchaseOrder,
+  type ServerInventoryAlert, type ServerInventoryItem, type ServerInventoryTransaction, type ServerPurchaseOrder, type ServerSupplier,
 } from "@/lib/api";
 
 /* ── Inventory (live; E3) ──────────────────────────────────────────────── */
@@ -101,11 +101,19 @@ export function Inventory({ tab, search, setSearch, onNotice, onSignIn }: { tab:
   const [form, setForm] = useState({ quantity: "", type: "ADJUSTMENT_IN", notes: "" });
   const [creatingItem, setCreatingItem] = useState(false);
   const [itemForm, setItemForm] = useState({ name: "", sku: "", category: "", unit: "unit", physicalStock: "", reorderLevel: "", cost: "" });
+  const [categoriesList, setCategoriesList] = useState<string[]>([]);
+  const [unitsList, setUnitsList] = useState<string[]>([]);
+  const [newCategory, setNewCategory] = useState("");
+  const [newUnit, setNewUnit] = useState("");
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [addingUnit, setAddingUnit] = useState(false);
+  const [suppliers, setSuppliers] = useState<ServerSupplier[]>([]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [inv, txs, alertRows] = await Promise.all([listInventoryItems(), getInventoryLedger(), listInventoryAlerts()]);
-    setItems(inv); setLedger(txs); setAlerts(alertRows); setLoading(false);
+    const [inv, txs, alertRows, sups] = await Promise.all([listInventoryItems(), getInventoryLedger(), listInventoryAlerts(), listSuppliers()]);
+    setItems(inv); setLedger(txs); setAlerts(alertRows); setSuppliers(sups);
+    setLoading(false);
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -173,13 +181,46 @@ export function Inventory({ tab, search, setSearch, onNotice, onSignIn }: { tab:
     onNotice(`Purchase requirement raised for ${a.name} — see Purchasing → Requirements`);
   }
 
+  async function createReorderListFromLowStock() {
+    if (!connected) { onSignIn(); return; }
+    const lowStockItems = items.filter(i => stockStatus(i) !== "In stock");
+    if (lowStockItems.length === 0) { onNotice("No low stock items found"); return; }
+    const supplierId = suppliers.find(s => s.active)?.id ?? suppliers[0]?.id;
+    if (!supplierId) { onNotice("No supplier available to create purchase list"); return; }
+    setBusy(true);
+    try {
+      const poItems = lowStockItems.map(item => ({
+        productId: item.id,
+        quantity: Math.max(item.reorderLevel - (item.availableStock ?? item.physicalStock), 1),
+        unit: item.unit,
+        unitPrice: item.cost || 0,
+      }));
+      const po = await createPurchaseOrder({
+        supplierId,
+        expectedDate: new Date(Date.now() + 86400000).toISOString(),
+        notes: "Auto-generated reorder list from low stock items",
+        items: poItems,
+      });
+      setBusy(false);
+      if (po) {
+        onNotice(`Created purchase list ${po.poNumber} from low stock — see Purchasing → Purchase orders`);
+      } else {
+        onNotice("Failed to create purchase list");
+      }
+    } catch {
+      setBusy(false);
+      onNotice("Failed to create purchase list");
+    }
+  }
+
   if (!connected && items.length === 0 && !loading) {
     return <section className="panel module-table"><div className="panel-heading"><div><h2>{tab}</h2><p>Live inventory</p></div></div><div className="empty-state"><Boxes size={28}/><h3>Sign in to view inventory</h3><p>Stock levels and the ledger read live from the ERP.</p><Button variant="outline" onClick={onSignIn}>Sign in</Button></div></section>;
   }
 
   return <section className="panel module-table">
     <div className="panel-heading"><div><h2>{tab}</h2><p>{loading?'Loading stock…':isAlerts?`${alerts.length} items at or below reorder level`: `${filtered.length} ingredients · ${lowStockCount} need attention`}</p></div>
-      <div style={{display:"flex",gap:8}}>
+      <div style={{display:"flex",gap:8,flexWrap:'wrap'}}>
+        <Button variant="outline" onClick={()=>{ if(!connected){onSignIn();return;} void createReorderListFromLowStock(); }} disabled={busy}>Create purchase list from low stock</Button>
         <Button variant="outline" onClick={()=>{ if(!connected){onSignIn();return;} setCreatingItem(true); }}>New item</Button>
         <Button variant="outline" onClick={()=>{ if(!connected){onSignIn();return;} const first=items[0]??null; setLedgerFor(first); setAdjusting(first); }}>Adjust stock</Button>
       </div>
@@ -217,11 +258,42 @@ export function Inventory({ tab, search, setSearch, onNotice, onSignIn }: { tab:
     />
     <div className="table-foot"><span>{filtered.length} ingredients</span><span>{ledger.length} ledger entries</span></div>
     </>}
-    {creatingItem&&<Dialog open onOpenChange={v=>{if(!v)setCreatingItem(false);}}><DialogContent className="order-detail-dialog"><DialogTitle>New item</DialogTitle><DialogDescription>Register a new inventory item and its opening stock.</DialogDescription><div className="erp-form">
+    {creatingItem&&<Dialog open onOpenChange={v=>{if(!v){setCreatingItem(false); setAddingCategory(false); setAddingUnit(false); setNewCategory(''); setNewUnit('');}}}><DialogContent className="order-detail-dialog"><DialogTitle>New item</DialogTitle><DialogDescription>Register a new inventory item and its opening stock.</DialogDescription><div className="erp-form">
       <div className="form-row"><Label>Name</Label><Input value={itemForm.name} onChange={e=>setItemForm({...itemForm,name:e.target.value})}/></div>
-      <div className="form-row"><Label>SKU</Label><Input value={itemForm.sku} onChange={e=>setItemForm({...itemForm,sku:e.target.value})}/></div>
-      <div className="form-row"><Label>Category</Label><Input value={itemForm.category} onChange={e=>setItemForm({...itemForm,category:e.target.value})}/></div>
-      <div className="form-row"><Label>Unit</Label><Input value={itemForm.unit} onChange={e=>setItemForm({...itemForm,unit:e.target.value})}/></div>
+      <div className="form-row"><Label>Category</Label>
+        {!addingCategory ? (
+          <select className="input" value={itemForm.category} onChange={e=>{ if(e.target.value === '__new__'){ setAddingCategory(true); setItemForm({...itemForm, category: ''}); } else { setItemForm({...itemForm, category: e.target.value}); } }}>
+            <option value="">Select category</option>
+            {categoriesList.map(c => <option key={c} value={c}>{c}</option>)}
+            <option value="__new__">+ New category</option>
+          </select>
+        ) : (
+          <div style={{display:'flex', flexDirection:'column', gap:8}}>
+            <Input value={newCategory} onChange={e=>setNewCategory(e.target.value)} placeholder="Enter category name" />
+            <div style={{display:'flex', gap:8}}>
+              <Button size="sm" onClick={()=>{ if(newCategory.trim()){ const cat = newCategory.trim(); if(!categoriesList.includes(cat)) setCategoriesList([...categoriesList, cat]); setItemForm({...itemForm, category: cat}); setAddingCategory(false); setNewCategory(''); } }}>Add</Button>
+              <Button size="sm" variant="ghost" onClick={()=>{ setAddingCategory(false); setNewCategory(''); }}>Cancel</Button>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="form-row"><Label>Unit</Label>
+        {!addingUnit ? (
+          <select className="input" value={itemForm.unit} onChange={e=>{ if(e.target.value === '__new__'){ setAddingUnit(true); setItemForm({...itemForm, unit: ''}); } else { setItemForm({...itemForm, unit: e.target.value}); } }}>
+            <option value="">Select unit</option>
+            {unitsList.map(u => <option key={u} value={u}>{u}</option>)}
+            <option value="__new__">+ New unit</option>
+          </select>
+        ) : (
+          <div style={{display:'flex', flexDirection:'column', gap:8}}>
+            <Input value={newUnit} onChange={e=>setNewUnit(e.target.value)} placeholder="Enter unit name" />
+            <div style={{display:'flex', gap:8}}>
+              <Button size="sm" onClick={()=>{ if(newUnit.trim()){ const unit = newUnit.trim(); if(!unitsList.includes(unit)) setUnitsList([...unitsList, unit]); setItemForm({...itemForm, unit: unit}); setAddingUnit(false); setNewUnit(''); } }}>Add</Button>
+              <Button size="sm" variant="ghost" onClick={()=>{ setAddingUnit(false); setNewUnit(''); }}>Cancel</Button>
+            </div>
+          </div>
+        )}
+      </div>
       <div className="form-row"><Label>Opening stock</Label><Input type="number" value={itemForm.physicalStock} onChange={e=>setItemForm({...itemForm,physicalStock:e.target.value})}/></div>
       <div className="form-row"><Label>Reorder level</Label><Input type="number" value={itemForm.reorderLevel} onChange={e=>setItemForm({...itemForm,reorderLevel:e.target.value})}/></div>
       <div className="form-row"><Label>Unit cost</Label><Input type="number" value={itemForm.cost} onChange={e=>setItemForm({...itemForm,cost:e.target.value})}/></div>
