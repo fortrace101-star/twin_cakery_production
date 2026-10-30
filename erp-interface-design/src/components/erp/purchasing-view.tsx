@@ -95,6 +95,10 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
   const [orders, setOrders] = useState<ServerPurchaseOrder[]>([]);
   const [requirements, setRequirements] = useState<ServerPurchaseRequirement[]>([]);
   const [suppliers, setSuppliers] = useState<ServerSupplier[]>([]);
+  // Load suppliers from server on mount
+  useEffect(() => {
+    listSuppliers().then(setSuppliers)
+  }, [])
   const [receipts, setReceipts] = useState<ServerGoodsReceipt[]>([]);
   const [invItems, setInvItems] = useState<ServerInventoryItem[]>([]);
   const [users, setUsers] = useState<ServerRbacUser[]>([]);

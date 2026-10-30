@@ -16,6 +16,7 @@ import {
   recordJobMaterials,
 } from "@/lib/api";
 import { useWorkspace } from "@/components/erp/store";
+import { orderStageTone, type StatusTone } from "@/lib/theme-tokens";
 
 type OrderNotes = Record<string, string>;
 
@@ -37,6 +38,27 @@ function useNotes(): {
     });
   }, []);
   return { notes, setNotes, clearNotes };
+}
+
+const ORDER_STATION_TONES: Record<string, StatusTone> = {
+  confirmed: orderStageTone("Confirmed"),
+  baking: orderStageTone("In production"),
+  decorating: "orange",
+  ready: orderStageTone("Ready"),
+  queued: "amber",
+};
+
+function orderCardStyle(station: string, isClickable: boolean = false): React.CSSProperties {
+  const tone = (ORDER_STATION_TONES as any)[station] ?? "amber";
+  return {
+    border: "1px solid var(--border)",
+    backgroundColor: `color-mix(in srgb, var(--${tone}-solid) 18%, transparent)`,
+    borderColor: `var(--${tone}-solid)`,
+    padding: "12px",
+    marginBottom: "8px",
+    borderRadius: "8px",
+    cursor: isClickable ? "pointer" : "default",
+  };
 }
 
 export function ProductionView({ onSelect }: { onSelect?: (order: any) => void } = {}) {
@@ -177,7 +199,7 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
     const uiMatch = (uiOrders as any[])?.find((o: any) => o.id === order.orderNumber || o.id === order.id);
     const customerDisplay = uiMatch?.customer || order.customerId || "—";
     return (
-      <div key={order.id} className="order-card" style={{ border: "1px solid var(--border)", padding: "12px", marginBottom: "8px", borderRadius: "8px", cursor: isClickable ? "pointer" : "default" }} onClick={handleOpen}>
+      <div key={order.id} className="order-card" style={orderCardStyle(station, isClickable)} onClick={handleOpen}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
           <strong>{order.orderNumber}</strong>
           {badgeValue ? <Status value={badgeValue} /> : null}
@@ -398,7 +420,7 @@ export function JobsBoard({ onSelect }: { onSelect?: (job: any) => void } = {}) 
     const displayId = orderInfo?.orderNumber || orderInfo?.id || (job.orderId ? `TC-${String(job.orderId).replace(/^.*-/, '')}` : job.id);
     const jobDisplayId = displayId.startsWith('TC-') && !displayId.startsWith('TC-Job') ? displayId.replace('TC-', 'TC-Job-') : displayId;
     return (
-      <div key={job.id} className="order-card" style={{ border: "1px solid var(--border)", padding: "12px", marginBottom: "8px", borderRadius: "8px", cursor: "pointer" }} onClick={handleOpen}>
+      <div key={job.id} className="order-card" style={orderCardStyle(column, true)} onClick={handleOpen}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
           <strong>{jobDisplayId}</strong>
           {badgeValue ? <Status value={badgeValue} /> : null}
