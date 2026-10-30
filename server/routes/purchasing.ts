@@ -112,8 +112,6 @@ router.delete("/suppliers/:id", required("purchasing.create"), (req, res) => {
   if (!supplier) throw new NotFoundError("Supplier not found");
   const inUse = store.purchaseOrders().some((p) => p.supplierId === id) || store.poItems().some((p) => p.supplierId === id);
   if (inUse) return res.status(409).json({ error: "Supplier is referenced by existing purchase orders" });
-  const supplier = store.findSupplier(id);
-  if (!supplier) return res.status(404).json({ error: "Supplier not found" });
   supplier.active = false;
   supplier.updatedAt = new Date().toISOString();
   store.persist();

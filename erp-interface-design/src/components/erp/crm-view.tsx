@@ -35,12 +35,12 @@ export function CrmView({
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [thread, setThread] = useState<string[]>([]);
-  const [pendingFollowUps, setPendingFollowUps] = useState<{ id: string; customer: string }[]>([]);
 
   // The Occasions tab is a cross-customer calendar view, not the two-pane
   // conversation UI — short-circuit here so workspace/module-table stay unaware.
   if (tab === "Occasions") return <OccasionsView connected={connected} />;
   const active = contacts.find((c) => c.id === activeId) ?? contacts[0] ?? null;
+  const pendingFollowUps = followUps?.filter((f) => f.customer === active?.name) ?? [];
 
   useEffect(() => {
     if (!active) {
@@ -56,15 +56,6 @@ export function CrmView({
           .filter(Boolean)
           .slice(-6)
           .reverse(),
-      );
-    });
-    void listCustomers().then((customers) => {
-      if (!alive || !active) return;
-      setPendingFollowUps(
-        customers
-          .flatMap((c) => (followUps ?? []).filter((f) => f.customer === c.name))
-          .filter((f) => f.customer === active?.name)
-          .slice(0, 50),
       );
     });
     return () => {

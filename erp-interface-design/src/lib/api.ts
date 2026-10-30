@@ -557,6 +557,47 @@ export interface ServerEventReminder {
   [key: string]: unknown;
 }
 
+/** Feedback (E1 companion to order history). Attached to orders and customers. */
+export interface ServerCustomerFeedback {
+  id: string;
+  customerId: string;
+  orderId: string | null;
+  productIds: string;
+  rating: number;
+  type: string;
+  comment: string;
+  resolution: string | null;
+  followUpRequired: boolean;
+  followUpCompleted: boolean;
+  recordedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function listCustomerFeedback(customerId?: string): Promise<ServerCustomerFeedback[]> {
+  const qs = customerId ? `?customerId=${encodeURIComponent(customerId)}` : "";
+  return safe(() => request<ServerCustomerFeedback[]>(`/feedback${qs}`), []);
+}
+
+export function listOrderFeedback(orderId: string): Promise<ServerCustomerFeedback[]> {
+  return safe(() => request<ServerCustomerFeedback[]>(`/feedback/by-order/${encodeURIComponent(orderId)}`), []);
+}
+
+export function createCustomerFeedback(payload: {
+  customerId?: string;
+  orderId: string;
+  productIds?: string;
+  rating: number;
+  type?: string;
+  comment?: string;
+  resolution?: string;
+  followUpRequired?: boolean;
+  followUpCompleted?: boolean;
+  recordedBy?: string;
+}): Promise<ServerCustomerFeedback | null> {
+  return safe(() => request<ServerCustomerFeedback>("/feedback", { method: "POST", body: payload }), null);
+}
+
 /** GET /customers/:id/orders — order history, most recent first, each with its immutable contact snapshot. */
 export function listCustomerOrders(customerId: string): Promise<ServerCustomerOrder[]> {
   return safe(() => request<ServerCustomerOrder[]>(`/customers/${customerId}/orders`), []);

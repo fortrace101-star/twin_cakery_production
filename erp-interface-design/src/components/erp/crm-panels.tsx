@@ -1,38 +1,69 @@
-﻿import { useCallback, useEffect, useState } from "react";
-import { CalendarPlus, Check, Clock3, Loader2, Plus, Printer, Trash2, Users } from "lucide-react";
-import { Button } from "@/components/ui/button";
+﻿import { useCallback } from "react";
+import { CalendarPlus, Check, Clock3, Loader2, Plus, Printer, Star, StarOff, Textarea } from "lucide-react";
 import { IconButton } from "./ui";
 import {
   contactEventReminder,
   createCustomerEvent,
+  createCustomerFeedback,
   deleteCustomerEvent,
   dismissEventReminder,
   findCustomerByName,
   listCustomerEvents,
+  listCustomerFeedback,
   listCustomerOrders,
   listEventReminders,
   orderStatusLabel,
   printCustomerOrders,
   type ServerCustomerEvent,
+  type ServerCustomerFeedback,
   type ServerCustomerOrder,
   type ServerEventReminder,
 } from "@/lib/api";
 import { money } from "./data";
 import { StatusBadge as Status } from "@/components/data-table/StatusBadge";
 import type { StatusTone } from "@/lib/theme-tokens";
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Label } from "./ui";
+import { Input } from "./ui";
+import { Select } from "./ui";
 
 /**
- * E1 â€” customer order history, occasions & feedback (spec Â§5).
+ * E1 — customer order history, occasions, reminders & feedback (spec §5).
  *
  * These panels bind the CRM detail pane to the real endpoints
- * (`GET /customers/:id/orders`, `/events`, `/customer-reminders`, â€¦). Every
- * request degrades to an empty list on failure, so an unconnected workspace
- * shows a quiet "sample / offline" state rather than crashing. The system
- * never auto-contacts a customer â€” a reminder only advances when a person
- * clicks "Mark contacted" or "Dismiss".
+ * (`GET /customers/:id/orders`, `/feedback/by-order/:orderId`, `/events`,
+ * `/customer-reminders`, …). Every request degrades to an empty list on failure,
+ * so an unconnected workspace shows a quiet "sample / offline" state rather than
+ * crashing. The system never auto-contacts a customer — a reminder only advances
+ * when a person clicks "Mark contacted" or "Dismiss".
+ *
+ * Feedback is now a first-class customer report: each completed order can carry
+ * a rating + comment + resolution, and the CRM surfaces unresolved feedback as a
+ * follow-up item in the customer detail footer.
+ *
+ * The Feedback tab lets a logged-in staff member record a star rating + free-text
+ * comment + optional resolution for any completed order on the selected customer,
+ * and surfaces previously recorded feedback as reviewable cards below the form.
  */
 
 const RECURRENCE_OPTIONS = ["NONE", "ANNUAL", "MONTHLY", "YEARLY"] as const;
+
+const FEEDBACK_TYPE_OPTIONS =
+  ["RATING", "COMPLAINT", "COMPLIMENT", "PRODUCT_FEEDBACK", "DELIVERY_FEEDBACK", "SERVICE_FEEDBACK", "GENERAL"] as const;
+
+function feedbackTypeLabel(type: string): string {
+  const map: Record<string, string> = {
+    RATING: "Rating",
+    COMPLAINT: "Complaint",
+    COMPLIMENT: "Compliment",
+    PRODUCT_FEEDBACK: "Product feedback",
+    DELIVERY_FEEDBACK: "Delivery feedback",
+    SERVICE_FEEDBACK: "Service feedback",
+    GENERAL: "General feedback",
+  };
+  return map[type] ?? type;
+}
 
 function useAsync<T>(fn: () => Promise<T>, deps: unknown[]): { data: T | null; loading: boolean; reload: () => void } {
   const [data, setData] = useState<T | null>(null);

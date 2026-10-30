@@ -22,13 +22,22 @@ const required = (perm: string): RequestHandler => async (req, res, next) => {
 router.get("/", required("feedback.view"), (req, res) => {
   const feedback = store.db.customerFeedback as import("../database/types.js").CustomerFeedback[];
   const customerId = req.query.customerId as string | undefined;
+  const orderId = req.query.orderId as string | undefined;
   let list = feedback;
   if (customerId) list = list.filter((f) => f.customerId === customerId);
+  if (orderId) list = list.filter((f) => f.orderId === orderId);
+  res.json(list);
+});
+
+router.get("/by-order/:orderId", required("feedback.view"), (req, res) => {
+  const orderId = String(req.params.orderId);
+  const list = store.db.customerFeedback.filter((f) => f.orderId === orderId);
   res.json(list);
 });
 
 router.post("/", required("feedback.create"), (req, res) => {
   const { customerId, orderId, productIds, rating, type, comment, resolution, followUpRequired, followUpCompleted, recordedBy } = req.body || {};
+  if (!orderId) return res.status(400).json({ error: "orderId is required" });
   if (rating === undefined) return res.status(400).json({ error: "rating is required" });
   const record = store.createCustomerFeedback({
     customerId: customerId || "",
