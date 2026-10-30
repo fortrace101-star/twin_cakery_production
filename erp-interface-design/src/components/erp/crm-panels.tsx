@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+﻿import { useCallback, useEffect, useState } from "react";
 import { CalendarPlus, Check, Clock3, Loader2, Plus, Printer, Trash2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "./ui";
@@ -22,13 +22,13 @@ import { StatusBadge as Status } from "@/components/data-table/StatusBadge";
 import type { StatusTone } from "@/lib/theme-tokens";
 
 /**
- * E1 — customer order history, occasions & recurring event reminders (spec §5).
+ * E1 â€” customer order history, occasions & feedback (spec Â§5).
  *
  * These panels bind the CRM detail pane to the real endpoints
- * (`GET /customers/:id/orders`, `/events`, `/customer-reminders`, …). Every
+ * (`GET /customers/:id/orders`, `/events`, `/customer-reminders`, â€¦). Every
  * request degrades to an empty list on failure, so an unconnected workspace
  * shows a quiet "sample / offline" state rather than crashing. The system
- * never auto-contacts a customer — a reminder only advances when a person
+ * never auto-contacts a customer â€” a reminder only advances when a person
  * clicks "Mark contacted" or "Dismiss".
  */
 
@@ -57,7 +57,7 @@ function useAsync<T>(fn: () => Promise<T>, deps: unknown[]): { data: T | null; l
 }
 
 function Loading() {
-  return <p className="text-muted-foreground flex items-center gap-2 text-sm"><Loader2 className="animate-spin" size={14} /> Loading…</p>;
+  return <p className="text-muted-foreground flex items-center gap-2 text-sm"><Loader2 className="animate-spin" size={14} /> Loadingâ€¦</p>;
 }
 
 function Empty({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
@@ -70,7 +70,7 @@ function Empty({ icon, title, body }: { icon: React.ReactNode; title: string; bo
   );
 }
 
-/* ── Order history (read-only; immutable contact snapshots) ─────────────── */
+/* â”€â”€ Order history (read-only; immutable contact snapshots) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 export function OrderHistoryPanel({ customerId }: { customerId: string }) {
   const { data, loading } = useAsync<ServerCustomerOrder[]>(() => listCustomerOrders(customerId), [customerId]);
@@ -83,10 +83,10 @@ export function OrderHistoryPanel({ customerId }: { customerId: string }) {
     void printCustomerOrders(customerId).then((payload) => {
       if (!payload) return;
       const lines = [
-        `Order history — ${payload.customer.name}`,
+        `Order history â€” ${payload.customer.name}`,
         `Printed ${new Date(payload.printedAt).toLocaleString()}`,
         "",
-        ...payload.orders.map((o) => `${o.orderNumber} · ${new Date(o.date).toLocaleDateString()} · ${o.status} · ${money(o.total)} · ${o.snapshotName}`),
+        ...payload.orders.map((o) => `${o.orderNumber} Â· ${new Date(o.date).toLocaleDateString()} Â· ${o.status} Â· ${money(o.total)} Â· ${o.snapshotName} Â· ${o.feedback ?? 'No feedback'}`),
       ];
       const a = document.createElement("a");
       a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/plain" }));
@@ -120,7 +120,7 @@ export function OrderHistoryPanel({ customerId }: { customerId: string }) {
   );
 }
 
-/* ── Occasions (create / delete) ────────────────────────────────────────── */
+/* â”€â”€ Occasions (create / delete) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 export function OccasionsPanel({ customerId }: { customerId: string }) {
   const { data, loading, reload } = useAsync<ServerCustomerEvent[]>(() => listCustomerEvents(customerId), [customerId]);
@@ -168,7 +168,7 @@ export function OccasionsPanel({ customerId }: { customerId: string }) {
             <label>Date<input name="eventDate" type="date" /></label>
             <label>Repeats<select name="recurrenceRule">{RECURRENCE_OPTIONS.map((r) => <option key={r} value={r}>{r === "NONE" ? "Does not repeat" : r[0] + r.slice(1).toLowerCase()}</option>)}</select></label>
           </div>
-          <label>Notes<input name="notes" maxLength={250} placeholder="Optional — preferences, past orders" /></label>
+          <label>Notes<input name="notes" maxLength={250} placeholder="Optional â€” preferences, past orders" /></label>
           <div className="flex gap-2">
             <Button type="submit" disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : <Check />} Save occasion</Button>
             <Button type="button" variant="ghost" onClick={() => setAdding(false)}>Cancel</Button>
@@ -192,12 +192,12 @@ export function OccasionsPanel({ customerId }: { customerId: string }) {
           ))}
         </ul>
       )}
-      <p className="crm-note text-muted-foreground text-xs">Reminders are scheduled automatically — the system never contacts the customer for you.</p>
+      <p className="crm-note text-muted-foreground text-xs">Reminders are scheduled automatically â€” the system never contacts the customer for you.</p>
     </div>
   );
 }
 
-/* ── Reminders due across the workspace ─────────────────────────────────── */
+/* â”€â”€ Reminders due across the workspace â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /** Map an internal reminder status to a badge label + a valid locked tone. */
 function reminderStatus(status: string): { label: string; tone: StatusTone } {
@@ -232,32 +232,25 @@ export function RemindersPanel({ customerId }: { customerId?: string }) {
           <li key={r.id}>
             <div>
               <strong>{r.customerName || r.customerId}</strong>
-              <small className="cell-sub">{r.eventType} · {new Date(r.nextReminderAt).toLocaleDateString()}</small>
-            </div>
+              <small className="cell-sub">{r.eventType} Â· {new Date(r.nextReminderAt).toLocaleDateString()}</small>
             <Status value={reminderStatus(r.status).label} tone={reminderStatus(r.status).tone} />
-            <div className="flex gap-1">
-              {r.status === "PENDING" && (
-                <>
-                  <Button size="sm" variant="outline" onClick={() => act(r.id)} title="I contacted the customer"><Check /> Mark contacted</Button>
-                  <Button size="sm" variant="ghost" onClick={() => dismiss(r.id)} title="Dismiss this occurrence">Dismiss</Button>
-                </>
-              )}
             </div>
+            
           </li>
         ))}
       </ul>
-      <p className="crm-note text-muted-foreground text-xs">Reminders are internal only — nothing is sent to the customer automatically.</p>
+      <p className="crm-note text-muted-foreground text-xs">Reminders are internal only â€” nothing is sent to the customer automatically.</p>
     </div>
   );
 }
 
-/* ── Resolver: bind a CRM contact to its live E1 record ─────────────────── */
+/* â”€â”€ Resolver: bind a CRM contact to its live E1 record â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /**
  * Resolves the real customer id for the selected contact and renders the E1
  * panels (order history, occasions, reminders) against the live endpoints.
  * Degrades quietly when the workspace is offline (shows a sign-in hint) or the
- * contact has no matching database customer — the bundled sample workspace
+ * contact has no matching database customer â€” the bundled sample workspace
  * never fires API calls.
  */
 export function CustomerE1Panels({ name, connected }: { name: string; connected: boolean }) {
@@ -285,7 +278,7 @@ export function CustomerE1Panels({ name, connected }: { name: string; connected:
   if (!connected) {
     return (
       <p className="crm-note text-muted-foreground text-xs">
-        Sign in to see this customer’s live order history, occasions and reminders.
+        Sign in to see this customerâ€™s live order history, occasions and reminders.
       </p>
     );
   }
@@ -293,7 +286,7 @@ export function CustomerE1Panels({ name, connected }: { name: string; connected:
   if (!customerId) {
     return (
       <p className="crm-note text-muted-foreground text-xs">
-        No live customer record matches “{name}” yet — history appears here once an order exists.
+        No live customer record matches â€œ{name}â€ yet â€” history appears here once an order exists.
       </p>
     );
   }
@@ -305,4 +298,15 @@ export function CustomerE1Panels({ name, connected }: { name: string; connected:
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
 

@@ -32,6 +32,8 @@ import type {
   Permission,
   ProductionConsumption,
   ProductionCost,
+  ProductionFixedCostCategory,
+  ProductionFixedCostEntry,
   ProductionJob,
   ProductionWastage,
   PurchaseOrder,
@@ -939,7 +941,39 @@ export class MemoryStore {
 
   // ---- purchasing ----
   suppliers(): Supplier[] {
+    return this.db.suppliers.filter((s) => s.active !== false);
+  }
+
+  suppliersIncludingInactive(): Supplier[] {
     return this.db.suppliers;
+  }
+
+  findSupplier(id: string): Supplier | undefined {
+    return this.db.suppliers.find((s) => s.id === id);
+  }
+
+  updateSupplier(id: string, patch: Patch): Supplier | undefined {
+    const supplier = this.db.suppliers.find((s) => s.id === id);
+    if (!supplier) return undefined;
+    const allowed: (keyof Supplier)[] = [
+      "businessName", "contactPerson", "phone", "email", "address",
+      "productsSupplied", "paymentTerms", "notes", "active",
+    ];
+    for (const key of allowed) {
+      if (patch[key] !== undefined) supplier[key] = patch[key];
+    }
+    supplier.updatedAt = new Date().toISOString();
+    this.db.persist();
+    return supplier;
+  }
+
+  deleteSupplier(id: string): boolean {
+    const supplier = this.db.suppliers.find((s) => s.id === id);
+    if (!supplier) return false;
+    supplier.active = false;
+    supplier.updatedAt = new Date().toISOString();
+    this.db.persist();
+    return true;
   }
 
   createSupplier(input: Patch): Supplier {
@@ -1071,6 +1105,105 @@ export class MemoryStore {
 
   goodsReceipts(): GoodsReceipt[] {
     return this.db.goodsReceipts;
+  }
+
+  supplierPriceHistory(): SupplierPriceHistory[] {
+    return this.db.supplierPriceHistory;
+  }
+
+  productionFixedCostCategories(): ProductionFixedCostCategory[] {
+    return this.db.productionFixedCostCategories;
+  }
+
+  findProductionFixedCostCategory(id: string): ProductionFixedCostCategory | undefined {
+    return this.db.productionFixedCostCategories.find((c) => c.id === id);
+  }
+
+  createProductionFixedCostCategory(input: Patch): ProductionFixedCostCategory {
+    const now = new Date().toISOString();
+    const record: ProductionFixedCostCategory = {
+      id: makeId("fxdcat"),
+      name: String(input.name ?? ""),
+      description: String(input.description ?? ""),
+      costType: String(input.costType ?? "perJob") as ProductionFixedCostCategory["costType"],
+      unit: String(input.unit ?? ""),
+      defaultUnitCost: mapNum(input.defaultUnitCost),
+      active: input.active === undefined ? true : mapBool(input.active),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.db.productionFixedCostCategories.push(record);
+    this.db.persist();
+    return record;
+  }
+
+  updateProductionFixedCostCategory(id: string, patch: Patch): ProductionFixedCostCategory | undefined {
+    const category = this.db.productionFixedCostCategories.find((c) => c.id === id);
+    if (!category) return undefined;
+    applyPatch(category, patch, [
+      "name", "description", "costType", "unit", "defaultUnitCost", "active",
+    ]);
+    category.updatedAt = new Date().toISOString();
+    this.db.persist();
+    return category;
+  }
+
+  deleteProductionFixedCostCategory(id: string): boolean {
+    const index = this.db.productionFixedCostCategories.findIndex((c) => c.id === id);
+    if (index === -1) return false;
+    if (this.db.productionFixedCostEntries.some((e) => e.categoryId === id)) return false;
+    this.db.productionFixedCostCategories.splice(index, 1);
+    this.db.persist();
+    return true;
+  }
+
+  productionFixedCostEntries(): ProductionFixedCostEntry[] {
+    return this.db.productionFixedCostEntries;
+  }
+
+  createProductionFixedCostEntry(input: Patch): ProductionFixedCostEntry {
+    const now = new Date().toISOString();
+    const total = mapNum(input.quantity) * mapNum(input.unitCost);
+    const record: ProductionFixedCostEntry = {
+      id: makeId("fxdent"),
+      jobId: String(input.jobId ?? ""),
+      categoryId: String(input.categoryId ?? ""),
+      quantity: mapNum(input.quantity),
+      unit: String(input.unit ?? ""),
+      unitCost: mapNum(input.unitCost),
+      total,
+      recordedBy: String(input.recordedBy ?? ""),
+      notes: String(input.notes ?? ""),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.db.productionFixedCostEntries.push(record);
+    this.db.persist();
+    return record;
+  }
+
+  productionFixedCostEntriesForJob(jobId: string): ProductionFixedCostEntry[] {
+    return this.db.productionFixedCostEntries.filter((e) => e.jobId === jobId);
+  }
+
+  updateProductionFixedCostEntry(id: string, patch: Patch): ProductionFixedCostEntry | undefined {
+    const entry = this.db.productionFixedCostEntries.find((e) => e.id === id);
+    if (!entry) return undefined;
+    applyPatch(entry, patch, [
+      "quantity", "unitCost", "unit", "recordedBy", "notes",
+    ]);
+    entry.total = mapNum(entry.quantity) * mapNum(entry.unitCost);
+    entry.updatedAt = new Date().toISOString();
+    this.db.persist();
+    return entry;
+  }
+
+  deleteProductionFixedCostEntry(id: string): boolean {
+    const index = this.db.productionFixedCostEntries.findIndex((e) => e.id === id);
+    if (index === -1) return false;
+    this.db.productionFixedCostEntries.splice(index, 1);
+    this.db.persist();
+    return true;
   }
 
   supplierPriceHistory(): SupplierPriceHistory[] {

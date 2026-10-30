@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { CalendarDays, Check, Search } from "lucide-react";
+import { CalendarDays, Check, Search, MessageSquare } from "lucide-react";
 import { StatusBadge as Status } from "@/components/data-table/StatusBadge";
 import { formatOccasionDate, groupOccasions, initialOccasions, type GridRow, type Occasion, type OccasionPeriod } from "./data";
 import { listCustomers, listCustomerEvents } from "@/lib/api";
+import type { ServerCustomerEvent } from "@/lib/api";
 import { CustomerE1Panels } from "./crm-panels";
 
 /**
- * CRM two-pane: contact list + conversation thread.
+ * CRM two-pane: contact list + order history & occasions.
  *
  * Allowed exception to the table-as-default pattern (erp-design-system.md §5 /
  * erp_design.md): a conversation is read top-to-bottom, not scanned row-by-row,
@@ -33,22 +34,50 @@ export function CrmView({
   onCompleteFollowUp?: ((id: string) => void) | undefined;
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [thread, setThread] = useState<string[]>([]);
+  const [pendingFollowUps, setPendingFollowUps] = useState<{ id: string; customer: string }[]>([]);
+
   // The Occasions tab is a cross-customer calendar view, not the two-pane
   // conversation UI — short-circuit here so workspace/module-table stay unaware.
   if (tab === "Occasions") return <OccasionsView connected={connected} />;
   const active = contacts.find((c) => c.id === activeId) ?? contacts[0] ?? null;
-  const pendingFollowUps = followUps?.filter((f) => f.customer === active?.name) ?? [];
-  const thread = [
-    "Thanks for choosing Twin Cakery Bakery! How can we help with this order?",
-    "Noted — the team will follow up shortly.",
-  ];
+
+  useEffect(() => {
+    if (!active) {
+      setThread([]);
+      return;
+    }
+    let alive = true;
+    void listCustomerEvents(active.id).then((events: ServerCustomerEvent[]) => {
+      if (!alive) return;
+      setThread(
+        events
+          .map((e) => e.notes && e.notes.trim())
+          .filter(Boolean)
+          .slice(-6)
+          .reverse(),
+      );
+    });
+    void listCustomers().then((customers) => {
+      if (!alive || !active) return;
+      setPendingFollowUps(
+        customers
+          .flatMap((c) => (followUps ?? []).filter((f) => f.customer === c.name))
+          .filter((f) => f.customer === active?.name)
+          .slice(0, 50),
+      );
+    });
+    return () => {
+      alive = false;
+    };
+  }, [active?.id]);
 
   return (
     <section className="panel crm-view">
       <div className="panel-heading">
         <div>
           <h2>{tab}</h2>
-          <p>{contacts.length} contacts · select a conversation</p>
+          <p>{contacts.length} contacts</p>
         </div>
       </div>
       <div className="table-controls">
@@ -109,12 +138,20 @@ export function CrmView({
                 </div>
                 <Status value={active.status} />
               </div>
+              <div className="crm-contact-meta">
+                <MessageSquare size={14} className="inline-icon" />
+                {active.detail}
+              </div>
               <div className="crm-thread">
-                {thread.map((m, i) => (
-                  <p key={i} className={i % 2 ? "crm-msg crm-msg-out" : "crm-msg"}>
-                    {m}
-                  </p>
-                ))}
+                {thread.length === 0 ? (
+                  <p className="crm-msg crm-msg-in">No conversation notes yet.</p>
+                ) : (
+                  thread.map((m, i) => (
+                    <p key={i} className={i % 2 ? "crm-msg crm-msg-out" : "crm-msg"}>
+                      {m}
+                    </p>
+                  ))
+                )}
               </div>
               <CustomerE1Panels name={active.name} connected={connected} />
               {pendingFollowUps.length > 0 ? (

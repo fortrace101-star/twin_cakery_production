@@ -54,6 +54,8 @@ import type {
   StockReservation,
   Supplier,
   SupplierPriceHistory,
+  ProductionFixedCostCategory,
+  ProductionFixedCostEntry,
   User,
   UserRole,
   WebsiteUser,
@@ -148,6 +150,8 @@ export interface DbCache {
   inventoryTransactions: InventoryTransaction[];
   stockReservations: StockReservation[];
   suppliers: Supplier[];
+  productionFixedCostCategories: ProductionFixedCostCategory[];
+  productionFixedCostEntries: ProductionFixedCostEntry[];
   purchaseOrders: PurchaseOrder[];
   poItems: PurchaseOrderItem[];
   purchaseRequirements: PurchaseRequirement[];
@@ -226,6 +230,8 @@ export function createCache(): DbCache {
     inventoryTransactions: [],
     stockReservations: [],
     suppliers: [],
+    productionFixedCostCategories: [],
+    productionFixedCostEntries: [],
     purchaseOrders: [],
     poItems: [],
     purchaseRequirements: [],
@@ -431,6 +437,8 @@ export async function loadCache(): Promise<void> {
 
     // purchasing
     cache.suppliers = (await load<Supplier>("suppliers")) ?? [];
+    cache.productionFixedCostCategories = (await load<ProductionFixedCostCategory>("production_fixed_cost_categories")) ?? [];
+    cache.productionFixedCostEntries = (await load<ProductionFixedCostEntry>("production_fixed_cost_entries")) ?? [];
     cache.purchaseOrders = (await load<PurchaseOrder>("purchase_orders")) ?? [];
     cache.poItems = (await load<PurchaseOrderItem>("purchase_order_items")) ?? [];
     for (const po of cache.purchaseOrders) {
@@ -617,6 +625,8 @@ const MIRRORS: Mirror[] = [
   { table: "inventory_transactions", rows: (c) => c.inventoryTransactions },
   { table: "stock_reservations", rows: (c) => c.stockReservations },
   { table: "suppliers", rows: (c) => c.suppliers },
+  { table: "production_fixed_cost_categories", rows: (c) => c.productionFixedCostCategories },
+  { table: "production_fixed_cost_entries", rows: (c) => c.productionFixedCostEntries },
   { table: "purchase_orders", rows: (c) => c.purchaseOrders },
   { table: "purchase_order_items", rows: (c) => c.poItems },
   { table: "purchase_requirements", rows: (c) => c.purchaseRequirements },

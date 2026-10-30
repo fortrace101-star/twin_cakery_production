@@ -418,6 +418,28 @@ export interface SupplierPriceHistory extends BaseEntity {
   note: string;
 }
 
+export type FixedCostType = "perOrder" | "perJob" | "perUnit" | "flatRate" | "percentageBased";
+
+export interface ProductionFixedCostCategory extends BaseEntity {
+  name: string;
+  description: string;
+  costType: FixedCostType;
+  unit: string;
+  defaultUnitCost: number;
+  active: boolean;
+}
+
+export interface ProductionFixedCostEntry extends BaseEntity {
+  jobId: string;
+  categoryId: string;
+  quantity: number;
+  unit: string;
+  unitCost: number;
+  total: number;
+  recordedBy: string;
+  notes: string;
+}
+
 export interface Payment extends BaseEntity {
   orderId: string;
   amount: number;

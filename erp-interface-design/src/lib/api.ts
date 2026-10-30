@@ -1091,6 +1091,18 @@ export function createSupplier(payload: Partial<ServerSupplier>): Promise<Server
   return safe(() => request<ServerSupplier>("/purchasing/suppliers", { method: "POST", body: payload }), null);
 }
 
+export function getSupplier(id: string): Promise<ServerSupplier | null> {
+  return safe(() => request<ServerSupplier>(`/purchasing/suppliers/${encodeURIComponent(id)}`), null);
+}
+
+export function updateSupplier(id: string, payload: Partial<ServerSupplier>): Promise<ServerSupplier | null> {
+  return safe(() => request<ServerSupplier>(`/purchasing/suppliers/${encodeURIComponent(id)}`, { method: "PATCH", body: payload }), null);
+}
+
+export function deleteSupplier(id: string): Promise<boolean> {
+  return safe(() => request<void>(`/purchasing/suppliers/${encodeURIComponent(id)}`, { method: "DELETE" }).then(() => true), false);
+}
+
 export interface ServerSupplierPriceRow {
   id: string;
   supplierId: string;

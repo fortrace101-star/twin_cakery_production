@@ -67,10 +67,69 @@ router.get("/suppliers", required("purchasing.view"), (_req, res) => {
   res.json(store.suppliers());
 });
 
+router.get("/suppliers/:id", required("purchasing.view"), (req, res) => {
+  const supplier = store.findSupplier(String(req.params.id));
+  if (!supplier) throw new NotFoundError("Supplier not found");
+  res.json(supplier);
+});
+
+router.patch("/suppliers/:id", required("purchasing.create"), (req, res) => {
+  const supplier = store.findSupplier(String(req.params.id));
+  if (!supplier) throw new NotFoundError("Supplier not found");
+  const body = req.body || {};
+  const allowed: (keyof typeof supplier)[] = [
+    "businessName", "contactPerson", "phone", "email", "address",
+    "productsSupplied", "paymentTerms", "notes", "active",
+  ];
+  const updated = { ...supplier };
+  for (const key of allowed) {
+    if (body[key] !== undefined) updated[key] = body[key];
+  }
+  updated.updatedAt = new Date().toISOString();
+  // Idempotent duplicate-safe create: if body carries businessName and it
+  // matches a different active supplier, update that one instead so the
+  // frontend optimistic path stays consistent with the server truth.
+  if (body.businessName && body.businessName !== updated.businessName) {
+    const match = store.suppliers().find(
+      (s) => s.id !== updated.id && s.businessName === body.businessName && s.active !== false,
+    );
+    if (match) {
+      for (const key of allowed) {
+        if (body[key] !== undefined) match[key] = body[key];
+      }
+      match.updatedAt = updated.updatedAt;
+      store.persist();
+      return res.json(match);
+    }
+  }
+  store.persist();
+  res.json(updated);
+});
+
+router.delete("/suppliers/:id", required("purchasing.create"), (req, res) => {
+  const id = String(req.params.id);
+  const supplier = store.findSupplier(id);
+  if (!supplier) throw new NotFoundError("Supplier not found");
+  const inUse = store.purchaseOrders().some((p) => p.supplierId === id) || store.poItems().some((p) => p.supplierId === id);
+  if (inUse) return res.status(409).json({ error: "Supplier is referenced by existing purchase orders" });
+  const supplier = store.findSupplier(id);
+  if (!supplier) return res.status(404).json({ error: "Supplier not found" });
+  supplier.active = false;
+  supplier.updatedAt = new Date().toISOString();
+  store.persist();
+  res.status(204).send();
+});
+
 router.post("/suppliers", (req, res) => {
   try {
     const body = req.body || {};
+    let finalSupplierId = body.id || body.supplierId || undefined;
+    if (!finalSupplierId) {
+      const existing = store.suppliersIncludingInactive().find((s) => s.businessName === (body.businessName || body.name) && s.active !== false);
+      if (existing) finalSupplierId = existing.id;
+    }
     const supplier = store.createSupplier({
+      id: finalSupplierId,
       businessName: body.businessName || body.name || "",
       contactPerson: body.contactPerson || "",
       phone: body.phone || "",
@@ -81,7 +140,6 @@ router.post("/suppliers", (req, res) => {
       notes: body.notes || "",
       active: body.active !== false,
     });
-    store.persist().catch(() => {});
     res.status(201).json(supplier);
   } catch (e: any) {
     res.status(500).json({ error: e?.message || "Failed to create supplier" });
@@ -134,9 +192,9 @@ router.post("/orders", (req, res, next) => {
 }, (req, res) => {
   const { poNumber, supplierId, date, expectedDate, items: inputItems, notes } = req.body || {};
   let finalSupplierId = supplierId;
-  const suppliers = store.suppliers();
+  const suppliers = store.suppliersIncludingInactive();
   if (!finalSupplierId || !suppliers.find((s) => s.id === finalSupplierId)) {
-    finalSupplierId = suppliers.find((s) => s.active)?.id || suppliers[0]?.id || "default-supplier";
+    finalSupplierId = suppliers.find((s) => s.active !== false)?.id || suppliers[0]?.id || "default-supplier";
   }
   if (!store.suppliers().find((s) => s.id === finalSupplierId)) {
     // create a default supplier if none exist

@@ -236,7 +236,10 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
       // ignore
     }
     setBusy(false);
-    // optimistic add
+    // Re-read the live supplier list so newly created suppliers appear even
+    // when the create response is filtered or the cache is stale.
+    await refresh();
+    // optimistic add only as a last resort
     const newSup: ServerSupplier = {
       id: `sup-local-${Date.now()}`,
       businessName: supplierForm.businessName,
