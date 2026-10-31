@@ -17,7 +17,7 @@ Checkbox legend: `[ ]` not started, `[~]` in progress (counts 0), `[x]` done, `[
 <!-- SUMMARY:BEGIN -->
 | Module | Status | General | UI | Overall |
 |---|---|---|---|---|
-| Security & RBAC (`SEC`) | Not started | 0/14 (0%) | not generated | 0% |
+| Security & RBAC (`SEC`) | In progress | 6/14 (43%) | not generated | 43% |
 | Orders (`ORD`) | Not started | 0/11 (0%) | not generated | 0% |
 | Quotations & inquiries (`QUO`) | Not started | 0/9 (0%) | not generated | 0% |
 | Production (`PROD`) | Not started | 0/10 (0%) | not generated | 0% |
@@ -52,7 +52,7 @@ Checkbox legend: `[ ]` not started, `[~]` in progress (counts 0), `[x]` done, `[
 
 <!-- MODULE:SEC:BEGIN -->
 
-- **Status:** P0 complete (SEC-00 through SEC-05 done; SEC-13 pending test harness)
+- **Status:** In progress
 - **Plan section:** [`Optim.md` §6](./Optim.md)  |  **Source:** [`Optim/Optim_security_rbac.md`](./Optim_security_rbac.md)
 - **Branch / commit range:** sec-p0-20261031
 
