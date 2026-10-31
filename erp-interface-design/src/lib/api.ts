@@ -145,6 +145,9 @@ export interface ServerOrder {
   deliveredAt: string | null;
   /** Stamped when the post-delivery CRM follow-up has been done & documented. */
   followUpCompletedAt?: string | null;
+  /** Delivery location + landmark note captured on the New-order form. */
+  deliveryLocation?: string;
+  locationNote?: string;
   /** Bakery station workflow (plan: pendingConfirm → confirmed → baking → done). 
    *  Present once the backend writes station on orders; unknown order rows drop
    *  back to `undefined` so station-aware filtering degrades safely. */
@@ -322,6 +325,9 @@ export interface UiOrder {
   /** Amount paid so far, summed from the server payment ledger — drives the
       resolved payment status and the outstanding balance. */
   paidAmount?: number;
+  /** Delivery location + landmark note (persisted since migration 021). */
+  deliveryLocation?: string;
+  locationNote?: string;
 }
 
 function initialsOf(name: string): string {
@@ -380,6 +386,8 @@ export function toUiOrder(
     delivery,
     channel,
     followUpCompletedAt: order.followUpCompletedAt ?? null,
+    deliveryLocation: order.deliveryLocation ?? "",
+    locationNote: order.locationNote ?? "",
     ...(cappedPaid > 0 ? { paidAmount: cappedPaid } : {}),
   };
 }

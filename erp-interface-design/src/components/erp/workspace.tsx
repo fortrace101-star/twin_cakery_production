@@ -42,12 +42,14 @@ const config=modules.find(m=>m.id===module);
  const activeTab=tab || config?.tabs[0] || '';
  const showHistory=(module==='sales'||module==='analytics') && activeTab==='Order history';
  const showOrders=module==='dashboard' || (module==='sales' && activeTab==='Orders') || showHistory;
- // The active-order surfaces (dashboard "Recent orders" + Sales "Orders" tab +
-// CSV export) default to *active* orders only: completed/cancelled orders drop
-// out of the working list but remain available for history/analytics. Selecting
-// a specific status in the filter (including "Completed / Delivered") still shows exactly that.
+ // Dashboard "Recent orders" defaults to *active* orders only, but Sales >
+ // Orders keeps completed/cancelled rows visible under "All statuses" (table
+ // AND kanban) so a completed order never vanishes from the working list —
+ // the Order history tab stays as the dedicated analytics home. Selecting a
+ // specific status in the filter still shows exactly that everywhere.
+ const salesOrdersTab=module==='sales' && activeTab==='Orders';
  const matchesSearch=(o:Order)=>`${o.id} ${o.customer} ${o.product}`.toLowerCase().includes(search.toLowerCase());
- const filtered=orders.filter(o=>matchesSearch(o) && (statusFilter==='All statuses' ? isActiveOrder(o) : o.status===statusFilter));
+ const filtered=orders.filter(o=>matchesSearch(o) && (statusFilter==='All statuses' ? (salesOrdersTab || isActiveOrder(o)) : o.status===statusFilter));
  // Sales > "Order history": terminal orders only (Completed / Delivered + Cancelled) — the
  // dedicated home for history/analytics; shared search + status filter still apply.
  const historyFiltered=orders.filter(o=>matchesSearch(o) && !isActiveOrder(o) && (statusFilter==='All statuses' || o.status===statusFilter));

@@ -14,6 +14,7 @@ import {
   getProductionConsumption,
   listInventoryItems,
   recordJobMaterials,
+  updateOrderApi,
 } from "@/lib/api";
 import { useWorkspace } from "@/components/erp/store";
 import { orderStageTone, type StatusTone } from "@/lib/theme-tokens";
@@ -133,14 +134,20 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
     const station = (order as any).station;
     const job = jobs.find((j: any) => j.orderId === order.id || j.orderId === order.orderNumber);
     const jobStatus = String(job?.status || "").toUpperCase();
-    if (status === "READY_FOR_DELIVERY" || jobStatus === "READY_FOR_DELIVERY" || jobStatus === "COMPLETED" || station === "done") {
-      return "ready";
-    }
-    if (status === "COMPLETED_DELIVERED" || status === "AWAITING_COLLECTION" || status === "IN_TRANSIT") {
+    // Orders handed over to fulfilment (In Transit / Delivered / Cancelled)
+    // leave the production board entirely — checked BEFORE the ready branch so
+    // a READY_FOR_DELIVERY job can't keep an in-transit order on display.
+    if (status === "IN_TRANSIT" || status === "COMPLETED_DELIVERED" || status === "CANCELLED") {
       return null;
     }
     if (status === "AWAITING_CONFIRMATION" || status === "PENDING_CONFIRMATION") {
       return null;
+    }
+    if (status === "AWAITING_COLLECTION") {
+      return "ready";
+    }
+    if (status === "READY_FOR_DELIVERY" || jobStatus === "READY_FOR_DELIVERY" || jobStatus === "COMPLETED" || station === "done") {
+      return "ready";
     }
     if (jobStatus === "READY_FOR_QUALITY" || jobStatus === "QUALITY_CHECK" || jobStatus === "REWORK_REQUIRED") {
       return "decorating";
@@ -182,7 +189,8 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
 
   const renderOrderCard = (order: ServerOrder, station: "confirmed" | "baking" | "decorating" | "ready") => {
     const job = jobs.find((j: any) => j.orderId === order.id);
-    const status = String(order.status || "").toUpperCase();
+    const status = String(order.status || "").toUpperCase().replace(/\s+/g, "_");
+    const isAwaitingPickup = status === "AWAITING_COLLECTION" || status === "AWAITING_PICKUP";
     const isClickable = station === "confirmed";
     const handleOpen = () => {
       if (!isClickable) return;
@@ -195,11 +203,23 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
         onSelect(uiMatch || { id: order.orderNumber || order.id, customer: order.customerId, product: order.notes || "Order", status: order.status, amount: order.total, payment: order.paymentStatus, delivery: order.deliveryStatus } as any);
       }
     };
-    const badgeValue = station === "confirmed" ? "" : station === "baking" ? "Baking" : station === "decorating" ? "Decorating" : "Ready";
+    const badgeValue = station === "confirmed" ? "" : station === "baking" ? "Baking" : station === "decorating" ? "Decorating" : isAwaitingPickup ? "Pick Up" : "Ready";
     const uiMatch = (uiOrders as any[])?.find((o: any) => o.id === order.orderNumber || o.id === order.id);
     const customerDisplay = uiMatch?.customer || order.customerId || "—";
+    const cardStyle = isAwaitingPickup
+      ? {
+          border: "1px solid var(--border)",
+          backgroundColor: "color-mix(in srgb, #C2703A 22%, transparent)",
+          borderColor: "#C2703A",
+          padding: "12px",
+          marginBottom: "8px",
+          borderRadius: "8px",
+          cursor: isClickable ? "pointer" : "default",
+          boxShadow: "0 0 0 1px rgba(194,112,58,0.3)",
+        }
+      : orderCardStyle(station, isClickable);
     return (
-      <div key={order.id} className="order-card" style={orderCardStyle(station, isClickable)} onClick={handleOpen}>
+      <div key={order.id} className="order-card" style={cardStyle} onClick={handleOpen}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
           <strong>{order.orderNumber}</strong>
           {badgeValue ? <Status value={badgeValue} /> : null}
@@ -274,10 +294,11 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
   );
 }
 
-export function JobsBoard({ onSelect }: { onSelect?: (job: any) => void } = {}) {
+export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => void; onNotice?: (s: string) => void } = {}) {
   const { connected, orders: uiOrders } = useWorkspace();
   const [boardLoading, setBoardLoading] = useState(true);
   const [jobs, setJobs] = useState<any[]>([]);
+  const [serverOrders, setServerOrders] = useState<any[]>([]);
   const [selectedJob, setSelectedJob] = useState<any | null>(null);
   const [productionJob, setProductionJob] = useState<any | null>(null);
   const [inventoryItems, setInventoryItems] = useState<any[]>([]);
@@ -287,8 +308,9 @@ export function JobsBoard({ onSelect }: { onSelect?: (job: any) => void } = {}) 
 
   const refreshBoard = useCallback(async () => {
     setBoardLoading(true);
-    const js = await listProductionJobs();
+    const [js, orders] = await Promise.all([listProductionJobs(), listOrders()]);
     setJobs(js || []);
+    setServerOrders(orders || []);
     setBoardLoading(false);
   }, []);
   useEffect(() => { void refreshBoard(); }, [refreshBoard]);
@@ -310,10 +332,18 @@ export function JobsBoard({ onSelect }: { onSelect?: (job: any) => void } = {}) 
     return "queued";
   };
 
-  const queuedJobs = jobs.filter((j) => getColumnForJob(j) === "queued");
-  const bakingJobs = jobs.filter((j) => getColumnForJob(j) === "baking");
-  const decoratingJobs = jobs.filter((j) => getColumnForJob(j) === "decorating");
-  const readyJobs = jobs.filter((j) => getColumnForJob(j) === "ready");
+  // An order that moved to In Transit (or was delivered / cancelled) has left
+  // production — its job must not keep occupying a column on the Jobs board.
+  const orderLeftProduction = (job: any): boolean => {
+    const order = serverOrders.find((o: any) => o.id === job?.orderId || o.orderNumber === job?.orderId);
+    const status = String(order?.status || "").toUpperCase();
+    return status === "IN_TRANSIT" || status === "COMPLETED_DELIVERED" || status === "CANCELLED";
+  };
+
+  const queuedJobs = jobs.filter((j) => getColumnForJob(j) === "queued" && !orderLeftProduction(j));
+  const bakingJobs = jobs.filter((j) => getColumnForJob(j) === "baking" && !orderLeftProduction(j));
+  const decoratingJobs = jobs.filter((j) => getColumnForJob(j) === "decorating" && !orderLeftProduction(j));
+  const readyJobs = jobs.filter((j) => getColumnForJob(j) === "ready" && !orderLeftProduction(j));
 
   useEffect(() => {
     if (!selectedJob) { setProductionJob(null); setConsumption([]); setMaterialEntries([{ itemId: "", quantity: 0, notes: "" }]); return; }
@@ -406,21 +436,62 @@ export function JobsBoard({ onSelect }: { onSelect?: (job: any) => void } = {}) 
     }
   };
 
+  const handleMarkAwaitingPickup = async () => {
+    const jobOrderId = selectedJob?.orderId;
+    const serverOrder = serverOrders.find((o: any) => o.id === jobOrderId || o.orderNumber === jobOrderId) || orderMatchSel;
+    const orderId = serverOrder?.id || jobOrderId;
+    if (!orderId || !connected) {
+      if (onNotice) onNotice("Not connected or no order found");
+      return;
+    }
+    setBusyAction(true);
+    try {
+      const res = await updateOrderApi(orderId, { status: "AWAITING_COLLECTION" });
+      if (res) {
+        if (onNotice) onNotice("Marked as awaiting pickup");
+        await refreshJob();
+        await refreshBoard();
+      } else {
+        if (onNotice) onNotice("Failed to update order status");
+      }
+    } catch (e) {
+      console.error(e);
+      if (onNotice) onNotice("Error updating order status");
+    } finally {
+      setBusyAction(false);
+    }
+  };
+
   const renderJobCard = (job: any, column: "queued" | "baking" | "decorating" | "ready") => {
     const orderMatch = (uiOrders as any[])?.find((o: any) => o.id === job.orderId || o.orderNumber === job.orderId);
-    const orderInfo = orderMatch;
-    const badgeValue = column === "queued" ? "Queued" : column === "baking" ? "Baking" : column === "decorating" ? "Decorating" : "Ready";
+    const serverOrderMatch = serverOrders.find((o: any) => o.id === job.orderId || o.orderNumber === job.orderId);
+    const orderInfo = orderMatch || serverOrderMatch;
+    const normStatus = String((orderInfo as any)?.status || (serverOrderMatch as any)?.status || "").toUpperCase().replace(/\s+/g, "_");
+    const isAwaitingPickup = normStatus === "AWAITING_COLLECTION" || normStatus === "AWAITING_PICKUP";
+    const badgeValue = column === "queued" ? "Queued" : column === "baking" ? "Baking" : column === "decorating" ? "Decorating" : isAwaitingPickup ? "Pick Up" : "Ready";
+    const cardStyle = isAwaitingPickup
+      ? {
+          border: "1px solid var(--border)",
+          backgroundColor: "color-mix(in srgb, #C2703A 22%, transparent)",
+          borderColor: "#C2703A",
+          padding: "12px",
+          marginBottom: "8px",
+          borderRadius: "8px",
+          cursor: "pointer",
+          boxShadow: "0 0 0 1px rgba(194,112,58,0.3)",
+        }
+      : orderCardStyle(column, true);
     const handleOpen = () => {
       setSelectedJob({ ...job, order: orderInfo });
       if (onSelect) {
         onSelect({ ...job, order: orderInfo });
       }
     };
-    const productDisplay = orderInfo?.product || job.variantOptions || job.productId || job.notes || "—";
-    const displayId = orderInfo?.orderNumber || orderInfo?.id || (job.orderId ? `TC-${String(job.orderId).replace(/^.*-/, '')}` : job.id);
+    const productDisplay = orderInfo?.product || (serverOrderMatch as any)?.notes || job.variantOptions || job.productId || job.notes || "—";
+    const displayId = orderInfo?.orderNumber || (serverOrderMatch as any)?.orderNumber || orderInfo?.id || (serverOrderMatch as any)?.id || (job.orderId ? `TC-${String(job.orderId).replace(/^.*-/, '')}` : job.id);
     const jobDisplayId = displayId.startsWith('TC-') && !displayId.startsWith('TC-Job') ? displayId.replace('TC-', 'TC-Job-') : displayId;
     return (
-      <div key={job.id} className="order-card" style={orderCardStyle(column, true)} onClick={handleOpen}>
+      <div key={job.id} className="order-card" style={cardStyle} onClick={handleOpen}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
           <strong>{jobDisplayId}</strong>
           {badgeValue ? <Status value={badgeValue} /> : null}
@@ -498,6 +569,7 @@ export function JobsBoard({ onSelect }: { onSelect?: (job: any) => void } = {}) 
               {(jobToShow?.status === 'PENDING' || jobToShow?.status === 'SCHEDULED' || jobToShow?.status === 'READY_FOR_PRODUCTION') && <Button size="sm" onClick={handleStartJob} disabled={busyAction || !connected}>Start Production</Button>}
               {jobToShow?.status === 'IN_PRODUCTION' && <Button size="sm" onClick={handleCompleteJob} disabled={busyAction || !connected}>Mark Production Complete</Button>}
               {(jobToShow?.status === 'READY_FOR_QUALITY' || jobToShow?.status === 'QUALITY_CHECK') && (<><Button size="sm" onClick={handleQualityPass} disabled={busyAction || !connected}>Pass Quality Check</Button><Button size="sm" variant="outline" onClick={handleQualityFail} disabled={busyAction || !connected}>Fail & Rework</Button></>)}
+              {(jobToShow?.status === 'READY_FOR_DELIVERY' || jobToShow?.status === 'COMPLETED') && (<Button size="sm" onClick={handleMarkAwaitingPickup} disabled={busyAction || !connected}>Mark as Awaiting Pickup</Button>)}
             </div>
           </div>
         </DialogContent>

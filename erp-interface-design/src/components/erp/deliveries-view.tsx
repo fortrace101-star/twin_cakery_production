@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "../data-table/StatusBadge";
 import { money } from "./data";
-import { listDeliveries, createDelivery, updateDelivery, cancelDelivery, deliveryStatusLabel } from "@/lib/api";
+import { listDeliveries, createDelivery, updateDelivery, cancelDelivery, deliveryStatusLabel, listOrders, updateOrderApi } from "@/lib/api";
 import type { ServerDelivery } from "@/lib/api";
 
 /**
@@ -25,10 +25,33 @@ export function DeliveriesView({ onNotice }: { onNotice: (s: string) => void }) 
   const { orders } = useWorkspace();
   const [tab, setTab] = useState("Upcoming");
   const [deliveries, setDeliveries] = useState<ServerDelivery[]>([]);
+  const [serverOrders, setServerOrders] = useState<any[]>([]);
 
+  useEffect(() => {
+    void (async () => {
+      try {
+        const list = await listOrders();
+        setServerOrders(list || []);
+      } catch {
+        setServerOrders([]);
+      }
+    })();
+  }, []);
+
+  const allOrdersForUpcoming = [...(serverOrders as any[]), ...(orders as any[])];
+  const upcomingFromOrders = allOrdersForUpcoming.filter((o) => {
+    const s = String(o.status || "").toUpperCase();
+    return (s === "AWAITING_COLLECTION" || s === "AWAITING COLLECTION");
+  }).filter((o, idx, arr) => {
+    const key = (o.id || o.orderNumber);
+    return arr.findIndex((x) => ((x.id || x.orderNumber)) === key) === idx;
+  });
   const counts = {
-    Upcoming: deliveries.filter((d) => d.status === "PENDING" || d.status === "READY_FOR_DISPATCH").length,
-    Dispatch: deliveries.filter((d) => d.status === "IN_TRANSIT").length,
+    Upcoming: upcomingFromOrders.filter((o: any) => {
+      const s = String(o.status || "").toUpperCase();
+      return s === "AWAITING_COLLECTION" || s === "AWAITING COLLECTION";
+    }).length,
+    Dispatch: deliveries.filter((d) => d.status === "IN_TRANSIT").length + inTransitOrders.filter((o: any) => !deliveries.some((d) => d.orderId === o.orderNumber || d.orderId === o.id)).length,
     Completed: deliveries.filter((d) => d.status === "COMPLETED_DELIVERED").length,
   };
 
@@ -152,13 +175,73 @@ export function DeliveriesView({ onNotice }: { onNotice: (s: string) => void }) 
     void refreshDeliveries();
   }
 
+  async function onSetInTransit(row: any) {
+    const orderId = row?.orderId;
+    if (!orderId) return onNotice("No order found");
+    try {
+      const serverOrder = [...(orders as any[]), ...(serverOrders as any[])].find((o: any) => o.orderNumber === orderId || o.id === orderId);
+      const targetId = serverOrder?.id || orderId;
+      const res = await updateOrderApi(targetId, { status: "IN_TRANSIT" });
+      if (!res) return onNotice("Could not set order to In Transit");
+      onNotice("Order set to In Transit");
+      void refreshDeliveries();
+    } catch (e) {
+      console.error(e);
+      onNotice("Error setting order to In Transit");
+    }
+  }
+
   const byTab = tab === "Upcoming"
-    ? ["PENDING", "READY_FOR_DISPATCH"]
+    ? []
     : tab === "Dispatch"
       ? ["IN_TRANSIT"]
       : ["COMPLETED_DELIVERED"];
 
-  const rows = deliveries.filter((d) => byTab.includes(d.status));
+  const inTransitOrders = [...(orders as any[]), ...(serverOrders as any[])].filter((o, idx, arr) => {
+    const s = String(o.status || "").toUpperCase();
+    if (s !== "IN_TRANSIT") return false;
+    const key = (o.id || o.orderNumber);
+    return arr.findIndex((x) => (x.id || x.orderNumber) === key) === idx;
+  });
+
+  const rows = tab === "Upcoming"
+    ? (upcomingFromOrders
+        .filter((o: any) => {
+          const s = String(o.status || "").toUpperCase();
+          if (!(s === "AWAITING_COLLECTION" || s === "AWAITING COLLECTION")) return false;
+          return true;
+        })
+        .map((o: any) => {
+          const delivery = deliveries.find((d) => d.orderId === o.id || d.orderId === o.orderNumber) || {};
+          return {
+            ...(delivery as any),
+            id: (delivery as any).id || `ord-${o.id}`,
+            orderId: o.orderNumber || o.id,
+            destination: (delivery as any).destination || o?.customer || "—",
+            scheduledAt: (delivery as any).scheduledAt || o.requiredAt || null,
+            deliveryPerson: (delivery as any).deliveryPerson || null,
+            deliveryFee: (delivery as any).deliveryFee || 0,
+            status: (delivery as any).status || "PENDING",
+          } as ServerDelivery;
+        }) as ServerDelivery[])
+    : tab === "Dispatch"
+      ? ([
+          ...deliveries.filter((d) => byTab.includes(d.status)),
+          ...inTransitOrders
+            .filter((o: any) => !deliveries.some((d) => d.orderId === o.orderNumber || d.orderId === o.id))
+            .map((o: any) => ({
+              id: `ord-${o.id}`,
+              orderId: o.orderNumber || o.id,
+              type: o.deliveryType || "HOME_DELIVERY",
+              destination: o?.customer || "—",
+              scheduledAt: o.requiredAt || null,
+              deliveryPerson: null,
+              deliveryFee: 0,
+              status: "IN_TRANSIT",
+              notes: "",
+            } as unknown as ServerDelivery)),
+        ])
+      : deliveries.filter((d) => byTab.includes(d.status));
 
   return (
     <div className="deliveries-view">
@@ -215,16 +298,19 @@ export function DeliveriesView({ onNotice }: { onNotice: (s: string) => void }) 
             </thead>
             <tbody>
               {rows.map((d) => {
+                const isAwaitingInUpcoming = tab === "Upcoming";
                 const actions =
-                  d.status === "PENDING"
-                    ? (<><Button variant="secondary" size="sm" onClick={() => onMarkReady(d.id)}>Mark ready</Button><Button variant="ghost" size="sm" onClick={() => onCancel(d.id)}>Cancel</Button></>)
-                    : d.status === "READY_FOR_DISPATCH"
-                      ? isCollection(d)
-                        ? (<><Button size="sm" onClick={() => onComplete(d.id)}>Complete collection</Button><Button variant="ghost" size="sm" onClick={() => onCancel(d.id)}>Cancel</Button></>)
-                        : (<><Button size="sm" onClick={() => onDispatch(d.id)}>Dispatch</Button><Button variant="ghost" size="sm" onClick={() => onCancel(d.id)}>Cancel</Button></>)
-                      : d.status === "IN_TRANSIT"
-                        ? (<Button size="sm" onClick={() => onComplete(d.id)}>Complete delivery</Button>)
-                        : <></>;
+                  isAwaitingInUpcoming
+                    ? (<Button variant="secondary" size="sm" onClick={() => onSetInTransit(d)}>Set In-Transit</Button>)
+                    : d.status === "PENDING"
+                      ? (<><Button variant="secondary" size="sm" onClick={() => onMarkReady(d.id)}>Mark ready</Button><Button variant="ghost" size="sm" onClick={() => onCancel(d.id)}>Cancel</Button></>)
+                      : d.status === "READY_FOR_DISPATCH"
+                        ? isCollection(d)
+                          ? (<><Button size="sm" onClick={() => onComplete(d.id)}>Complete collection</Button><Button variant="ghost" size="sm" onClick={() => onCancel(d.id)}>Cancel</Button></>)
+                          : (<><Button size="sm" onClick={() => onDispatch(d.id)}>Dispatch</Button><Button variant="ghost" size="sm" onClick={() => onCancel(d.id)}>Cancel</Button></>)
+                        : d.status === "IN_TRANSIT"
+                          ? (<Button size="sm" onClick={() => onComplete(d.id)}>Complete delivery</Button>)
+                          : <></>;
                 return (
                   <tr key={d.id}>
                     <td>{d.orderId}</td>
@@ -232,7 +318,7 @@ export function DeliveriesView({ onNotice }: { onNotice: (s: string) => void }) 
                     <td>{d.scheduledAt ? new Date(d.scheduledAt).toLocaleString("en-UG") : "—"}</td>
                     <td>{d.deliveryPerson || "—"}</td>
                     <td className="num">{d.deliveryFee ? money(d.deliveryFee) : "—"}</td>
-                    <td><StatusBadge value={deliveryStatusLabel(d.status)} /></td>
+                    <td><StatusBadge value={tab === "Upcoming" ? "Awaiting Collection" : deliveryStatusLabel(d.status)} /></td>
                     <td className="actions">{actions}</td>
                   </tr>
                 );

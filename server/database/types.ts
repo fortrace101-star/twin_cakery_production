@@ -193,6 +193,9 @@ export interface Order extends BaseEntity {
   deliveredAt: string | null;
   /** Stamped when the post-delivery CRM follow-up has been done & documented. */
   followUpCompletedAt: string | null;
+  /** Delivery location + landmark note captured on the New-order form (migration 021). */
+  deliveryLocation: string;
+  locationNote: string;
   station: OrderStation;
 }
 

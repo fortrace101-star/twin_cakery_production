@@ -116,22 +116,27 @@ describe("App routing", () => {
     expect(await screen.findByText("#TC-1044")).toBeInTheDocument();
   });
 
-  it("renders the CRM two-pane (list + conversation) at /workspace/crm", async () => {
+  it("renders the CRM two-pane (list + detail) at /workspace/crm", async () => {
     // Regression guard: CRM is the one non-table module (erp-design-system.md §5).
     // The two-pane branch must be reachable — a stray generic-table `return` above it
     // once made this unreachable and CRM silently rendered as a plain table.
     renderAt("/workspace/crm");
-    // Contact list (not a DataTable): selecting a conversation drives the detail pane.
+    // Contact list (not a DataTable): selecting a contact drives the detail pane.
     expect(
       await screen.findByRole("button", { name: /Sarah Mwangi/ }),
     ).toBeInTheDocument();
-    // The conversation detail pane is present alongside the list, and it is genuinely
-    // the two-pane (not a generic module table).
+    // The detail pane is present alongside the list and is genuinely the two-pane
+    // (not a generic module table). The old conversation thread (.crm-thread) was
+    // removed by the CRM makeover — the detail pane is now the tabbed
+    // Order history / Feedback / Occasions content instead.
     await waitFor(() => {
       expect(document.querySelector(".crm-view")).not.toBeNull();
       expect(document.querySelector(".crm-detail")).not.toBeNull();
-      expect(document.querySelector(".crm-thread")).not.toBeNull();
+      expect(document.querySelector(".crm-tabs[role=tablist]")).not.toBeNull();
     });
+    // The detail tabs are interactive — the makeover's tabs replaced the thread.
+    expect(screen.getByRole("tab", { name: "Orders" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Occasions" })).toBeInTheDocument();
   });
 });
 

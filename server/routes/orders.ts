@@ -38,7 +38,7 @@ router.get("/", required("orders.view"), (req, res) => {
 });
 
 router.post("/", required("orders.create"), (req, res) => {
-  const { orderNumber, customerId, salespersonId, items, subtotal, discount, deliveryCharge, taxAmount, total, requiredBy, requiredAt, notes, status, paymentStatus, deliveryStatus, quotationId, inquiryId, createdBy } = req.body || {};
+  const { orderNumber, customerId, salespersonId, items, subtotal, discount, deliveryCharge, taxAmount, total, requiredBy, requiredAt, notes, status, paymentStatus, deliveryStatus, quotationId, inquiryId, createdBy, deliveryLocation, locationNote } = req.body || {};
   if (!customerId) return res.status(400).json({ error: "customerId is required" });
   const record = store.createOrder({
     orderNumber: orderNumber || `TC-${Date.now().toString().slice(-6)}`,
@@ -59,6 +59,8 @@ router.post("/", required("orders.create"), (req, res) => {
     quotationId: quotationId || null,
     inquiryId: inquiryId || null,
     createdBy: createdBy || "",
+    deliveryLocation: deliveryLocation || "",
+    locationNote: locationNote || "",
   });
   store.persist();
   res.status(201).json(record);

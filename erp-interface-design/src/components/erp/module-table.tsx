@@ -19,8 +19,10 @@ import {
   type ServerCatalogueCategory, type ServerCatalogueProduct, type ServerCatalogueType,
   listProductionJobs, startProductionJob, completeProductionJob, recordQualityCheck, recordProductionWastage, getProductionCosts, getProductionConsumption, recordJobMaterials,
   listInventoryItems, getInventoryLedger,
+  listCustomers,
   listRbacUsers, listRbacRoles, listRbacPermissions, getRolePermissionKeys, grantRolePermission, revokeRolePermission,
   type ServerProductionJob, type ServerProductionCost, type ServerProductionConsumption, type ServerInventoryItem, type ServerInventoryTransaction,
+  type ServerCustomer,
   type ServerRbacUser, type ServerRole, type ServerPermission,
 } from "@/lib/api";
 export function orderRowTone(o: Order): string {
@@ -328,9 +330,20 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
 
   const [record,setRecord] = useState<GridRow|null>(null);
   const { density } = useDensity();
+  const { updateOrder } = useWorkspace();
 
   const [jobs, setJobs] = useState<ServerProductionJob[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
+  const [customers, setCustomers] = useState<ServerCustomer[]>([]);
+
+  // Deliveries modal: the Upcoming/Dispatch record dialog shows the order's
+  // location note + the customer's contact details, so we need the CRM list.
+  useEffect(() => {
+    if (module !== 'delivery') return;
+    let alive = true;
+    void listCustomers().then((list) => { if (alive) setCustomers(list || []); }).catch(() => { if (alive) setCustomers([]); });
+    return () => { alive = false; };
+  }, [module]);
 
   useEffect(() => {
     if (module !== 'production') return;
@@ -516,6 +529,46 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
     }
   }
 
+  // Deliveries > Upcoming: move an awaiting-collection order to In Transit —
+  // flips the order status (optimistic local write + server PATCH via the
+  // workspace store) so the row leaves Upcoming and shows under Dispatch.
+  async function handleSetInTransit() {
+    if (!record) return;
+    setBusyAction(true);
+    try {
+      updateOrder(record.id, 'In Transit');
+      onNotice('Order set to In Transit — it now shows under Dispatch');
+      setRecord(null);
+    } finally {
+      setBusyAction(false);
+    }
+  }
+
+  // Deliveries > Dispatch: complete the order — flips it to Completed /
+  // Delivered (local + server via the workspace store, which also settles
+  // station/follow-up on the backend) so it leaves Dispatch and shows under
+  // the Completed tab.
+  async function handleCompleteOrder() {
+    if (!record) return;
+    setBusyAction(true);
+    try {
+      updateOrder(record.id, 'Completed / Delivered');
+      onNotice('Order completed — it now shows under Completed');
+      setRecord(null);
+    } finally {
+      setBusyAction(false);
+    }
+  }
+
+  // Deliveries modal extras: the open order's location note and the customer's
+  // contact details (phone · email), shown on the Upcoming/Dispatch dialogs.
+  const deliveryOrder = module === 'delivery' && record ? orders.find((o) => o.id === record.id) ?? null : null;
+  const deliveryCustomer = deliveryOrder ? customers.find((c) => c.name === deliveryOrder.customer) ?? null : null;
+  const deliveryContact = deliveryCustomer
+    ? [deliveryCustomer.phone, deliveryCustomer.email].filter(Boolean).join(' · ')
+    : '';
+  const showDeliveryExtras = module === 'delivery' && (tab === 'Upcoming' || tab === 'Dispatch') && record;
+
   return <section className="panel module-table"><div className="panel-heading"><div><h2>{tab}</h2><p>{module==='inventory'?'Stock quantities reflect opening, purchases, adjustments, usage and wastage.':`${rows.length} ${tab.toLowerCase()} in your workspace`}</p></div><Button variant="outline" onClick={()=>onNotice('Sample workspace — live records are not connected')}><Plus/>{module==='purchasing'?'Create purchase order':module==='inventory'?'Record adjustment':'Add record'}</Button></div><div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label={`Search ${tab}`} value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Search ${tab.toLowerCase()}...`}/></label><label className="filter-select"><SlidersHorizontal size={14}/><select aria-label="Filter records" value={filter} onChange={e=>setFilter(e.target.value)}><option>All records</option>{Array.from(new Set(moduleRows(module,tab,orders).map(r=>r.status))).map(s=><option key={s}>{s}</option>)}</select></label></div><DataTable columns={columns} rows={rows} rowKey={(r)=>r.id} rowClassName={(r)=>`order-row-tint tone-${tone(r.status)}`} onRowActivate={(r)=>setRecord(r)} stickyHeader density={density} empty={<div className="empty-state"><Search/><h3>No matching records</h3><p>Try a different search or filter.</p></div>}/><div className="table-foot"><span>{rows.length} records</span><span>October 2026</span></div><Dialog open={Boolean(record)} onOpenChange={v=>{if(!v)setRecord(null)}}><DialogContent className="max-w-2xl"><DialogTitle>{record?.name}</DialogTitle><DialogDescription>{record?.id} · {tab}</DialogDescription>{module === 'production' ? (<div className="space-y-4">
   <div className="configuration-list"><p><span>Order/Job</span><strong>{record?.detail}</strong></p><p><span>Due/Info</span><strong>{record?.secondary}</strong></p><p><span>Status</span><Status value={record?.status || productionJob?.status || ''}/></p><p><span>Progress</span><strong>{productionJob?.progress ?? record?.value ?? '—'}</strong></p></div>
   <div className="flex flex-wrap gap-2">
@@ -545,7 +598,7 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
       </div>
     </div>
   </div>
-</div>) : (<div className="configuration-list"><p><span>Details</span><strong>{record?.detail}</strong></p><p><span>{headings[1]}</span><strong>{record?.secondary}</strong></p><p><span>{headings[2]}</span><strong>{record?.value}</strong></p>{record&&<p><span>Status</span><Status value={record.status}/></p>}</div>)}{module==='inventory'&&<><h3 className="text-sm font-semibold">Stock ledger</h3><div className="configuration-list"><p><span>Opening stock</span><strong>20 kg</strong></p><p><span>Purchase receipt</span><strong>+10 kg</strong></p><p><span>Production consumption</span><strong>−21 kg</strong></p><p><span>Recorded wastage</span><strong>−1 kg</strong></p></div><p className="text-xs text-muted-foreground">Illustrative transaction breakdown for all-purpose flour.</p></>}{module==='sales'&&<Button onClick={()=>{const o=orders.find(o=>o.customer===record?.name);if(o){setRecord(null);onSelect(o)}}}>Open related order<ArrowRight/></Button>}</DialogContent></Dialog></section>
+</div>) : (<div className="configuration-list"><p><span>Details</span><strong>{record?.detail}</strong></p><p><span>{headings[1]}</span><strong>{record?.secondary}</strong></p><p><span>{headings[2]}</span><strong>{record?.value}</strong></p>{record&&<p><span>Status</span><Status value={record.status}/></p>}</div>)}{module==='inventory'&&<><h3 className="text-sm font-semibold">Stock ledger</h3><div className="configuration-list"><p><span>Opening stock</span><strong>20 kg</strong></p><p><span>Purchase receipt</span><strong>+10 kg</strong></p><p><span>Production consumption</span><strong>−21 kg</strong></p><p><span>Recorded wastage</span><strong>−1 kg</strong></p></div><p className="text-xs text-muted-foreground">Illustrative transaction breakdown for all-purpose flour.</p></>}{module==='sales'&&<Button onClick={()=>{const o=orders.find(o=>o.customer===record?.name);if(o){setRecord(null);onSelect(o)}}}>Open related order<ArrowRight/></Button>}{showDeliveryExtras&&<div className="configuration-list"><p><span>Location note</span><strong>{deliveryOrder?.locationNote||'—'}</strong></p><p><span>Customer contact</span><strong>{deliveryContact||'—'}</strong></p></div>}{module==='delivery'&&tab==='Upcoming'&&record&&<div className="dialog-actions"><Button onClick={handleSetInTransit} disabled={busyAction}><ArrowRight size={16}/>Set In-Transit</Button></div>}{module==='delivery'&&tab==='Dispatch'&&record&&<div className="dialog-actions"><Button onClick={handleCompleteOrder} disabled={busyAction}><Check size={16}/>Complete</Button></div>}</DialogContent></Dialog></section>
 }
 
 export function Administration({tab,audit,onNotice,connected=false}: {tab:string;audit:string[];onNotice:(s:string)=>void;connected?:boolean}){

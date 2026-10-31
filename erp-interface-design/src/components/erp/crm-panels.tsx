@@ -1,5 +1,5 @@
-﻿import { useCallback } from "react";
-import { CalendarPlus, Check, Clock3, Loader2, Plus, Printer, Star, StarOff, Textarea } from "lucide-react";
+import { useCallback, useState, useEffect } from "react";
+import { CalendarPlus, Check, Clock3, Loader2, MessageSquare, Plus, Printer, Star, StarOff, Trash2 } from "lucide-react";
 import { IconButton } from "./ui";
 import {
   contactEventReminder,
@@ -22,11 +22,7 @@ import {
 import { money } from "./data";
 import { StatusBadge as Status } from "@/components/data-table/StatusBadge";
 import type { StatusTone } from "@/lib/theme-tokens";
-import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Label } from "./ui";
-import { Input } from "./ui";
-import { Select } from "./ui";
 
 /**
  * E1 — customer order history, occasions, reminders & feedback (spec §5).
@@ -88,7 +84,7 @@ function useAsync<T>(fn: () => Promise<T>, deps: unknown[]): { data: T | null; l
 }
 
 function Loading() {
-  return <p className="text-muted-foreground flex items-center gap-2 text-sm"><Loader2 className="animate-spin" size={14} /> Loadingâ€¦</p>;
+  return <p className="text-muted-foreground flex items-center gap-2 text-sm"><Loader2 className="animate-spin" size={14} /> Loading…</p>;
 }
 
 function Empty({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
@@ -101,7 +97,7 @@ function Empty({ icon, title, body }: { icon: React.ReactNode; title: string; bo
   );
 }
 
-/* â”€â”€ Order history (read-only; immutable contact snapshots) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Order history (read-only; immutable contact snapshots) ─────────────────── */
 
 export function OrderHistoryPanel({ customerId }: { customerId: string }) {
   const { data, loading } = useAsync<ServerCustomerOrder[]>(() => listCustomerOrders(customerId), [customerId]);
@@ -114,10 +110,10 @@ export function OrderHistoryPanel({ customerId }: { customerId: string }) {
     void printCustomerOrders(customerId).then((payload) => {
       if (!payload) return;
       const lines = [
-        `Order history â€” ${payload.customer.name}`,
+        `Order history — ${payload.customer.name}`,
         `Printed ${new Date(payload.printedAt).toLocaleString()}`,
         "",
-        ...payload.orders.map((o) => `${o.orderNumber} Â· ${new Date(o.date).toLocaleDateString()} Â· ${o.status} Â· ${money(o.total)} Â· ${o.snapshotName} Â· ${o.feedback ?? 'No feedback'}`),
+        ...payload.orders.map((o) => `${o.orderNumber} · ${new Date(o.date).toLocaleDateString()} · ${o.status} · ${money(o.total)} · ${o.snapshotName}`,),
       ];
       const a = document.createElement("a");
       a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/plain" }));
@@ -143,6 +139,7 @@ export function OrderHistoryPanel({ customerId }: { customerId: string }) {
             <span>{money(o.total)}</span>
             <Status value={orderStatusLabel(o.status)} />
             {o.snapshot && <small className="text-muted-foreground crm-snapshot">{o.snapshot.snapshotName}</small>}
+            {o.feedback != null ? <small className="text-muted-foreground crm-feedback">Feedback: {o.feedback}</small> : <small className="text-muted-foreground">No feedback</small>}
           </li>
         ))}
       </ul>
@@ -151,7 +148,7 @@ export function OrderHistoryPanel({ customerId }: { customerId: string }) {
   );
 }
 
-/* â”€â”€ Occasions (create / delete) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Occasions (create / delete) ─────────────────────────────────────────── */
 
 export function OccasionsPanel({ customerId }: { customerId: string }) {
   const { data, loading, reload } = useAsync<ServerCustomerEvent[]>(() => listCustomerEvents(customerId), [customerId]);
@@ -199,7 +196,7 @@ export function OccasionsPanel({ customerId }: { customerId: string }) {
             <label>Date<input name="eventDate" type="date" /></label>
             <label>Repeats<select name="recurrenceRule">{RECURRENCE_OPTIONS.map((r) => <option key={r} value={r}>{r === "NONE" ? "Does not repeat" : r[0] + r.slice(1).toLowerCase()}</option>)}</select></label>
           </div>
-          <label>Notes<input name="notes" maxLength={250} placeholder="Optional â€” preferences, past orders" /></label>
+          <label>Notes<input name="notes" maxLength={250} placeholder="Optional — preferences, past orders" /></label>
           <div className="flex gap-2">
             <Button type="submit" disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : <Check />} Save occasion</Button>
             <Button type="button" variant="ghost" onClick={() => setAdding(false)}>Cancel</Button>
@@ -223,12 +220,12 @@ export function OccasionsPanel({ customerId }: { customerId: string }) {
           ))}
         </ul>
       )}
-      <p className="crm-note text-muted-foreground text-xs">Reminders are scheduled automatically â€” the system never contacts the customer for you.</p>
+      <p className="crm-note text-muted-foreground text-xs">Reminders are scheduled automatically — the system never contacts the customer for you.</p>
     </div>
   );
 }
 
-/* â”€â”€ Reminders due across the workspace â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Reminders due across the workspace ──────────────────────────────────── */
 
 /** Map an internal reminder status to a badge label + a valid locked tone. */
 function reminderStatus(status: string): { label: string; tone: StatusTone } {
@@ -263,25 +260,162 @@ export function RemindersPanel({ customerId }: { customerId?: string }) {
           <li key={r.id}>
             <div>
               <strong>{r.customerName || r.customerId}</strong>
-              <small className="cell-sub">{r.eventType} Â· {new Date(r.nextReminderAt).toLocaleDateString()}</small>
-            <Status value={reminderStatus(r.status).label} tone={reminderStatus(r.status).tone} />
+              <small className="cell-sub">{r.eventType} · {new Date(r.nextReminderAt).toLocaleDateString()}</small>
+              <Status value={reminderStatus(r.status).label} tone={reminderStatus(r.status).tone} />
             </div>
-            
           </li>
         ))}
       </ul>
-      <p className="crm-note text-muted-foreground text-xs">Reminders are internal only â€” nothing is sent to the customer automatically.</p>
+      <p className="crm-note text-muted-foreground text-xs">Reminders are internal only — nothing is sent to the customer automatically.</p>
     </div>
   );
 }
 
-/* â”€â”€ Resolver: bind a CRM contact to its live E1 record â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Shared UI helpers (re-exported for reuse by crm-view.tsx tab components) ── */
+
+export { useAsync, Loading, Empty, feedbackTypeLabel };
+
+export function StarRating({ rating, onChange, readonly }: { rating: number; onChange?: (r: number) => void; readonly?: boolean }) {
+  const stars = [1, 2, 3, 4, 5];
+  return (
+    <div className="crm-stars">
+      {stars.map((s) => (
+        <button
+          key={s}
+          type="button"
+          disabled={readonly}
+          onClick={() => onChange?.(s)}
+          className={rating >= s ? "star-on" : "star-off"}
+          title={readonly ? undefined : `Rate ${s} star${s > 1 ? 's' : ''}`}
+        >
+          {rating >= s ? <Star size={18} /> : <StarOff size={18} />}
+        </button>
+      ))}
+      <small className="cell-sub">{rating > 0 ? `${rating}/5` : 'No rating'}</small>
+    </div>
+  );
+}
+
+/* ── FeedbackPanelForm (inline form, kept for backward compat) ─────────────── */
+
+export function FeedbackPanelForm({ customerId }: { customerId: string }) {
+  const { data: feedback, loading: loadFeedback, reload: reloadFeedback } = useAsync<ServerCustomerFeedback[]>(() => listCustomerFeedback(customerId), [customerId]);
+  const { data: orders, loading: loadOrders } = useAsync<ServerCustomerOrder[]>(() => listCustomerOrders(customerId), [customerId]);
+  const [rating, setRating] = useState(0);
+  const [type, setType] = useState("GENERAL");
+  const [comment, setComment] = useState("");
+  const [resolution, setResolution] = useState("");
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [created, setCreated] = useState<ServerCustomerFeedback | null>(null);
+
+  const completedOrders = (orders ?? []).filter((o) => o.status === "COMPLETED_DELIVERED" || o.status === "COMPLETED");
+
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!selectedOrderId || rating === 0) return;
+    setBusy(true);
+    void createCustomerFeedback({
+      customerId,
+      orderId: selectedOrderId,
+      rating,
+      type,
+      comment: comment.trim(),
+      resolution: resolution.trim() || undefined as string | undefined,
+    }).then((record) => {
+      setBusy(false);
+      if (record) {
+        setCreated(record);
+        setRating(0);
+        setComment("");
+        setResolution("");
+        setSelectedOrderId(null);
+        setType("GENERAL");
+        reloadFeedback();
+      }
+    });
+  };
+
+  if (loadFeedback || loadOrders) return <Loading />;
+  const feedbackList = feedback ?? [];
+
+  return (
+    <div className="crm-feedback">
+      <div className="crm-panel-head">
+        <h3>Customer feedback <span className="inline-count">{feedbackList.length}</span></h3>
+      </div>
+      {created ? (
+        <p className="crm-msg">Feedback recorded successfully.</p>
+      ) : (
+        <form className="erp-form crm-feedback-form" onSubmit={handleSubmit}>
+          <div className="form-row">
+            <label>Select completed order<select value={selectedOrderId ?? ""} onChange={(e) => setSelectedOrderId(e.target.value)}>
+              <option value="">Choose an order...</option>
+              {completedOrders.map((o) => (
+                <option key={o.id} value={o.id}>{o.orderNumber || o.id} - {new Date(o.date).toLocaleDateString()}</option>
+              ))}
+            </select></label>
+          </div>
+          <div className="form-row">
+            <label>Type<select value={type} onChange={(e) => setType(e.target.value)}>
+              <option value="RATING">Rating</option>
+              <option value="COMPLAINT">Complaint</option>
+              <option value="COMPLIMENT">Compliment</option>
+              <option value="GENERAL">General feedback</option>
+            </select></label>
+          </div>
+          {selectedOrderId && (
+            <div className="form-row">
+              <label>Rating<StarRating rating={rating} onChange={setRating} /></label>
+            </div>
+          )}
+          <div className="form-row">
+            <label>Comment<textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Customer feedback..." rows={3} /></label>
+          </div>
+          <div className="form-row">
+            <label>Resolution<textarea value={resolution} onChange={(e) => setResolution(e.target.value)} placeholder="How was it resolved?" rows={2} /></label>
+          </div>
+          <div className="flex gap-2">
+            <Button type="submit" disabled={busy || !selectedOrderId || rating === 0}>{busy ? <Loader2 className="animate-spin" /> : <Check />} Record feedback</Button>
+            <Button type="button" variant="ghost" onClick={() => { setRating(0); setComment(""); setResolution(""); setSelectedOrderId(null); setType("GENERAL"); }}>Reset</Button>
+          </div>
+        </form>
+      )}
+      {feedbackList.length === 0 && !created ? (
+        <Empty icon={<MessageSquare />} title="No feedback yet" body="Record the first piece of customer feedback." />
+      ) : (
+        <ul className="configuration-list crm-feedback-list">
+          {feedbackList.map((f) => (
+            <li key={f.id} className="crm-feedback-card">
+              <div className="crm-feedback-header">
+                <StarRating rating={f.rating} readonly />
+                <small className="text-muted-foreground">{feedbackTypeLabel(f.type)}</small>
+                <small className="text-muted-foreground">{new Date(f.createdAt).toLocaleDateString()}</small>
+              </div>
+              {f.comment && <p className="crm-feedback-comment">{f.comment}</p>}
+              {f.resolution && <p className="crm-feedback-resolution"><small className="text-muted-foreground">Resolution:</small> {f.resolution}</p>}
+              <small className="text-muted-foreground">Order: {f.orderId || '—'}</small>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/* ── FeedbackPanel (thin shell that delegates to FeedbackPanelForm) ─────────── */
+
+export function FeedbackPanel({ customerId }: { customerId: string }) {
+  return <FeedbackPanelForm customerId={customerId} />;
+}
+
+/* ── Resolver: bind a CRM contact to its live E1 record ────────────────────── */
 
 /**
  * Resolves the real customer id for the selected contact and renders the E1
- * panels (order history, occasions, reminders) against the live endpoints.
+ * panels (order history, occasions, feedback, reminders) against the live endpoints.
  * Degrades quietly when the workspace is offline (shows a sign-in hint) or the
- * contact has no matching database customer â€” the bundled sample workspace
+ * contact has no matching database customer — the bundled sample workspace
  * never fires API calls.
  */
 export function CustomerE1Panels({ name, connected }: { name: string; connected: boolean }) {
@@ -309,7 +443,7 @@ export function CustomerE1Panels({ name, connected }: { name: string; connected:
   if (!connected) {
     return (
       <p className="crm-note text-muted-foreground text-xs">
-        Sign in to see this customerâ€™s live order history, occasions and reminders.
+        Sign in to see this customer's live order history, occasions, feedback and reminders.
       </p>
     );
   }
@@ -317,7 +451,7 @@ export function CustomerE1Panels({ name, connected }: { name: string; connected:
   if (!customerId) {
     return (
       <p className="crm-note text-muted-foreground text-xs">
-        No live customer record matches â€œ{name}â€ yet â€” history appears here once an order exists.
+        No live customer record matches "{name}" yet — history appears here once an order exists.
       </p>
     );
   }
@@ -325,19 +459,8 @@ export function CustomerE1Panels({ name, connected }: { name: string; connected:
     <div className="crm-e1">
       <OrderHistoryPanel customerId={customerId} />
       <OccasionsPanel customerId={customerId} />
+      <FeedbackPanel customerId={customerId} />
       <RemindersPanel customerId={customerId} />
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-

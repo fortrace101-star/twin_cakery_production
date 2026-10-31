@@ -8,6 +8,7 @@ import { money } from "./data";
 import { StatusBadge as Status } from "../data-table/StatusBadge";
 import { orderStageTone } from "@/lib/theme-tokens";
 import { DataTable, type SortState } from "@/components/data-table/DataTable";
+import { useDensity } from "@/lib/density";
 import {
   listPayments,
   recordPayment,
@@ -50,6 +51,10 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
   const [paySort, setPaySort] = useState<SortState>(null);
   const [statusSort, setStatusSort] = useState<SortState>(null);
   const [expSort, setExpSort] = useState<SortState>(null);
+  // Shared record search + density — the stock-table standard (table-controls
+  // search box above the table, density preference respected).
+  const { density } = useDensity();
+  const [search, setSearch] = useState("");
   const [payments, setPayments] = useState<ServerPayment[]>([]);
   const [expenses, setExpenses] = useState<ServerExpense[]>([]);
   const [categories, setCategories] = useState<ServerExpenseCategory[]>([]);
@@ -215,6 +220,9 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
   // ---- reports ------------------------------------------------------------
   const [period, setPeriod] = useState("month");
 
+  // Fresh search on every tab switch so a hidden filter never "eats" rows.
+  useEffect(() => { setSearch(""); }, [activeTab]);
+
   useEffect(() => {
     let keep = true;
     async function load() {
@@ -256,6 +264,14 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
     method: (e) => e.paymentMethod,
     amount: (e) => e.amount,
   });
+  // Record searches (stock-table standard: one search box per tab filters the tables).
+  const q = search.trim().toLowerCase();
+  const filteredPayments = !q ? sortedPayments : sortedPayments.filter((p) =>
+    `${p.orderId} ${p.reference} ${p.method} ${p.receivedBy}`.toLowerCase().includes(q));
+  const filteredOutstanding = !q ? sortedOutstanding : sortedOutstanding.filter((o) =>
+    `${o.id} ${o.customer} ${o.product} ${o.payment}`.toLowerCase().includes(q));
+  const filteredExpenses = !q ? sortedExpenses : sortedExpenses.filter((e) =>
+    `${categories.find((c) => c.id === e.categoryId)?.name ?? ""} ${e.description} ${e.reference} ${e.recordedBy} ${e.paymentMethod}`.toLowerCase().includes(q));
   const reportLines: { label: string; value: string; bold: boolean }[] = reports
     ? [
         { label: "Revenue (subtotal + tax + delivery)", value: money(reports.revenue), bold: false },
@@ -296,6 +312,7 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
               <div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setPasa(null)}>Cancel</Button><Button onClick={() => onConfirmPasa()}><Check size={16}/>Confirm</Button></div>
             </div>
           )}
+          <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search payments" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search payments, orders, references…"/></label></div>
           <DataTable
             columns={[
               { header: "Order", sortKey: "order", cell: (p) => <strong className="product-name">{p.orderId}</strong> },
@@ -305,14 +322,15 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
               { header: "Date", sortKey: "date", cell: (p) => <span className="text-xs text-muted-foreground">{new Date(p.createdAt).toLocaleDateString("en-UG")}</span> },
               { header: "Received by", cell: (p) => p.receivedBy },
             ]}
-            rows={sortedPayments}
+            rows={filteredPayments}
             rowKey={(p) => p.id}
             sort={paySort}
             onSortChange={setPaySort}
             stickyHeader
+            density={density}
             empty={<div className="empty-state"><Search /><h3>No payments yet</h3><p>Record a payment against an order above.</p></div>}
-            footer={<span>{payments.length} payment{payments.length === 1 ? "" : "s"}</span>}
           />
+          <div className="table-foot"><span>{filteredPayments.length} payment{filteredPayments.length === 1 ? "" : "s"}</span><span>{payments.length} recorded in total</span></div>
 
           <h3 className="text-sm font-semibold" style={{ marginTop: 20 }}>Order payment status</h3>
           <DataTable
@@ -323,15 +341,16 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
               { header: "Total", align: "right", sortKey: "amount", cell: (o) => <span className="amount-cell">{money(o.amount)}</span> },
               { header: "Payment status", cell: (o) => <Status value={o.payment} /> },
             ]}
-            rows={sortedOutstanding}
+            rows={filteredOutstanding}
             rowKey={(o) => o.id}
             rowClassName={(o) => `order-row-tint tone-${orderStageTone(o.payment)}`}
             sort={statusSort}
             onSortChange={setStatusSort}
             stickyHeader
+            density={density}
             empty={<div className="empty-state"><Check /><h3>All order payments are settled</h3><p>Every order in the workspace is fully paid.</p></div>}
-            footer={<span>{outstandingOrders.length} order{outstandingOrders.length === 1 ? "" : "s"} awaiting settlement</span>}
           />
+          <div className="table-foot"><span>{filteredOutstanding.length} order{filteredOutstanding.length === 1 ? "" : "s"} awaiting settlement</span></div>
         </section>
       )}
 
@@ -352,6 +371,7 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
               ? <Button variant="secondary" onClick={onSave} disabled={saving}><Check size={16}/>{saving ? "Saving…" : "Save"}</Button>
               : <Button variant="secondary" onClick={openCreate}><Plus size={16}/>New expense</Button>}
           </div>
+          <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search expenses" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search expenses, categories…"/></label></div>
           <DataTable
             columns={[
               { header: "Date", sortKey: "date", cell: (e) => new Date(e.date).toLocaleDateString("en-UG", { year: "numeric", month: "short", day: "numeric" }) },
@@ -366,14 +386,15 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
                 </div>
               ) },
             ]}
-            rows={sortedExpenses}
+            rows={filteredExpenses}
             rowKey={(e) => e.id}
             sort={expSort}
             onSortChange={setExpSort}
             stickyHeader
+            density={density}
             empty={<div className="empty-state"><Plus /><h3>No expenses yet</h3><p>Record an expense above to track direct costs.</p></div>}
-            footer={<span>{expenses.length} expense{expenses.length === 1 ? "" : "s"}</span>}
           />
+          <div className="table-foot"><span>{filteredExpenses.length} expense{filteredExpenses.length === 1 ? "" : "s"}</span><span>{expenses.length} recorded in total</span></div>
         </section>
       )}
 
@@ -405,9 +426,11 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
               ]}
               rows={reportLines}
               rowKey={(r) => r.label}
-              footer={<span>Report period: {period}</span>}
+              stickyHeader
+              density={density}
             />
           )}
+          {reports && <div className="table-foot"><span>Report period: {period}</span></div>}
         </section>
       )}
 

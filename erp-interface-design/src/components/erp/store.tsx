@@ -218,6 +218,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           status: orderStatusEnum(order.status),
           paymentStatus: paymentStatusEnum(order.payment) as ServerOrder["paymentStatus"],
           deliveryStatus: "PENDING",
+          deliveryLocation: order.deliveryLocation || "",
+          locationNote: order.locationNote || "",
           createdBy: "",
         });
       } catch {
