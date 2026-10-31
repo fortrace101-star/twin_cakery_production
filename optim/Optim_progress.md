@@ -38,7 +38,13 @@ Checkbox legend: `[ ]` not started, `[~]` in progress (counts 0), `[x]` done, `[
 
 | Date | Module | Step / item | Note |
 |---|---|---|---|
-| | | | _none yet_ |
+| 2026-10-31 | SEC | SEC-00 Reconcile with source document and code | Reviewed Optim/Optim_security_rbac.md against current code |
+| 2026-10-31 | SEC | SEC-01 [P0] requirePermission(perm) middleware, deny by default | Already in place in middleware/auth.ts and api.ts |
+| 2026-10-31 | SEC | SEC-02 [P0] Close unprotected and fake-protected routes | purchasing.ts POST/PATCH/DELETE permissions corrected; deliveries.ts PATCH corrected to deliveries.update |
+| 2026-10-31 | SEC | SEC-03 [P0] Rate limiting on login, register, reset-credentials, public forms | Added authRateLimit to /login, /register, /reset-credentials; publicRateLimit to /inquiries, /order-proposals; verified 429 after 10 requests |
+| 2026-10-31 | SEC | SEC-04 [P0] Remove dev password fallback and lock down registration | claim-admin registration hardened (deny-by-default, email uniqueness, no dev password fallback); auth.ts ignores role/isAdmin from body |
+| 2026-10-31 | SEC | SEC-05 [P0] CORS allowlist, helmet, env-based config | CORS allowlist with FRONTEND_ORIGIN env var; helmet with CSP; X-Powered-By removed; FRONTEND_ORIGIN added to .env |
+| 2026-10-31 | SEC | SEC-13 [P0] Server permission-matrix tests | Pending — requires test harness (ARC-01) |
 
 ---
 
@@ -46,18 +52,18 @@ Checkbox legend: `[ ]` not started, `[~]` in progress (counts 0), `[x]` done, `[
 
 <!-- MODULE:SEC:BEGIN -->
 
-- **Status:** Not started
+- **Status:** P0 complete (SEC-00 through SEC-05 done; SEC-13 pending test harness)
 - **Plan section:** [`Optim.md` §6](./Optim.md)  |  **Source:** [`Optim/Optim_security_rbac.md`](./Optim_security_rbac.md)
-- **Branch / commit range:** _set by the skill when work starts_
+- **Branch / commit range:** sec-p0-20261031
 
 ### General checklist (mirrors the plan)
 
-- [ ] SEC-00 Reconcile with source document and code
-- [ ] SEC-01 [P0] One shared `requirePermission(perm)` middleware, deny by default
-- [ ] SEC-02 [P0] Close unprotected and fake-protected routes
-- [ ] SEC-03 [P0] Rate limiting on login, register, reset-credentials and public forms
-- [ ] SEC-04 [P0] Remove dev password fallback and lock down registration
-- [ ] SEC-05 [P0] CORS allowlist, helmet, env-based config
+- [x] SEC-00 Reconcile with source document and code
+- [x] SEC-01 [P0] One shared `requirePermission(perm)` middleware, deny by default
+- [x] SEC-02 [P0] Close unprotected and fake-protected routes
+- [x] SEC-03 [P0] Rate limiting on login, register, reset-credentials and public forms
+- [x] SEC-04 [P0] Remove dev password fallback and lock down registration
+- [x] SEC-05 [P0] CORS allowlist, helmet, env-based config
 - [ ] SEC-06 [P1] Real sessions: random hashed tokens in a `sessions` table
 - [ ] SEC-07 [P3] Split and rename permissions to match actions
 - [ ] SEC-08 [P3] New roles: Finance/Accountant, Baker/Decorator, Delivery/Driver

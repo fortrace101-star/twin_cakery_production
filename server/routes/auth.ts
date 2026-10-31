@@ -10,7 +10,10 @@ import { store } from "../database/store.js";
 const router = Router();
 const authService = new AuthService();
 
-router.post("/login", async (req, res) => {
+const claimRateLimit = rateLimit({ max: 5, windowMs: 15 * 60 * 1000 });
+const authRateLimit = rateLimit({ max: 10, windowMs: 15 * 60 * 1000 });
+
+router.post("/login", authRateLimit, async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
     return res.status(400).json({ error: "Username and password are required" });
@@ -32,8 +35,6 @@ router.post("/login", async (req, res) => {
     return res.status(401).json({ error: "Invalid credentials" });
   }
 });
-
-const claimRateLimit = rateLimit({ max: 5, windowMs: 15 * 60 * 1000 });
 
 router.post("/claim-admin", claimRateLimit, async (req, res) => {
   const { code, username, displayName, email, phone, password, confirmPassword } = req.body || {};
@@ -134,8 +135,8 @@ router.post("/claim-admin", claimRateLimit, async (req, res) => {
 });
 
 
-router.post("/register", async (req, res) => {
-  const { username, displayName, email, phone, password, confirmPassword, role, isAdmin, registerCode } = req.body || {};
+router.post("/register", authRateLimit, async (req, res) => {
+  const { username, displayName, email, phone, password, confirmPassword, registerCode } = req.body || {};
 
   if (!username || typeof username !== "string") {
     return res.status(400).json({ error: "Username is required" });
@@ -188,24 +189,15 @@ router.post("/register", async (req, res) => {
     displayName: String(displayName ?? username),
     email: String(email ?? ""),
     phone: String(phone ?? ""),
-    role: String(role ?? "Staff"),
-    isAdmin: Boolean(isAdmin),
+    role: "Staff",
+    isAdmin: false,
     status: "Active",
     passwordHash,
   });
 
-  // Staff signups must land on a seeded RBAC role: without a user_roles row
-  // getPermissionsForUser() resolves to [] â€” an empty sidebar (E5 visibleModules)
-  // and a 403 on every required() route check. The submitted label maps onto a
-  // seeded role; unknown labels fall back to the least-privileged one
-  // (role-csr). Admin stays unreachable here: admin bootstrap only goes through
-  // /claim-admin with an admin code.
-  const roleIdByLabel: Record<string, string> = {
-    "sales manager": "role-sales",
-    "production manager": "role-production",
-    "customer service representative": "role-csr",
-  };
-  const roleId = roleIdByLabel[String(role ?? "").trim().toLowerCase()] ?? "role-csr";
+  // Staff signups always land on the least-privileged seeded role (role-csr).
+  // Admin bootstrap only goes through /claim-admin with an admin code.
+  const roleId = "role-csr";
   const { flush: flushDb } = await import("../database/index.new.js");
   const assignedAt = new Date().toISOString();
   store.userRoles().push({ id: `ur-${user.id}`, userId: user.id, roleId, createdAt: assignedAt, updatedAt: assignedAt });
@@ -231,7 +223,7 @@ router.post("/register", async (req, res) => {
   });
 });
 
-router.post("/reset-credentials", async (req, res) => {
+router.post("/reset-credentials", authRateLimit, async (req, res) => {
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   try { await rbacService.requirePermission(session.userId, "users.manage"); } catch { return res.status(403).json({ error: "Forbidden" }); }

@@ -2,8 +2,11 @@ import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
 import { notificationService } from "../services/notification.service.js";
 import { NotFoundError } from "../utils/errors.js";
+import { rateLimit } from "../middleware/rateLimit.js";
 
 const router = Router();
+
+const publicRateLimit = rateLimit({ max: 20, windowMs: 15 * 60 * 1000 });
 
 router.get("/catalogue", (req, res) => {
   const categories = store.db.catalogue?.categories || [];
@@ -97,7 +100,7 @@ function notifyNewInquiry(inquiryId: string, subject: string): void {
   }
 }
 
-router.post("/inquiries", (req, res) => {
+router.post("/inquiries", publicRateLimit, (req, res) => {
   const { name, phone, email, source, channel, subject, summary, details } = req.body || {};
   if (!name || !subject) return res.status(400).json({ error: "name and subject are required" });
   // FK-safe: inquiries.customer_id is NOT NULL, so resolve-or-create a REAL
@@ -135,7 +138,7 @@ router.post("/inquiries", (req, res) => {
 
 const DELIVERY_TYPES = ["PICKUP", "HOME_DELIVERY", "COLLECTION", "DELIVERY"];
 
-router.post("/order-proposals", (req, res) => {
+router.post("/order-proposals", publicRateLimit, (req, res) => {
   const {
     customerName,
     name,

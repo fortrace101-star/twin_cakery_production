@@ -22,10 +22,13 @@ import publicRouter from "./public.js";
 import orderProposalsRouter from "./order-proposals.js";
 import staffRouter from "./staff.js";
 import remunerationRouter from "./remuneration.js";
+import { requireAuth } from "../middleware/auth.js";
 
 export const apiRouter = Router();
 
 apiRouter.use("/auth", authRouter);
+apiRouter.use("/public", publicRouter);
+apiRouter.use(requireAuth);
 apiRouter.use("/catalogue", catalogueRouter);
 apiRouter.use("/content", contentRouter);
 apiRouter.use("/customers", customerRouter);

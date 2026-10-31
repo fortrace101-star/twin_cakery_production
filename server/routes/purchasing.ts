@@ -73,7 +73,7 @@ router.get("/suppliers/:id", required("purchasing.view"), (req, res) => {
   res.json(supplier);
 });
 
-router.patch("/suppliers/:id", required("purchasing.create"), (req, res) => {
+router.patch("/suppliers/:id", required("suppliers.edit"), (req, res) => {
   const supplier = store.findSupplier(String(req.params.id));
   if (!supplier) throw new NotFoundError("Supplier not found");
   const body = req.body || {};
@@ -106,7 +106,7 @@ router.patch("/suppliers/:id", required("purchasing.create"), (req, res) => {
   res.json(updated);
 });
 
-router.delete("/suppliers/:id", required("purchasing.create"), (req, res) => {
+router.delete("/suppliers/:id", required("suppliers.archive"), (req, res) => {
   const id = String(req.params.id);
   const supplier = store.findSupplier(id);
   if (!supplier) throw new NotFoundError("Supplier not found");
@@ -118,7 +118,7 @@ router.delete("/suppliers/:id", required("purchasing.create"), (req, res) => {
   res.status(204).send();
 });
 
-router.post("/suppliers", (req, res) => {
+router.post("/suppliers", required("suppliers.create"), (req, res) => {
   try {
     const body = req.body || {};
     let finalSupplierId = body.id || body.supplierId || undefined;

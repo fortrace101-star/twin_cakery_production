@@ -129,7 +129,7 @@ router.post("/:id/cancel", required("deliveries.cancel"), (req, res) => {
   res.json(delivery);
 });
 
-router.patch("/:id", required("deliveries.view"), (req, res) => {
+router.patch("/:id", required("deliveries.update"), (req, res) => {
   const id = String(req.params.id);
   const delivery = store.findDelivery(id);
   if (!delivery) throw new NotFoundError("Delivery not found");

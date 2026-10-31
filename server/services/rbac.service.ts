@@ -24,6 +24,17 @@ export class RbacService {
     return rows.map((r) => r.key);
   }
 
+  /** Cached permission set with 30-second TTL. Invalidate on grant/revoke or user role change. */
+  private permCache = new Map<string, { exp: number; perms: Set<string> }>();
+  async permissionSet(userId: string): Promise<ReadonlySet<string>> {
+    const hit = this.permCache.get(userId);
+    if (hit && hit.exp > Date.now()) return hit.perms;
+    const perms = new Set(await this.getPermissionsForUser(userId));
+    this.permCache.set(userId, { exp: Date.now() + 30_000, perms });
+    return perms;
+  }
+  invalidatePermCache(userId?: string) { userId ? this.permCache.delete(userId) : this.permCache.clear(); }
+
   async hasPermission(userId: string, permission: string): Promise<boolean> {
     const perms = await this.getPermissionsForUser(userId);
     return perms.includes(permission);
@@ -58,6 +69,9 @@ export class RbacService {
       "purchasing.create": ["purchasing.create"],
       "purchasing.approve": ["purchasing.approve"],
       "purchasing.receive": ["purchasing.receive"],
+      "suppliers.create": ["suppliers.create"],
+      "suppliers.edit": ["suppliers.edit"],
+      "suppliers.archive": ["suppliers.archive"],
       "finance.view": ["finance.view"],
       "finance.record_payment": ["finance.record_payment"],
       "finance.record_expense": ["finance.record_expense"],
@@ -66,6 +80,7 @@ export class RbacService {
       "payments.record": ["payments.record"],
       "deliveries.view": ["deliveries.view"],
       "deliveries.create": ["deliveries.create"],
+      "deliveries.update": ["deliveries.update"],
       "deliveries.dispatch": ["deliveries.dispatch"],
       "deliveries.complete": ["deliveries.complete"],
       "deliveries.cancel": ["deliveries.cancel"],

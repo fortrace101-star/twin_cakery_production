@@ -51,10 +51,6 @@ export class AuthService {
     } catch {
       ok = false;
     }
-    // Dev fallback: legacy/placeholder hashes that were never bcrypt-hashed.
-    if (!ok && (hash === "" || hash === "$2b$10$placeholder")) {
-      ok = credentials.password === "placeholder" || credentials.password === "TwinCakery123!";
-    }
     if (!ok) {
       throw new UnauthorizedError("Invalid credentials");
     }
