@@ -1,4 +1,4 @@
-import { Router, RequestHandler } from "express";
+﻿import { Router, RequestHandler } from "express";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -53,6 +53,9 @@ router.post("/claim-admin", claimRateLimit, async (req, res) => {
   if (store.findUserByUsername(username)) {
     return res.status(409).json({ error: "Username is already taken" });
   }
+  if (store.findUserByEmail(email)) {
+    return res.status(409).json({ error: "Email is already taken" });
+  }
 
   // Hash the code and look it up
   const crypto = await import("node:crypto");
@@ -98,10 +101,15 @@ router.post("/claim-admin", claimRateLimit, async (req, res) => {
   });
 
   // Assign role-admin (keep in-memory cache + DB in sync)
-  const { flush: flushDb } = await import("../database/index.new.js");
-  const now = new Date().toISOString();
-  store.userRoles().push({ id: `ur-${user.id}`, userId: user.id, roleId: "role-admin", createdAt: now, updatedAt: now } as any);
-  await flushDb();
+  try {
+    const { flush: flushDb } = await import("../database/index.new.js");
+    const now = new Date().toISOString();
+    store.userRoles().push({ id: `ur-${user.id}`, userId: user.id, roleId: "role-admin", createdAt: now, updatedAt: now } as any);
+    await flushDb();
+  } catch (err) {
+    console.error("CLAIM-ADMIN FLUSH ERROR:", err);
+    throw err;
+  }
 
   // Mark code as used
   const { pool } = await import("../database/db.js");
@@ -187,7 +195,7 @@ router.post("/register", async (req, res) => {
   });
 
   // Staff signups must land on a seeded RBAC role: without a user_roles row
-  // getPermissionsForUser() resolves to [] — an empty sidebar (E5 visibleModules)
+  // getPermissionsForUser() resolves to [] â€” an empty sidebar (E5 visibleModules)
   // and a 403 on every required() route check. The submitted label maps onto a
   // seeded role; unknown labels fall back to the least-privileged one
   // (role-csr). Admin stays unreachable here: admin bootstrap only goes through
@@ -277,3 +285,4 @@ router.get("/user-count", (req, res) => {
 });
 
 export default router;
+

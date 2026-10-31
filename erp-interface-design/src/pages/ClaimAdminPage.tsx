@@ -45,7 +45,7 @@ export function ClaimAdminPage() {
         confirmPassword,
       });
       setSuccess(`Admin claimed — logging you in as ${result.user.username}.`);
-      setTimeout(() => navigate("/", { replace: true }), 1200);
+      setTimeout(() => navigate("/", { replace: true }), 1000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Claim failed.");
     } finally {
@@ -55,15 +55,12 @@ export function ClaimAdminPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
-      <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-8 shadow-lg">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-lg">
         <div className="text-center">
           <div className="flex justify-center">
             <img src={logo} alt="Twin Cakery logo" className="h-16 w-16 rounded-xl bg-white object-contain p-2" />
           </div>
           <h1 className="mt-4 text-2xl font-semibold text-foreground">Create Admin Account</h1>
-          <p className="text-sm text-muted-foreground">
-            Enter the admin code provided by your administrator.
-          </p>
         </div>
 
         <form className="erp-form mt-6 space-y-4" onSubmit={submit} noValidate>
@@ -83,38 +80,40 @@ export function ClaimAdminPage() {
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50"
             />
           </div>
-          <div>
-            <label htmlFor="username" className="mb-1 block text-xs font-medium text-muted-foreground">
-              Username
-            </label>
-            <input
-              id="username"
-              name="username"
-              type="text"
-              autoComplete="username"
-              required
-              disabled={busy}
-              placeholder="e.g. jane.cakes"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50"
-            />
-          </div>
-          <div>
-            <label htmlFor="displayName" className="mb-1 block text-xs font-medium text-muted-foreground">
-              Display name
-            </label>
-            <input
-              id="displayName"
-              name="displayName"
-              type="text"
-              autoComplete="name"
-              disabled={busy}
-              placeholder="Jane Cakes"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50"
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="username" className="mb-1 block text-xs font-medium text-muted-foreground">
+                Username
+              </label>
+              <input
+                id="username"
+                name="username"
+                type="text"
+                autoComplete="username"
+                required
+                disabled={busy}
+                placeholder="e.g. jane.cakes"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50"
+              />
+            </div>
+            <div>
+              <label htmlFor="displayName" className="mb-1 block text-xs font-medium text-muted-foreground">
+                Display name
+              </label>
+              <input
+                id="displayName"
+                name="displayName"
+                type="text"
+                autoComplete="name"
+                disabled={busy}
+                placeholder="Jane Cakes"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50"
+              />
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>

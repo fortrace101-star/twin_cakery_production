@@ -1,4 +1,4 @@
-import { getDb, resetStore, type DbCache } from "./index.new.js";
+﻿import { getDb, resetStore, type DbCache } from "./index.new.js";
 import type {
   AuditLog,
   BlogCategory,
@@ -127,7 +127,7 @@ function slugify(input: string): string {
 function nextOccurrence(eventDateStr: string, rule: EventRecurrence): string {
   const base = new Date(eventDateStr);
   if (Number.isNaN(base.getTime())) return eventDateStr.slice(0, 10);
-  // NONE: a one-off event — its occurrence is simply the event date (past or
+  // NONE: a one-off event â€” its occurrence is simply the event date (past or
   // future); it never advances. Only recurring rules roll forward.
   if (rule === "NONE") return base.toISOString().slice(0, 10);
   const from = Date.now();
@@ -311,7 +311,7 @@ export class MemoryStore {
     return inquiry;
   }
 
-  // ---- public order proposals (E6 §§29-30) ----
+  // ---- public order proposals (E6 Â§Â§29-30) ----
   orderProposals(): OrderProposal[] {
     return this.db.orderProposals;
   }
@@ -565,10 +565,10 @@ export class MemoryStore {
       "taxAmount", "total", "requiredBy", "requiredAt", "notes", "status", "paymentStatus",
       "deliveryStatus", "quotationId", "inquiryId", "createdBy", "deliveredAt", "followUpCompletedAt",
       // The bakery station board transitions orders through
-      // pendingConfirm → confirmed → baking → done; dropping `station` here
+      // pendingConfirm â†’ confirmed â†’ baking â†’ done; dropping `station` here
       // made every station write a silent no-op.
       "station",
-      // Delivery location + landmark note (migration 021) — PATCH-able so the
+      // Delivery location + landmark note (migration 021) â€” PATCH-able so the
       // client can edit them after creation.
       "deliveryLocation", "locationNote",
     ]);
@@ -632,7 +632,7 @@ export class MemoryStore {
       updatedAt: now,
     };
     this.db.orderStatusHistory.push(row);
-    // §34 — order cancellation is an auditable business action; the route
+    // Â§34 â€” order cancellation is an auditable business action; the route
     // bypasses businessService.cancelOrder, so the audit row lives here.
     this.createAuditLog({
       orderId: order.id, actor: changedBy, action: "order:cancelled",
@@ -697,8 +697,8 @@ export class MemoryStore {
 
   /**
    * Recompute an order's payment status from the actual payment ledger
-   * (spec §14: "Outstanding balance must be calculated server-side").
-   * UNPAID → PARTIALLY_PAID → PAID → OVERPAID derives from sum(payments)
+   * (spec Â§14: "Outstanding balance must be calculated server-side").
+   * UNPAID â†’ PARTIALLY_PAID â†’ PAID â†’ OVERPAID derives from sum(payments)
    * vs order.total; REFUNDED is manual and never overwritten.
    */
   recomputePaymentStatus(orderId: string): PaymentStatus | undefined {
@@ -711,7 +711,7 @@ export class MemoryStore {
     const total = Number(order.total) || 0;
     let next: PaymentStatus;
     if (paid <= 0) next = "UNPAID";
-    else if (total <= 0) next = "PAID"; // no priced total — any money received settles it
+    else if (total <= 0) next = "PAID"; // no priced total â€” any money received settles it
     else if (paid < total) next = "PARTIALLY_PAID";
     else if (paid > total) next = "OVERPAID";
     else next = "PAID";
@@ -1061,7 +1061,7 @@ export class MemoryStore {
       item.receivedQuantity = item.quantity;
     }
     const receiptId = makeId("gr");
-    // Spec §12: goods receipt must record every received line + update
+    // Spec Â§12: goods receipt must record every received line + update
     // supplier price history (cost analysis / supplier comparison).
     const receiptItems: GoodsReceiptItem[] = po.items.map((item) => ({
       id: makeId("gri"),
@@ -1096,7 +1096,7 @@ export class MemoryStore {
         unit: item.unit,
         price: mapNum(item.unitCost),
         effectiveDate: now.slice(0, 10),
-        note: `Goods receipt ${receiptId} · ${po.poNumber}`,
+        note: `Goods receipt ${receiptId} Â· ${po.poNumber}`,
         createdAt: now,
         updatedAt: now,
       });
@@ -1523,6 +1523,10 @@ export class MemoryStore {
     return this.db.users.find((u) => u.username === username);
   }
 
+  findUserByEmail(email: string): User | undefined {
+    return this.db.users.find((u) => u.email === email);
+  }
+
   updateUser(id: string, input: Patch): User | undefined {
     const user = this.db.users.find((u) => u.id === id);
     if (!user) return undefined;
@@ -1587,7 +1591,7 @@ export class MemoryStore {
   }
 
   // ---------------------------------------------------------------------------
-  // E1 — Customer order history, occasions & recurring reminders
+  // E1 â€” Customer order history, occasions & recurring reminders
   // ---------------------------------------------------------------------------
 
   /** Orders placed by a customer, most recent first. Backs GET /customers/:id/orders. */
@@ -1707,7 +1711,7 @@ export class MemoryStore {
   /**
    * Recurring-reminder scheduler (E1): keep exactly one live (PENDING/REMINDED)
    * reminder pointing at the event's next future occurrence. The system NEVER
-   * auto-contacts the customer — staff act on a reminder and mark it Contacted.
+   * auto-contacts the customer â€” staff act on a reminder and mark it Contacted.
    * Idempotent, safe to call on create/update.
    */
   private syncEventReminder(event: CustomerEvent): void {
@@ -1754,7 +1758,7 @@ export class MemoryStore {
 
   /**
    * Reminders still awaiting action, whose occurrence falls within the next
-   * `days` days (default 30) — backs GET /customer-reminders and the printable
+   * `days` days (default 30) â€” backs GET /customer-reminders and the printable
    * next-7/30-day list. CONTACTED/DISMISSED reminders are excluded. Sorted by
    * next fire time so the most urgent surfaces first.
    */
@@ -1772,9 +1776,9 @@ export class MemoryStore {
 
   /**
    * Staff act on a reminder: record the contact + outcome and roll the reminder
-   * forward to the event's next future occurrence (annual → next year, monthly →
+   * forward to the event's next future occurrence (annual â†’ next year, monthly â†’
    * next month). One-off events produce no further reminder. The system itself
-   * never contacts the customer — this is the only path that advances a
+   * never contacts the customer â€” this is the only path that advances a
    * reminder, and it always requires a human (`contactedBy`). Backs
    * PATCH /customer-reminders/:id/contacted.
    */
@@ -1809,7 +1813,7 @@ export class MemoryStore {
   }
 
   // -------------------------------------------------------------------------
-  // E2 — Website content: blog categories, blog posts, website users
+  // E2 â€” Website content: blog categories, blog posts, website users
   // Managed from the ERP "Site Management" page; the public website reads
   // the published subset via GET /api/v1/public/*. One DB, no duplicate store.
   // -------------------------------------------------------------------------
@@ -1993,14 +1997,14 @@ export class MemoryStore {
   }
 
   // -------------------------------------------------------------------------
-  // E7 — Staff management & salary/remuneration (governing doc §§18.1–18.8)
+  // E7 â€” Staff management & salary/remuneration (governing doc Â§Â§18.1â€“18.8)
   // Salary figures are confidential: routes gate every read behind a
   // remuneration.* permission. Workflow status transitions are enforced here
-  // so no route can bypass them. CLOSED periods are terminal — corrections
-  // become NEW records, never silent rewrites (§18.7 / rule 34).
+  // so no route can bypass them. CLOSED periods are terminal â€” corrections
+  // become NEW records, never silent rewrites (Â§18.7 / rule 34).
   // -------------------------------------------------------------------------
 
-  // ---- staff (§18.1: identity, roles, schedule, notes) ----
+  // ---- staff (Â§18.1: identity, roles, schedule, notes) ----
 
   staffList(): Staff[] {
     return this.db.staff.slice().sort((a, b) => a.name.localeCompare(b.name));
@@ -2044,12 +2048,12 @@ export class MemoryStore {
     return staff;
   }
 
-  /** No hard delete — salary history must stay reconstructable (§18.7). */
+  /** No hard delete â€” salary history must stay reconstructable (Â§18.7). */
   archiveStaff(id: string): Staff | undefined {
     return this.updateStaff(id, { employmentStatus: "TERMINATED" });
   }
 
-  // ---- attendance (§18.1: one row per staff per day, upsert) ----
+  // ---- attendance (Â§18.1: one row per staff per day, upsert) ----
 
   attendance(staffId?: string, fromDate?: string, toDate?: string): StaffAttendance[] {
     return this.db.staffAttendance
@@ -2088,7 +2092,7 @@ export class MemoryStore {
     return record;
   }
 
-  // ---- salary profiles (§18.2: confidential recurring baseline) ----
+  // ---- salary profiles (Â§18.2: confidential recurring baseline) ----
 
   salaryProfileFor(staffId: string): SalaryProfile | undefined {
     return this.db.salaryProfiles.find((p) => p.staffId === staffId);
@@ -2122,10 +2126,10 @@ export class MemoryStore {
     this.db.persist();
     return record;
   }
-  // ---- payment periods (§18.3 admin-defined; §18.4 workflow) ----
+  // ---- payment periods (Â§18.3 admin-defined; Â§18.4 workflow) ----
   //
-  // CREATE → OPEN → (select+calculate) PROCESSING → (approve) APPROVED
-  //        → (record payments) PARTIALLY_PAID / PAID → (close) CLOSED.
+  // CREATE â†’ OPEN â†’ (select+calculate) PROCESSING â†’ (approve) APPROVED
+  //        â†’ (record payments) PARTIALLY_PAID / PAID â†’ (close) CLOSED.
   // CLOSED is terminal: no item/payment/period mutation is ever applied.
 
   remunerationPeriods(): RemunerationPeriod[] {
@@ -2161,10 +2165,10 @@ export class MemoryStore {
     return record;
   }
 
-  /** Throws when the period is CLOSED — the invariant every mutator shares. */
+  /** Throws when the period is CLOSED â€” the invariant every mutator shares. */
   private assertPeriodOpen(period: RemunerationPeriod, what: string): void {
     if (period.status === "CLOSED") {
-      throw new Error(`Period is CLOSED — ${what} must be recorded as a new adjustment, never a rewrite`);
+      throw new Error(`Period is CLOSED â€” ${what} must be recorded as a new adjustment, never a rewrite`);
     }
   }
 
@@ -2180,7 +2184,7 @@ export class MemoryStore {
       .sort((a, b) => b.paymentDate.localeCompare(a.paymentDate));
   }
 
-  /** net = basic + allowances + bonuses − deductions − advance + other (§18.4). */
+  /** net = basic + allowances + bonuses âˆ’ deductions âˆ’ advance + other (Â§18.4). */
   private computeNet(i: { basicSalary: number; allowances: number; bonuses: number; deductions: number; advanceAmount: number; otherPayments: number }): number {
     return Math.round(
       (i.basicSalary + i.allowances + i.bonuses - i.deductions - i.advanceAmount + i.otherPayments) * 100,
@@ -2201,16 +2205,16 @@ export class MemoryStore {
     period.updatedAt = new Date().toISOString();
   }
   /**
-   * SELECT STAFF + CALCULATE (§18.4): materialise one item per selected staff
-   * from their salary profile. Re-runnable while OPEN/PROCESSING — approved
+   * SELECT STAFF + CALCULATE (Â§18.4): materialise one item per selected staff
+   * from their salary profile. Re-runnable while OPEN/PROCESSING â€” approved
    * lines are frozen. Advances are NEVER auto-deducted: the Admin opts in per
-   * line so outstanding balances stay visible (§18.6).
+   * line so outstanding balances stay visible (Â§18.6).
    */
   calculatePeriod(periodId: string, staffIds: string[], _actor: string): RemunerationItem[] {
     const period = this.findPeriod(periodId);
     if (!period) throw new Error("Period not found");
     this.assertPeriodOpen(period, "calculation");
-    if (period.approvedAt) throw new Error("Period is already APPROVED — adjustments must be new records");
+    if (period.approvedAt) throw new Error("Period is already APPROVED â€” adjustments must be new records");
     const now = new Date().toISOString();
     const targets = staffIds.length
       ? staffIds
@@ -2266,7 +2270,7 @@ export class MemoryStore {
     if (!period) return undefined;
     this.assertPeriodOpen(period, "item adjustment");
     if (period.approvedAt && item.status !== "PENDING") {
-      throw new Error("Approved lines are frozen — record corrections as a NEW adjustment line");
+      throw new Error("Approved lines are frozen â€” record corrections as a NEW adjustment line");
     }
     applyPatch(item, patch, [
       "basicSalary", "allowances", "bonuses", "deductions", "advanceAmount", "otherPayments", "notes", "status",
@@ -2278,11 +2282,11 @@ export class MemoryStore {
     return item;
   }
 
-  /** Additive correction line for APPROVED/CLOSED periods (§18.7 history). */
+  /** Additive correction line for APPROVED/CLOSED periods (Â§18.7 history). */
   addAdjustmentItem(periodId: string, input: Patch): RemunerationItem {
     const period = this.findPeriod(periodId);
     if (!period) throw new Error("Period not found");
-    if (!period.approvedAt) throw new Error("Adjustments only apply after approval — edit the line directly");
+    if (!period.approvedAt) throw new Error("Adjustments only apply after approval â€” edit the line directly");
     const now = new Date().toISOString();
     const draft = {
       basicSalary: mapNum(input.basicSalary),
@@ -2312,13 +2316,13 @@ export class MemoryStore {
     return record;
   }
 
-  /** REVIEW/ADJUST → APPROVE: freeze every line (§18.4/§18.7). */
+  /** REVIEW/ADJUST â†’ APPROVE: freeze every line (Â§18.4/Â§18.7). */
   approvePeriod(periodId: string, actor: string): RemunerationPeriod | undefined {
     const period = this.findPeriod(periodId);
     if (!period) return undefined;
     this.assertPeriodOpen(period, "approval");
     if (period.approvedAt) throw new Error("Period is already approved");
-    if (this.periodItems(periodId).length === 0) throw new Error("Calculate salary before approving — no items selected");
+    if (this.periodItems(periodId).length === 0) throw new Error("Calculate salary before approving â€” no items selected");
     const now = new Date().toISOString();
     period.status = "APPROVED";
     period.approvedBy = actor || null;
@@ -2330,7 +2334,7 @@ export class MemoryStore {
     this.db.persist();
     return period;
   }
-  // ---- payments (§18.7): record → mark paid → rollup → close ----
+  // ---- payments (Â§18.7): record â†’ mark paid â†’ rollup â†’ close ----
 
   recordPayment(input: Patch): RemunerationPayment {
     const period = this.findPeriod(String(input.periodId ?? ""));
@@ -2382,7 +2386,7 @@ export class MemoryStore {
     return payment;
   }
 
-  /** CLOSE PERIOD: terminal. Totals + rows are frozen from here on (§18.7). */
+  /** CLOSE PERIOD: terminal. Totals + rows are frozen from here on (Â§18.7). */
   closePeriod(periodId: string, actor: string): RemunerationPeriod | undefined {
     const period = this.findPeriod(periodId);
     if (!period) return undefined;
@@ -2397,7 +2401,7 @@ export class MemoryStore {
     return period;
   }
 
-  // ---- advances (§18.6): original amount immutable, repayments append ----
+  // ---- advances (Â§18.6): original amount immutable, repayments append ----
 
   staffAdvances(staffId?: string): StaffAdvance[] {
     return this.db.staffAdvances
@@ -2434,9 +2438,9 @@ export class MemoryStore {
   }
 
   /**
-   * Recovery/repayment: appends to repaymentLog and bumps repaidAmount —
+   * Recovery/repayment: appends to repaymentLog and bumps repaidAmount â€”
    * `amount` is NEVER reduced, so the original grant stays reconstructable
-   * (§18.6 "must not be silently overwritten"). Settles at zero outstanding.
+   * (Â§18.6 "must not be silently overwritten"). Settles at zero outstanding.
    */
   recordAdvanceRepayment(advanceId: string, input: Patch): StaffAdvance | undefined {
     const advance = this.db.staffAdvances.find((a) => a.id === advanceId);
@@ -2461,11 +2465,11 @@ export class MemoryStore {
     this.db.persist();
     return advance;
   }
-  // ---- payslips & dashboard (§18.5/§18.8) ----
+  // ---- payslips & dashboard (Â§18.5/Â§18.8) ----
 
   /**
    * Issue payslips for every approved line of a period. Figures are COPIED at
-   * issue time — later profile/line edits never rewrite an issued document.
+   * issue time â€” later profile/line edits never rewrite an issued document.
    * Reissuing an already-issued staff line is a no-op (idempotent).
    */
   issuePayslips(periodId: string, actor: string): Payslip[] {
@@ -2487,7 +2491,7 @@ export class MemoryStore {
         periodId,
         staffId: item.staffId,
         itemId: item.id,
-        periodLabel: period.label || `${period.startDate} → ${period.endDate}`,
+        periodLabel: period.label || `${period.startDate} â†’ ${period.endDate}`,
         staffName: staff.name,
         basicSalary: item.basicSalary,
         allowances: item.allowances,
@@ -2517,7 +2521,7 @@ export class MemoryStore {
   }
 
   /**
-   * §18.5 — the Admin's period dashboard: totals due/paid/pending, allowances,
+   * Â§18.5 â€” the Admin's period dashboard: totals due/paid/pending, allowances,
    * deductions, outstanding advances, status and upcoming payment dates, with
    * drill-down ids. Everything derives from live rows, never cached figures.
    */

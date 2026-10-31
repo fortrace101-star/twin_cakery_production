@@ -79,6 +79,7 @@ app.use((req, res, next) => {
         if (!res.headersSent) originalJson(body);
       })
       .catch((err: unknown) => {
+        logger.failure("server", `DURABILITY GATE FLUSH ERROR: ${String(err)}`);
         logger.failure("server", "write-back failed, responding 500");
         if (!res.headersSent) res.status(500).json({ error: "Failed to persist changes" });
       });
@@ -98,10 +99,11 @@ app.use((req, res, next) => {
   res.json = ((body: unknown) => {
     void flush()
       .then(() => {
-        if (res.statusCode < 300 && req.method !== "GET") publish({ type: "change" });
+        if (res.statusCode < 300 && req.method !== "GET") broadcastChange(req.method, req.url);
         if (!res.headersSent) originalJson(body);
       })
       .catch((err: unknown) => {
+        console.error("WRITE-BACK ERROR 2:", err);
         logger.failure("server", "write-back failed, responding 500");
         if (!res.headersSent) res.status(500).json({ error: "Failed to persist changes" });
       });
