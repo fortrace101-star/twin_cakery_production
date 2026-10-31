@@ -1,7 +1,10 @@
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import fs from "node:fs";
 import { logger } from "../utils/logger.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // server/ lives outside the frontend package, so resolve runtime deps
 // (dotenv, pg) from the frontend's node_modules explicitly.
@@ -11,12 +14,26 @@ const requireFromFrontend = createRequire(
 const dotenvModule = requireFromFrontend("dotenv") as { config: () => void };
 dotenvModule.config();
 
+// If the runtime was started from the server folder, also load that .env so
+// DATABASE_URL / APP_BASE_URL can live next to the server code.
+const serverEnvPath = path.resolve(__dirname, ".env");
+if (fs.existsSync(serverEnvPath)) {
+  dotenvModule.config({ path: serverEnvPath });
+}
+
+dotenvModule.config({ path: serverEnvPath });
+
 const pgModule = requireFromFrontend("pg") as typeof import("pg");
 const { Pool } = pgModule;
 
-const connectionString =
-  process.env.DATABASE_URL || "postgres://postgres:90210@localhost:5432/twin_cakery";
+if (!process.env.DATABASE_URL) {
+  logger.failure("db", "DATABASE_URL is not set — copy server/.env.example to server/.env and set it");
+}
 
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  throw new Error("DATABASE_URL is required. Set it in server/.env (see server/.env.example).");
+}
 export const pool = new Pool({ connectionString });
 
 pool.on("error", (err) => {

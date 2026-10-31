@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useLiveRefresh } from "@/lib/live";
 import { Check, Eye, Search, SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -59,6 +60,7 @@ export function OrderProposalsView({ onNotice }: { onNotice: (s: string) => void
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  useLiveRefresh(refresh);
 
   const visible = proposals.filter((p) => {
     if (statusFilter !== "All" && p.status !== statusFilter) return false;

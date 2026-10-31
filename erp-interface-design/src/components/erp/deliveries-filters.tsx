@@ -2,6 +2,7 @@
  * Filter type definitions for delivery module
  * Defines the structure for status filters and search functionality
  */
+import { useState } from "react";
 
 export type StatusFilter = "awaiting_pickup" | "in_transit" | "delivered" | "all";
 
@@ -166,7 +167,7 @@ export function DeliveryFilterBar({
         </span>
       </div>
       <div className="flex justify-between text-sm text-gray-600">
-        <span>Showing {counts[activeFilter] || 0} orders</p>
+        <span>Showing {counts[activeFilter] || 0} orders</span>
         <span>Filtered by: {config.find(c => c.id === activeFilter)?.label || "All"}</span>
       </div>
     </div>

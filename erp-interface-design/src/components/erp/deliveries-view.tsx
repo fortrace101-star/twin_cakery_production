@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useLiveRefresh } from "@/lib/live";
 import { Plus } from "lucide-react";
 import { useWorkspace } from "./store";
 import { Button } from "@/components/ui/button";
@@ -72,6 +73,7 @@ export function DeliveriesView({ onNotice }: { onNotice: (s: string) => void }) 
   }, []);
 
   useEffect(() => { void refreshDeliveries(); }, [refreshDeliveries]);
+  useLiveRefresh(refreshDeliveries);
 
   function resetForm() {
     setFId("");

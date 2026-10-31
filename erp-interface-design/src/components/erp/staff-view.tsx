@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useLiveRefresh } from "@/lib/live";
 import { Lock, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -413,6 +414,7 @@ function SalaryTab(props: {
     void listStaff().then(setStaff);
   }, []);
   useEffect(reload, [reload]);
+  useLiveRefresh(reload);
 
   const refreshSelected = async (id: string) => {
     const detail = await getPeriod(id);

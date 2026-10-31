@@ -1,9 +1,5 @@
+import { useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-
-/**
- * Filter type definitions for delivery module
- * Defines the structure for status filters and search functionality
- */
 
 export type StatusFilter = "awaiting_pickup" | "in_transit" | "delivered" | "all";
 
@@ -30,9 +26,6 @@ export interface FilterProps {
   counts: Record<StatusFilter, number>;
 }
 
-/**
- * Status filter tab component
- */
 export function StatusFilterTab({
   config,
   active,
@@ -54,9 +47,7 @@ export function StatusFilterTab({
       <span aria-hidden="true">{config.icon}</span>
       {config.label}
       {config.count !== undefined && (
-        <span className={`text-xs px-2 py-1 rounded-full ${
-          active ? "bg-white/20' : 'bg-gray-200' 
-        }`}>
+        <span className={`text-xs px-2 py-1 rounded-full ${(active ? "bg-white/20" : "bg-gray-200")}`}>
           {config.count}
         </span>
       )}
@@ -64,9 +55,6 @@ export function StatusFilterTab({
   );
 }
 
-/**
- * Search input component
- */
 export function SearchInput({
   placeholder,
   value,
@@ -92,9 +80,6 @@ export function SearchInput({
   );
 }
 
-/**
- * Filter state hook
- */
 export function useFilterState(initialFilters: FilterConfig[] = []) {
   const [status, setStatus] = useState<StatusFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -108,7 +93,7 @@ export function useFilterState(initialFilters: FilterConfig[] = []) {
   const filteredStatuses = (deliveries: any[]) => {
     switch (status) {
       case "awaiting_pickup":
-        return deliveries.filter(d => 
+        return deliveries.filter(d =>
           d.status === "PENDING" || d.status === "READY_FOR_DISPATCH"
         );
       case "in_transit":
@@ -132,9 +117,6 @@ export function useFilterState(initialFilters: FilterConfig[] = []) {
   };
 }
 
-/**
- * Filter bar component
- */
 export function DeliveryFilterBar({
   config,
   activeFilter,
@@ -168,7 +150,7 @@ export function DeliveryFilterBar({
         </span>
       </div>
       <div className="flex justify-between text-sm text-gray-600">
-        <span>Showing {counts[activeFilter] || 0} orders</p>
+        <span>Showing {counts[activeFilter] || 0} orders</span>
         <span>Filtered by: {config.find(c => c.id === activeFilter)?.label || "All"}</span>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLiveRefresh } from "@/lib/live";
 import { ArrowUpRight, Building2, PackageCheck, Plus, Search, Trash2, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -121,6 +122,7 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
     setLoading(false);
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
+  useLiveRefresh(refresh);
 
   const itemName = useCallback((id: string) => invItems.find(i => i.id === id || i.sku === id)?.name ?? id, [invItems]);
   const supplierName = useCallback((id: string) => suppliers.find(s => s.id === id)?.businessName ?? id, [suppliers]);

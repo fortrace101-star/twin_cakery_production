@@ -15,7 +15,26 @@ function initialsOf(name?: string | null): string {
   return letters.join("") || "TC";
 }
 
-export function Sidebar({module,setTab,setSearch,setStatusFilter,setHelp,user,connected,signOut,setLoginOpen,activeOrders=0,followUps=0,permissions=null}: {module:string;setTab:(v:string)=>void;setSearch:(v:string)=>void;setStatusFilter:(v:string)=>void;setHelp:(v:boolean)=>void;user:ServerUser|null;connected:boolean;signOut:()=>void;setLoginOpen:(v:boolean)=>void;activeOrders?:number;followUps?:number;permissions?:string[]|null}) {
+function stageBadgeItem(counts: Record<string, number>, stage: "Awaiting Collection" | "In Transit" | "Completed / Delivered", tone: "amber" | "orange" | "rose") {
+  const count = counts[stage];
+  if (!count || count <= 0) return null;
+  return (
+    <span key={stage} className="nav-stage-badge" aria-label={`${count} order${count===1?'':'s'} in ${stage} stage`}>
+      <span className={`nav-stage-badge-dot tone-${tone}`} aria-hidden="true" />
+      <span className="nav-stage-badge-count">{count}</span>
+    </span>
+  );
+}
+function stageBadgeItems(counts: Record<string, number>) {
+  const items = [
+    { stage: "Awaiting Collection" as const, tone: "amber" as const },
+    { stage: "In Transit" as const, tone: "orange" as const },
+    { stage: "Completed / Delivered" as const, tone: "rose" as const },
+  ];
+  return items.map(({ stage, tone }) => stageBadgeItem(counts, stage, tone));
+}
+
+export function Sidebar({module,setTab,setSearch,setStatusFilter,setHelp,user,connected,signOut,setLoginOpen,activeOrders=0,followUps=0,permissions=null,orders=[]}: {module:string;setTab:(v:string)=>void;setSearch:(v:string)=>void;setStatusFilter:(v:string)=>void;setHelp:(v:boolean)=>void;user:ServerUser|null;connected:boolean;signOut:()=>void;setLoginOpen:(v:boolean)=>void;activeOrders?:number;followUps?:number;permissions?:string[]|null;orders?:any[]}) {
   const navRef = useRef<HTMLElement | null>(null);
   const profileRef = useRef<HTMLDivElement | null>(null);
   const [canUp, setCanUp] = useState(false);
@@ -34,6 +53,15 @@ export function Sidebar({module,setTab,setSearch,setStatusFilter,setHelp,user,co
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+  // Delivery stage counts for the sidebar badge (deliveries module only).
+  const deliveryCounts: Record<string, number> = {};
+  if (module === 'delivery') {
+    const pooled = [...(orders || [])];
+    deliveryCounts["Awaiting Collection"] = pooled.filter((o: any) => String(o.status || "").toUpperCase().replace(/\s+/g, "_") === "AWAITING_COLLECTION").length;
+    deliveryCounts["In Transit"] = pooled.filter((o: any) => String(o.status || "").toUpperCase().replace(/\s+/g, "_") === "IN_TRANSIT").length;
+    deliveryCounts["Completed / Delivered"] = pooled.filter((o: any) => String(o.status || "").toUpperCase().replace(/\s+/g, "_") === "COMPLETED_DELIVERED").length;
+  }
+
   // Close the profile menu when clicking anywhere outside it.
   useEffect(() => {
     if (!menuOpen) return;
@@ -61,7 +89,7 @@ export function Sidebar({module,setTab,setSearch,setStatusFilter,setHelp,user,co
 
      <Button variant="ghost" asChild className={`nav-item ${module==='dashboard'?'nav-active':''}`} title="Dashboard"><Link to="/"><LayoutDashboard/><span>Dashboard</span></Link></Button>
 
-     {['WORKSPACE','OPERATIONS','PEOPLE','BUSINESS'].map(group=><div className="nav-group" key={group}><p>{group}</p>{visibleModules(modules,permissions).filter(m=>m.group===group).map(m=>{const Icon=icons[m.icon]||LayoutDashboard;return <Button variant="ghost" asChild key={m.id} title={m.id==='crm'&&followUps>0?`${followUps} completed order${followUps===1?'':'s'} awaiting follow-up`:m.label} className={`nav-item ${module===m.id?'nav-active':''}`}><Link to={`/workspace/${m.id}`} onClick={()=>{setTab('');setSearch('');setStatusFilter('All statuses');}}><Icon/><span>{m.label}</span>{m.id==='sales'&&activeOrders>0&&<small className="nav-count">{activeOrders}</small>}{m.id==='crm'&&followUps>0&&<small className="nav-count followup-count" aria-label={`${followUps} completed orders awaiting follow-up`}>{followUps}</small>}</Link></Button>})}</div>)}
+     {['WORKSPACE','OPERATIONS','PEOPLE','BUSINESS'].map(group=><div className="nav-group" key={group}><p>{group}</p>{visibleModules(modules,permissions).filter(m=>m.group===group).map(m=>{const Icon=icons[m.icon]||LayoutDashboard;return <Button variant="ghost" asChild key={m.id} title={m.label} className={`nav-item ${module===m.id?'nav-active':''}`}><Link to={`/workspace/${m.id}`} onClick={()=>{setTab('');setSearch('');setStatusFilter('All statuses');}}><Icon/><span>{m.label}</span>{m.id==='sales'&&activeOrders>0&&<small className="nav-count">{activeOrders}</small>}{m.id==='crm'&&followUps>0&&<small className="nav-count followup-count" aria-label={`${followUps} completed orders awaiting follow-up`}>{followUps}</small>}{m.id==='delivery'&&Object.keys(deliveryCounts).length>0?<span className="nav-stage-badges" aria-label={`Deliveries by stage`}>{stageBadgeItems(deliveryCounts)}</span>:null}</Link></Button>})}</div>)}
 
     </nav>
     {canUp && <button type="button" className="scroll-arrow scroll-up" aria-label="Scroll navigation up" title="Scroll up" onClick={()=>scrollBy(-180)}><ChevronUp size={16}/></button>}

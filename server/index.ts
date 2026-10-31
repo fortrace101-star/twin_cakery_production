@@ -1,4 +1,4 @@
-import dotenv from "dotenv";
+﻿import dotenv from "dotenv";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,8 @@ import { rbacService } from "./services/rbac.service.js";
 import { businessService } from "./services/business.service.js";
 import { ready, flush } from "./database/index.new.js";
 import { logger } from "./utils/logger.js";
+import { AuthService } from "./services/auth.service.js";
+import { addSseClient, removeSseClient, broadcastChange } from "./services/live-events.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,13 +45,13 @@ app.use(express.json({ limit: "100kb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(attachAuth);
 
-// ── Request log ──────────────────────────────────────────────────
-// ONE log line per HTTP request — exactly five fields, nothing more:
+// â”€â”€ Request log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ONE log line per HTTP request â€” exactly five fields, nothing more:
 // source (`http`), endpoint (TypeScript route path, NOT the SQL query),
 // method (GET/POST/PUT/PATCH/DELETE), response time, response code.
-// Spec: IMPLEMENTATION_PLAN §7.1. Runs after attachAuth so the session is
+// Spec: IMPLEMENTATION_PLAN Â§7.1. Runs after attachAuth so the session is
 // available when the response finishes.
-// ────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.use((req: Request, res: Response, next: NextFunction) => {
   const startedAt = process.hrtime.bigint();
   const { method, originalUrl } = req;
@@ -64,7 +66,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// ── Durability gate ──────────────────────────────────────────────
+// â”€â”€ Durability gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Routes mutate the in-memory cache synchronously and queue a Postgres
 // write-back. Hold every JSON response until that write-back has committed so
 // a 2xx means "persisted" (and a failed persist surfaces as a 500 instead of
@@ -85,15 +87,76 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── Health ───────────────────────────────────────────────────────
+// â”€â”€ Durability gate + live publish â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Routes mutate the in-memory cache synchronously and queue a Postgres
+// write-back (server/services/live-events.ts). Hold every JSON response until
+// that write-back has committed so a 2xx means "persisted", then publish a
+// change event so every connected client re-reads the affected views â€” this
+// is what makes state changes self-updating across sessions and tabs.
+app.use((req, res, next) => {
+  const originalJson = res.json.bind(res);
+  res.json = ((body: unknown) => {
+    void flush()
+      .then(() => {
+        if (res.statusCode < 300 && req.method !== "GET") publish({ type: "change" });
+        if (!res.headersSent) originalJson(body);
+      })
+      .catch((err: unknown) => {
+        logger.failure("server", "write-back failed, responding 500");
+        if (!res.headersSent) res.status(500).json({ error: "Failed to persist changes" });
+      });
+    return res;
+  }) as typeof res.json;
+  next();
+});
+
+// â”€â”€ Health â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get("/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// ── API v1 ───────────────────────────────────────────────────────
+// â”€â”€ Live events (SSE) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// One stream per session; subscribes to every domain event and re-broadcasts
+// as SSE. Mounted before the durability gate so it is never delayed.
+app.get("/api/v1/events", (req: Request, res: Response) => {
+  // Subscribe this client to change events
+  addSseClient(res);
+
+  // Set SSE headers
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  // Send an initial heartbeat so the client knows the connection is alive
+  res.write(": connected\n\n");
+
+  // Keep the connection alive with periodic heartbeats
+  const heartbeat = setInterval(() => {
+    if (!res.headersSent) {
+      res.write(": hb\n\n");
+    } else {
+      clearInterval(heartbeat);
+      removeSseClient(res);
+    }
+  }, 3000);
+
+  // Clean up on client disconnect
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    removeSseClient(res);
+  });
+});
+
+// â”€â”€ API v1 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// One stream per session; subscribes to every domain event and re-broadcasts
+// as SSE. Mounted before the durability gate so it is never delayed.
+
+
+// â”€â”€ API v1 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.use("/api/v1", apiRouter);
 
-// ── Serve static frontend (when built) ───────────────────────────
+// â”€â”€ Serve static frontend (when built) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const distDir = path.resolve(__dirname, "..", "erp-interface-design", "dist");
 if (IS_PRODUCTION && fs.existsSync(distDir)) {
   app.use(express.static(distDir));
@@ -106,12 +169,12 @@ if (IS_PRODUCTION && fs.existsSync(distDir)) {
   });
 }
 
-// ── 404 ──────────────────────────────────────────────────────────
+// â”€â”€ 404 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.use((req, res) => {
   res.status(404).json({ error: "Not found", path: req.path });
 });
 
-// ── Global error handler ─────────────────────────────────────────
+// â”€â”€ Global error handler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 /* Express 5 only treats 4-arg middleware as an error handler. The previous
    3-arg version was silently ignored, so thrown route errors (e.g.
    NotFoundError) became uncaught exceptions and killed the tsx process
@@ -130,7 +193,7 @@ void ready
     logger.failure("store", "initial load failed"),
   )
   .finally(() => {
-    // ── Crash guards ─────────────────────────────────────────
+    // â”€â”€ Crash guards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // tsx does NOT auto-restart: any uncaught exception / unhandled rejection
     // kills the API silently. Log loudly instead of vanishing.
     process.on("uncaughtException", (err: unknown) => {
@@ -141,7 +204,7 @@ void ready
       const e = reason as Error;
       logger.failure("server", `unhandledRejection - ${String(e?.message ?? reason)}`);
     });
-    // ── Backfill: pipeline orders must own a Production Job ────────
+    // â”€â”€ Backfill: pipeline orders must own a Production Job â”€â”€â”€â”€â”€â”€â”€â”€
     // Orders stranded before job auto-creation existed (status reading
     // Confirmed / In production with no job) would leave the Jobs board
     // empty. Idempotent, runs on every boot.
@@ -155,8 +218,8 @@ void ready
       logger.boot(`Twin Cakery ERP API running on http://localhost:${PORT}`);
       logger.boot(`API docs: http://localhost:${PORT}/api/v1`);
     });
-    // A second `dev:api` / stale node on the same port throws EADDRINUSE and —
-    // without this — the process dies instantly. Name the culprit instead.
+    // A second `dev:api` / stale node on the same port throws EADDRINUSE and â€”
+    // without this â€” the process dies instantly. Name the culprit instead.
     server.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE") {
         logger.failure("server", `port ${PORT} in use - another API instance is running; refusing to start`);

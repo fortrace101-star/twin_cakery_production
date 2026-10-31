@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useLiveRefresh } from "@/lib/live";
 import type { ServerOrder } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { StatusBadge as Status } from "@/components/data-table/StatusBadge";
@@ -107,6 +108,7 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
     setBoardLoading(false);
   }, []);
   useEffect(() => { void refreshBoard(); }, [refreshBoard]);
+  useLiveRefresh(refreshBoard);
 
   useEffect(() => {
     const ensureJobs = async () => {
@@ -314,6 +316,7 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
     setBoardLoading(false);
   }, []);
   useEffect(() => { void refreshBoard(); }, [refreshBoard]);
+  useLiveRefresh(refreshBoard);
 
   const getColumnForJob = (job: any): "queued" | "baking" | "decorating" | "ready" | null => {
     const status = String(job?.status || "").toUpperCase();

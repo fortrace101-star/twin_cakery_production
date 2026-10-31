@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useLiveRefresh } from "@/lib/live";
 import {
   ArrowRight, Globe, Plus, Trash2, UserCog,
 } from "lucide-react";
@@ -44,6 +45,7 @@ export function WebAppManagement({ tab, onNotice, onSignIn }: { tab: string; onN
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  useLiveRefresh(refresh);
   return (
     <div className="webapp">
       <div className="webapp-banner">
@@ -105,6 +107,7 @@ function ProductCataloguePane({ onNotice, onSignIn }: { onNotice: (s: string) =>
     setLoading(false);
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
+  useLiveRefresh(refresh);
 
   const onWebsite = products.filter((p) => p.archived === false && p.active && p.catalogueVisible).length;
   const catName = (id: string) => categories.find((c) => c.id === id)?.name ?? "Uncategorised";

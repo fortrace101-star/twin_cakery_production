@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, Clock3, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { useLiveRefresh } from "@/lib/live";
+import { Check, Clock3, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useWorkspace } from "./store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,9 +53,12 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
   const [statusSort, setStatusSort] = useState<SortState>(null);
   const [expSort, setExpSort] = useState<SortState>(null);
   // Shared record search + density — the stock-table standard (table-controls
-  // search box above the table, density preference respected).
+  // search box above the table, density preference respected). The filter-select
+  // mirrors the Sales & Orders tables' layout: search left, filter right.
   const { density } = useDensity();
   const [search, setSearch] = useState("");
+  const [payMethod, setPayMethod] = useState("All methods");
+  const [expCategory, setExpCategory] = useState("All categories");
   const [payments, setPayments] = useState<ServerPayment[]>([]);
   const [expenses, setExpenses] = useState<ServerExpense[]>([]);
   const [categories, setCategories] = useState<ServerExpenseCategory[]>([]);
@@ -76,6 +80,7 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
   }, []);
 
   useEffect(() => { void refreshPayments(); }, [refreshPayments]);
+  useLiveRefresh(refreshPayments);
 
   // ---- production costs for profitability KPI ----
   // Jobs themselves carry no cost fields; the ledger lives per job behind
@@ -92,6 +97,7 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
     }
   }, []);
   useEffect(() => { void refreshProductionCosts(); }, [refreshProductionCosts]);
+  useLiveRefresh(refreshProductionCosts);
 
   async function onRecordPayment() {
     if (!orderId || !amount) return onNotice("Enter an order and an amount");
@@ -154,6 +160,7 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
   }, []);
 
   useEffect(() => { void refreshExpenses(); }, [refreshExpenses]);
+  useLiveRefresh(refreshExpenses);
 
   function resetExpenseForm() {
     setEditing(null);
@@ -220,8 +227,12 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
   // ---- reports ------------------------------------------------------------
   const [period, setPeriod] = useState("month");
 
-  // Fresh search on every tab switch so a hidden filter never "eats" rows.
-  useEffect(() => { setSearch(""); }, [activeTab]);
+  // Fresh search/filter on every tab switch so a hidden filter never "eats" rows.
+  useEffect(() => {
+    setSearch("");
+    setPayMethod("All methods");
+    setExpCategory("All categories");
+  }, [activeTab]);
 
   useEffect(() => {
     let keep = true;
@@ -264,14 +275,16 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
     method: (e) => e.paymentMethod,
     amount: (e) => e.amount,
   });
-  // Record searches (stock-table standard: one search box per tab filters the tables).
+  // Record searches/filters (Sales & Orders layout: search box + filter select).
   const q = search.trim().toLowerCase();
-  const filteredPayments = !q ? sortedPayments : sortedPayments.filter((p) =>
-    `${p.orderId} ${p.reference} ${p.method} ${p.receivedBy}`.toLowerCase().includes(q));
+  const filteredPayments = sortedPayments
+    .filter((p) => payMethod === "All methods" || p.method === payMethod)
+    .filter((p) => !q || `${p.orderId} ${p.reference} ${p.method} ${p.receivedBy}`.toLowerCase().includes(q));
   const filteredOutstanding = !q ? sortedOutstanding : sortedOutstanding.filter((o) =>
     `${o.id} ${o.customer} ${o.product} ${o.payment}`.toLowerCase().includes(q));
-  const filteredExpenses = !q ? sortedExpenses : sortedExpenses.filter((e) =>
-    `${categories.find((c) => c.id === e.categoryId)?.name ?? ""} ${e.description} ${e.reference} ${e.recordedBy} ${e.paymentMethod}`.toLowerCase().includes(q));
+  const filteredExpenses = sortedExpenses
+    .filter((e) => expCategory === "All categories" || (categories.find((c) => c.id === e.categoryId)?.name ?? e.categoryId) === expCategory)
+    .filter((e) => !q || `${categories.find((c) => c.id === e.categoryId)?.name ?? ""} ${e.description} ${e.reference} ${e.recordedBy} ${e.paymentMethod}`.toLowerCase().includes(q));
   const reportLines: { label: string; value: string; bold: boolean }[] = reports
     ? [
         { label: "Revenue (subtotal + tax + delivery)", value: money(reports.revenue), bold: false },
@@ -312,7 +325,7 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
               <div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setPasa(null)}>Cancel</Button><Button onClick={() => onConfirmPasa()}><Check size={16}/>Confirm</Button></div>
             </div>
           )}
-          <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search payments" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search payments, orders, references…"/></label></div>
+          <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search payments" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search payments, orders, references…"/></label><label className="filter-select"><SlidersHorizontal size={14}/><select aria-label="Filter payments by method" value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>{["All methods", "Cash", "M-Pesa", "Card", "Bank transfer", "Cheque"].map((m) => <option key={m}>{m}</option>)}</select></label></div>
           <DataTable
             columns={[
               { header: "Order", sortKey: "order", cell: (p) => <strong className="product-name">{p.orderId}</strong> },
@@ -371,7 +384,7 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
               ? <Button variant="secondary" onClick={onSave} disabled={saving}><Check size={16}/>{saving ? "Saving…" : "Save"}</Button>
               : <Button variant="secondary" onClick={openCreate}><Plus size={16}/>New expense</Button>}
           </div>
-          <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search expenses" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search expenses, categories…"/></label></div>
+          <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search expenses" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search expenses, categories…"/></label><label className="filter-select"><SlidersHorizontal size={14}/><select aria-label="Filter expenses by category" value={expCategory} onChange={(e) => setExpCategory(e.target.value)}>{["All categories", ...categories.map((c) => c.name)].map((c) => <option key={c}>{c}</option>)}</select></label></div>
           <DataTable
             columns={[
               { header: "Date", sortKey: "date", cell: (e) => new Date(e.date).toLocaleDateString("en-UG", { year: "numeric", month: "short", day: "numeric" }) },

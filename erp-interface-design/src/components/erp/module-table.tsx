@@ -1,4 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from "react";
+import { useLiveRefresh } from "@/lib/live";
 import { ArrowRight, ArrowUpRight, Check, ChevronLeft, ChevronRight, CircleAlert, ChefHat, Clock3, Eye, EyeOff, MoreHorizontal, Pencil, Plus, Search, SlidersHorizontal, Trash2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -130,6 +131,7 @@ export function Catalogue({tab,search,setSearch,onNotice,onSignIn}: {tab:string;
     setLoading(false);
   },[]);
   useEffect(() => { void refresh(); }, [refresh]);
+  useLiveRefresh(refresh);
 
   const catName = (id: string) => categories.find((c) => c.id === id)?.name ?? "Uncategorised";
   const q = search.toLowerCase();

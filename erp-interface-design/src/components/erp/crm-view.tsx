@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useLiveRefresh } from "@/lib/live";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -629,6 +630,8 @@ export function CrmView({
   }, [contacts]);
 
   if (tab === "Occasions") return <OccasionsView connected={connected} />;
+  useLiveRefresh(() => {});
+
   const active = contacts.find((c) => c.id === activeId) ?? contacts[0] ?? null;
 
   return (

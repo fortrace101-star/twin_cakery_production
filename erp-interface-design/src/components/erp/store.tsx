@@ -138,7 +138,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
     setAudit((logs as ServerAuditLog[]).map(formatAudit));
     setLoading(false);
-  }, []);  useEffect(() => {
+  }, []);
+
+  useEffect(() => {
     void (async () => {
       // If there is no persisted session at all, the backend is effectively
       // unreachable for this user and `refresh()` above will just return `[]`.

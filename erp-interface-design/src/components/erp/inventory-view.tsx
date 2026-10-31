@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLiveRefresh } from "@/lib/live";
 import { Link } from "react-router-dom";
 import { ArrowUpRight, Boxes, Check, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -116,6 +117,7 @@ export function Inventory({ tab, search, setSearch, onNotice, onSignIn }: { tab:
     setLoading(false);
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
+  useLiveRefresh(refresh);
 
   const q = search.toLowerCase();
   const filtered = items.filter(i => `${i.name} ${i.sku} ${i.category}`.toLowerCase().includes(q));

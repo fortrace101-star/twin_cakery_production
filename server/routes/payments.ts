@@ -50,6 +50,10 @@ router.get("/", required("payments.view"), (req, res) => {
 //    marked PAID and an in-app notification is fired.
 
 function buildStkPushResponse(paymentId: string, orderId: string, amount: number, receivedBy: string | null): Record<string, unknown> {
+  const appBaseUrl = process.env.APP_BASE_URL;
+  if (!appBaseUrl) {
+    throw new Error("APP_BASE_URL is not set — copy server/.env.example to server/.env and set it");
+  }
   const phone =
     receivedBy && store.db.users.find((u) => u.id === receivedBy)?.phone
       ? store.db.users.find((u) => u.id === receivedBy)!.phone
@@ -60,7 +64,7 @@ function buildStkPushResponse(paymentId: string, orderId: string, amount: number
     CheckoutRequestID: paymentId,
     ResponseDescription: "Success. Continue to checkout",
     CustomerMessage: "Success. Continue to checkout",
-    CallBackURL: `${process.env.APP_BASE_URL || "http://localhost:4000"}/api/v1/payments/${paymentId}/callback`,
+    CallBackURL: `${appBaseUrl}/api/v1/payments/${paymentId}/callback`,
     ResultCode: 0,
     ResultDesc: "Success",
     MerchantRequestTime: new Date().toISOString(),

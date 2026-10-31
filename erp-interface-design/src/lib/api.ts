@@ -1,8 +1,9 @@
 /**
  * Typed client for the Twin Cakery ERP API (Express, server/index.ts).
  *
- * - `VITE_API_URL` (default `/api/v1`) is the base; the Vite dev server proxies
- *   `/api` to `http://localhost:4000` (see vite.config.ts).
+ * - `VITE_API_URL` (default `/api/v1`) is the base; it is supplied through the
+ *   app env file (`.env` / `.env.example`) instead of being baked into the code.
+ *   The Vite dev server still proxies `/api` to the backend (see vite.config.ts).
  * - The token is persisted in localStorage and attached as a Bearer token.
  * - Read helpers degrade to `[]` on failure so the UI can fall back to bundled
  *   sample data instead of crashing.
