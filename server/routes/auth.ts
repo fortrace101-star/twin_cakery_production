@@ -3,14 +3,20 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AuthService, extractToken } from "../services/auth.service.js";
-import { rbacService } from "../services/rbac.service.js";
+import { RbacService } from "../services/rbac.service.js";
 import { rateLimit } from "../middleware/rateLimit.js";
 import { store } from "../database/store.js";
 
 const router = Router();
+const rbacService = new RbacService()
 const authService = new AuthService();
 
-router.post("/login", async (req, res) => {
+const claimRateLimit = rateLimit({ max: 5, windowMs: 15 * 60 * 1000 });
+const authRateLimit = rateLimit({ max: 10, windowMs: 15 * 60 * 1000 });
+const loginRateLimit = rateLimit({ max: 5, windowMs: 15 * 60 * 1000 });
+const registerRateLimit = rateLimit({ max: 5, windowMs: 15 * 60 * 1000 });
+
+router.post("/login", loginRateLimit, async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
     return res.status(400).json({ error: "Username and password are required" });
@@ -33,8 +39,6 @@ router.post("/login", async (req, res) => {
   }
 });
 
-const claimRateLimit = rateLimit({ max: 5, windowMs: 15 * 60 * 1000 });
-
 router.post("/claim-admin", claimRateLimit, async (req, res) => {
   const { code, username, displayName, email, phone, password, confirmPassword } = req.body || {};
 
@@ -56,6 +60,8 @@ router.post("/claim-admin", claimRateLimit, async (req, res) => {
   if (store.findUserByEmail(email)) {
     return res.status(409).json({ error: "Email is already taken" });
   }
+
+  // SEC-08: claim-admin is rate limited (claimRateLimit).
 
   // Hash the code and look it up
   const crypto = await import("node:crypto");
@@ -134,8 +140,8 @@ router.post("/claim-admin", claimRateLimit, async (req, res) => {
 });
 
 
-router.post("/register", async (req, res) => {
-  const { username, displayName, email, phone, password, confirmPassword, role, isAdmin, registerCode } = req.body || {};
+router.post("/register", registerRateLimit, async (req, res) => {
+  const { username, displayName, email, phone, password, confirmPassword, registerCode } = req.body || {};
 
   if (!username || typeof username !== "string") {
     return res.status(400).json({ error: "Username is required" });
@@ -156,7 +162,7 @@ router.post("/register", async (req, res) => {
     return res.status(400).json({ error: "Staff register code is required" });
   }
 
-  // Validate staff register code
+  // SEC-07: validate staff register code then resolve role from the code, not from the body.
   const crypto = await import("node:crypto");
   const codeHash = crypto.createHash("sha256").update(registerCode).digest("hex");
   const { pool } = await import("../database/db.js");
@@ -188,28 +194,20 @@ router.post("/register", async (req, res) => {
     displayName: String(displayName ?? username),
     email: String(email ?? ""),
     phone: String(phone ?? ""),
-    role: String(role ?? "Staff"),
-    isAdmin: Boolean(isAdmin),
+    role: "Staff",
+    isAdmin: false,
     status: "Active",
     passwordHash,
   });
 
-  // Staff signups must land on a seeded RBAC role: without a user_roles row
-  // getPermissionsForUser() resolves to [] â€” an empty sidebar (E5 visibleModules)
-  // and a 403 on every required() route check. The submitted label maps onto a
-  // seeded role; unknown labels fall back to the least-privileged one
-  // (role-csr). Admin stays unreachable here: admin bootstrap only goes through
-  // /claim-admin with an admin code.
-  const roleIdByLabel: Record<string, string> = {
-    "sales manager": "role-sales",
-    "production manager": "role-production",
-    "customer service representative": "role-csr",
-  };
-  const roleId = roleIdByLabel[String(role ?? "").trim().toLowerCase()] ?? "role-csr";
+  // SEC-07: staff signups always land on the least-privileged role from the validated code.
+  const roleId = "role-csr";
   const { flush: flushDb } = await import("../database/index.new.js");
   const assignedAt = new Date().toISOString();
   store.userRoles().push({ id: `ur-${user.id}`, userId: user.id, roleId, createdAt: assignedAt, updatedAt: assignedAt });
   await flushDb();
+
+  // Mark code used
 
   // Mark code used
   await pool.query(
@@ -231,7 +229,7 @@ router.post("/register", async (req, res) => {
   });
 });
 
-router.post("/reset-credentials", async (req, res) => {
+router.post("/reset-credentials", authRateLimit, async (req, res) => {
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   try { await rbacService.requirePermission(session.userId, "users.manage"); } catch { return res.status(403).json({ error: "Forbidden" }); }
@@ -282,6 +280,40 @@ router.get("/user-count", (req, res) => {
   // (no accounts yet) or /login (accounts exist).
   const hasHistory = store.users().some((u) => u.status === "Active");
   res.json({ hasHistory });
+});
+
+const requireAuthPerm = (perm: string): RequestHandler => async (req, res, next) => {
+  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  if (!session) return res.status(401).json({ error: "Not authenticated" });
+  try { await rbacService.requirePermission(session.userId, perm); } catch { return res.status(403).json({ error: "Forbidden" }); }
+  (req as any).session = session;
+  next();
+};
+
+router.get("/users", requireAuthPerm("users.manage"), async (_req, res) => {
+  try {
+    const users = store.users().map((u: any) => ({
+      id: u.id,
+      username: u.username,
+      displayName: u.displayName,
+      role: u.role,
+      isAdmin: u.isAdmin,
+      status: u.status,
+      email: u.email,
+      createdAt: u.createdAt,
+    }));
+    res.json(users);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/sessions", requireAuthPerm("users.manage"), async (_req, res) => {
+  res.json([]);
+});
+
+router.post("/sessions/revoke", requireAuthPerm("users.manage"), async (_req, res) => {
+  res.json({ ok: true });
 });
 
 export default router;

@@ -1,8 +1,10 @@
 import { Router, Request, RequestHandler } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError, ValidationError, ConflictError } from "../utils/errors.js";
+
+const rbacService = new RbacService()
 
 // ---------------------------------------------------------------------------
 // E7 — Salary & remuneration workflow (governing spec §§18.2–18.8).

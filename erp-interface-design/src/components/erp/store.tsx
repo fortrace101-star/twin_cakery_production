@@ -152,7 +152,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (!aliveRef.current) return;
       if (session) {
         setUser(session.user);
-        setPermissions(session.permissions ?? []);
+        const perms = session.permissions ?? [];
+        setPermissions(session.user?.isAdmin && perms.length === 0 ? null : perms);
       }
       await refresh();
     })();
@@ -169,7 +170,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         // permission-aware navigation can filter immediately after sign-in.
         const session = await me();
         if (!aliveRef.current) return true;
-        setPermissions(session?.permissions ?? []);
+        const perms = session?.permissions ?? [];
+        setPermissions((session?.user?.isAdmin || result.user?.isAdmin) && perms.length === 0 ? null : perms);
         await refresh();
         return true;
       } catch (err) {

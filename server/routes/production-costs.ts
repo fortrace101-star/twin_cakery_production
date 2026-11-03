@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
 
 const router = Router();
+const rbacService = new RbacService()
 const authService = new AuthService();
 
 function parseNum(value: unknown): number {

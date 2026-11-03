@@ -1,23 +1,13 @@
 import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
 import { NotFoundError } from "../utils/errors.js";
-import { extractToken, AuthService } from "../services/auth.service.js";
+import { AuthService, extractToken } from "../services/auth.service.js";
 import { paginate } from "../utils/paginate.js";
+import { requirePermission } from "../middleware/auth.js";
 
 const router = Router();
+const required = requirePermission;
 const authService = new AuthService();
-const required = (perm: string): RequestHandler => async (req, res, next) => {
-  try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
-    await rbacService.requirePermission(session.userId, perm);
-    next();
-  } catch (err) {
-    if (err instanceof Error && err.name === "UnauthorizedError") return res.status(401).json({ error: err.message });
-    if (err instanceof Error && err.name === "ForbiddenError") return res.status(403).json({ error: err.message });
-    next(err);
-  }
-};
 
 router.get("/", required("catalogue.view"), (req, res) => {
   const categories = store.db.catalogue?.categories || [];

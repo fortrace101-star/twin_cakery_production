@@ -1,11 +1,12 @@
 import { Router, Request, RequestHandler } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
 import { paginate } from "../utils/paginate.js";
 
 const router = Router();
+const rbacService = new RbacService()
 const authService = new AuthService();
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {

@@ -1,10 +1,11 @@
 import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
 
 const router = Router();
+const rbacService = new RbacService()
 const authService = new AuthService();
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {
@@ -28,6 +29,7 @@ router.get("/", required("quotations.view"), (req, res) => {
 });
 
 router.post("/", required("quotations.create"), (req, res) => {
+  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   const { quotationNumber, customerId, salespersonId, items, notes, validityExpiry, status, taxAmount, total, unitTotal } = req.body || {};
   if (!customerId) return res.status(400).json({ error: "customerId is required" });
   const record = store.createQuotation({
@@ -43,7 +45,7 @@ router.post("/", required("quotations.create"), (req, res) => {
     unitTotal: unitTotal || 0,
     submittedAt: null,
     acceptedAt: null,
-    createdBy: store.users().find((u) => u.isAdmin === true)?.id || "",
+    createdBy: session?.userId || store.users().find((u) => u.isAdmin === true)?.id || "",
   });
   store.persist();
   res.status(201).json(record);
@@ -60,7 +62,13 @@ router.patch("/:id", required("quotations.edit"), (req, res) => {
   const quotation = store.quotations().find((q) => q.id === id);
   if (!quotation) throw new NotFoundError("Quotation not found");
   const patch = req.body || {};
-  const updated = { ...quotation, ...patch, updatedAt: new Date().toISOString() };
+  const forbidden = ["id", "quotationNumber", "createdAt", "createdBy", "acceptedAt", "submittedAt"];
+  for (const k of forbidden) if (k in patch) delete (patch as any)[k];
+  const allowed = ["customerId", "salespersonId", "items", "notes", "validityExpiry", "status", "taxAmount", "total", "unitTotal"];
+  const allowedPatch: any = {};
+  for (const k of allowed) if (k in patch) allowedPatch[k] = (patch as any)[k];
+  const updated = store.updateQuotation ? store.updateQuotation(id, allowedPatch) : { ...quotation, ...allowedPatch, updatedAt: new Date().toISOString() };
+  if (!updated) throw new NotFoundError("Quotation not found");
   store.persist();
   res.json(updated);
 });

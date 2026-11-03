@@ -1,5 +1,5 @@
 import { ForbiddenError } from "../utils/errors.js";
-import { query, withTransaction } from "../database/db.js";
+import { query } from "../database/db.js";
 
 /**
  * RBAC is the single source of truth for authorization. Permission lookups go
@@ -16,6 +16,19 @@ export interface PermissionResult {
 export class RbacService {
   /** All permission keys for a given user (live Postgres query). */
   async getPermissionsForUser(userId: string): Promise<string[]> {
+    // Admins get full access to all permissions
+    const userRows = await query<{ is_admin: any; role: string }>(`SELECT is_admin, role FROM users WHERE id = $1`, [userId]);
+    const user = userRows[0];
+    if (user?.is_admin === true || user?.is_admin === 1 || String(user?.is_admin).toLowerCase() === 'true' || user?.role === 'Admin / Proprietor') {
+      const allPerms = await query<{ key: string }>(`SELECT key FROM permissions ORDER BY key`);
+      if (allPerms.length > 0) return allPerms.map((r) => r.key);
+    }
+    // Also check if user has role-admin
+    const roleAdmin = await query(`SELECT 1 FROM user_roles WHERE user_id = $1 AND role_id = 'role-admin' LIMIT 1`, [userId]);
+    if (roleAdmin.length > 0) {
+      const allPerms = await query<{ key: string }>(`SELECT key FROM permissions ORDER BY key`);
+      if (allPerms.length > 0) return allPerms.map((r) => r.key);
+    }
     const rows = await query<{ key: string }>(`SELECT DISTINCT p.key
      FROM user_roles ur
      JOIN role_permissions rp ON rp.role_id = ur.role_id
@@ -24,9 +37,37 @@ export class RbacService {
     return rows.map((r) => r.key);
   }
 
-  async hasPermission(userId: string, permission: string): Promise<boolean> {
-    const perms = await this.getPermissionsForUser(userId);
-    return perms.includes(permission);
+  /** Cached permission set with 30-second TTL. Invalidate on grant/revoke or user role change. */
+  private permCache = new Map<string, { exp: number; perms: Set<string> }>();
+  async permissionSet(userId: string): Promise<ReadonlySet<string>> {
+    const hit = this.permCache.get(userId);
+    if (hit && hit.exp > Date.now()) return hit.perms;
+    const perms = new Set(await this.getPermissionsForUser(userId));
+    this.permCache.set(userId, { exp: Date.now() + 30_000, perms });
+    return perms;
+  }
+  invalidatePermCache(userId?: string) { userId ? this.permCache.delete(userId) : this.permCache.clear(); }
+
+  async getRolePermissions(roleId: string): Promise<{ roleId: string; permissionId: string }[]> {
+    const rows = await query<{ role_id: string; permission_id: string }>(
+      `SELECT rp.role_id, rp.permission_id
+         FROM role_permissions rpn        WHERE rp.role_id = $1`, [roleId],
+    );
+    return rows.map((r) => ({ roleId: r.role_id, permissionId: r.permission_id }));
+  }
+
+  async assignPermissionToRole(roleId: string, permissionId: string): Promise<void> {
+    await query(
+      `INSERT INTO role_permissions (role_id, permission_id, granted_at) VALUES ($1, $2, now())`,
+      [roleId, permissionId],
+    );
+  }
+
+  async removePermissionFromRole(roleId: string, permissionId: string): Promise<void> {
+    await query(
+      `DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = $2`,
+      [roleId, permissionId],
+    );
   }
 
   async canUserDo(userId: string, action: string): Promise<boolean> {
@@ -58,6 +99,9 @@ export class RbacService {
       "purchasing.create": ["purchasing.create"],
       "purchasing.approve": ["purchasing.approve"],
       "purchasing.receive": ["purchasing.receive"],
+      "suppliers.create": ["suppliers.create"],
+      "suppliers.edit": ["suppliers.edit"],
+      "suppliers.archive": ["suppliers.archive"],
       "finance.view": ["finance.view"],
       "finance.record_payment": ["finance.record_payment"],
       "finance.record_expense": ["finance.record_expense"],
@@ -66,6 +110,7 @@ export class RbacService {
       "payments.record": ["payments.record"],
       "deliveries.view": ["deliveries.view"],
       "deliveries.create": ["deliveries.create"],
+      "deliveries.update": ["deliveries.update"],
       "deliveries.dispatch": ["deliveries.dispatch"],
       "deliveries.complete": ["deliveries.complete"],
       "deliveries.cancel": ["deliveries.cancel"],
@@ -92,6 +137,21 @@ export class RbacService {
     return actions.some((a) => perms.includes(a));
   }
 
+  /** Old keys that satisfy a new action key (kept for one release, SEC-07). */
+  static PERMISSION_ALIASES: Record<string, string[]> = {
+    "quotations.send": ["quotations.accept"],
+    "analytics.operations": ["sales.analytics"],
+    "analytics.customers": ["sales.analytics"],
+    "deliveries.update": ["deliveries.create", "deliveries.dispatch", "deliveries.complete", "deliveries.cancel"],
+  };
+
+  async hasPermission(userId: string, permission: string): Promise<boolean> {
+    const perms = await this.getPermissionsForUser(userId);
+    if (perms.includes(permission)) return true;
+    const aliases = RbacService.PERMISSION_ALIASES[permission] ?? [];
+    return aliases.some((a) => perms.includes(a));
+  }
+
   async requirePermission(userId: string, permission: string): Promise<void> {
     const ok = await this.hasPermission(userId, permission);
     if (!ok) {
@@ -105,38 +165,4 @@ export class RbacService {
       throw new ForbiddenError(`Action not permitted: ${action}`);
     }
   }
-
-  /** Permission keys granted to a role (live Postgres query). */
-  async getRolePermissions(roleId: string): Promise<string[]> {
-    const rows = await query<{ key: string }>(`SELECT DISTINCT p.key
-     FROM role_permissions rp
-     JOIN permissions p ON p.id = rp.permission_id
-    WHERE rp.role_id = $1`, [roleId]);
-    return rows.map((r) => r.key);
-  }
-
-  /** Alias of {@link getRolePermissions} by role id (DB-backed). */
-  async getPermissionsForRole(roleId: string): Promise<string[]> {
-    return this.getRolePermissions(roleId);
-  }
-
-  /** Grant a permission to a role in Postgres (single source of truth). */
-  async assignPermissionToRole(roleId: string, permissionId: string): Promise<void> {
-    const id = `rp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const now = new Date().toISOString();
-    await withTransaction(async (tx) => {
-      await tx.query(`INSERT INTO role_permissions (id, role_id, permission_id, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT DO NOTHING`, [id, roleId, permissionId, now, now]);
-    });
-  }
-
-  /** Revoke a permission from a role in Postgres. */
-  async removePermissionFromRole(roleId: string, permissionId: string): Promise<void> {
-    await withTransaction(async (tx) => {
-      await tx.query(`DELETE FROM role_permissions WHERE role_id = $1 AND permission_id = $2`, [roleId, permissionId]);
-    });
-  }
 }
-
-export const rbacService = new RbacService();

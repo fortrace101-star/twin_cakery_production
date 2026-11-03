@@ -1,9 +1,11 @@
 import { Router, Request, RequestHandler } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
 import type { CustomerEventReminder } from "../database/types.js";
+
+const rbacService = new RbacService()
 
 // ---------------------------------------------------------------------------
 // E1 — Recurring event reminders (governing spec §5).

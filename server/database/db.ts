@@ -11,7 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const requireFromFrontend = createRequire(
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "erp-interface-design", "package.json"),
 );
-const dotenvModule = requireFromFrontend("dotenv") as { config: () => void };
+const dotenvModule = requireFromFrontend("dotenv") as { config: (opts?: any) => any };
 dotenvModule.config();
 
 // If the runtime was started from the server folder, also load that .env so

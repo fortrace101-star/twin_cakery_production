@@ -3,10 +3,12 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import express, { type Request, type Response, type NextFunction } from "express";
+import helmet from "helmet";
 import { attachAuth, requireAuth } from "./middleware/auth.js";
 import { apiRouter } from "./routes/api.js";
-import { rbacService } from "./services/rbac.service.js";
+import { RbacService } from "./services/rbac.service.js";
 import { businessService } from "./services/business.service.js";
+const rbacService = new RbacService(); // singleton used by index.ts itself; route modules declare their own
 import { ready, flush } from "./database/index.new.js";
 import { logger } from "./utils/logger.js";
 import { AuthService } from "./services/auth.service.js";
@@ -33,14 +35,32 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 // Database seeding is handled by `npm run db:seed` (see server/seeds/seed.ts).
 
-// Middleware
+// CORS allow-list (replaces wildcard)
+const ALLOWED = (process.env.FRONTEND_ORIGIN ?? "").split(",").filter(Boolean);
 app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+  const origin = req.headers.origin as string | undefined;
+  if (origin && ALLOWED.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, X-CSRF-Token");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  }
+  if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
+// Public, read-only catalogue/blog endpoints may keep wildcard on /public/* only.
 
+app.set("trust proxy", Number(process.env.TRUST_PROXY ?? 0));
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'"],
+    },
+  },
+}));
 app.use(express.json({ limit: "100kb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(attachAuth);

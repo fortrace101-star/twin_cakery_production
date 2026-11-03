@@ -1,6 +1,6 @@
 import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { businessService } from "../services/business.service.js";
 import { ConflictError, NotFoundError } from "../utils/errors.js";
@@ -8,6 +8,7 @@ import { paginate } from "../utils/paginate.js";
 import type { OrderStation } from "../database/types.js";
 
 const router = Router();
+const rbacService = new RbacService()
 const authService = new AuthService();
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {
@@ -38,18 +39,40 @@ router.get("/", required("orders.view"), (req, res) => {
 });
 
 router.post("/", required("orders.create"), (req, res) => {
-  const { orderNumber, customerId, salespersonId, items, subtotal, discount, deliveryCharge, taxAmount, total, requiredBy, requiredAt, notes, status, paymentStatus, deliveryStatus, quotationId, inquiryId, createdBy, deliveryLocation, locationNote } = req.body || {};
+  const { orderNumber, customerId, salespersonId, items: reqItems, subtotal: reqSubtotal, discount = 0, deliveryCharge = 0, taxAmount = 0, total: reqTotal, requiredBy, requiredAt, notes, status, paymentStatus, deliveryStatus, quotationId, inquiryId, createdBy, deliveryLocation, locationNote } = req.body || {};
   if (!customerId) return res.status(400).json({ error: "customerId is required" });
+  const catalogueProducts = store.db.catalogue?.products || [];
+  const items = Array.isArray(reqItems)
+    ? reqItems.map((raw: any) => {
+        const productId = String(raw.productId || "");
+        const product = catalogueProducts.find((p: any) => p.id === productId);
+        const unitPrice = product && product.basePrice !== undefined ? Number(product.basePrice) : Number(raw.unitPrice || 0);
+        const quantity = Number(raw.quantity || 0);
+        const lineDiscount = Number(raw.discount || 0);
+        const total = unitPrice * quantity - lineDiscount;
+        return {
+          productId,
+          variantOptions: raw.variantOptions || "",
+          quantity,
+          unitPrice,
+          discount: lineDiscount,
+          total: Math.max(0, total),
+          recipeVersion: raw.recipeVersion || null,
+        };
+      })
+    : [];
+  const subtotal = items.reduce((sum: number, i: any) => sum + Number(i.total || 0) + Number(i.discount || 0), 0);
+  const total = subtotal + Number(deliveryCharge || 0) + Number(taxAmount || 0) - Number(discount || 0);
   const record = store.createOrder({
     orderNumber: orderNumber || `TC-${Date.now().toString().slice(-6)}`,
     customerId,
     salespersonId: salespersonId || null,
-    items: items || [],
-    subtotal: subtotal || 0,
-    discount: discount || 0,
-    deliveryCharge: deliveryCharge || 0,
-    taxAmount: taxAmount || 0,
-    total: total || 0,
+    items,
+    subtotal,
+    discount: Number(discount || 0),
+    deliveryCharge: Number(deliveryCharge || 0),
+    taxAmount: Number(taxAmount || 0),
+    total: Math.max(0, total),
     requiredBy: requiredBy || null,
     requiredAt: requiredAt || null,
     notes: notes || "",
@@ -79,59 +102,42 @@ router.get("/:id/history", required("orders.view"), (req, res) => {
   res.json(history.filter((h) => h.orderId === order.id));
 });
 
-router.patch("/:id", required("orders.confirm"), async (req, res) => {
+router.patch("/:id", required("orders.edit"), async (req, res) => {
   const id = String(req.params.id);
   const order = store.orders().find((o) => o.id === id);
   if (!order) throw new NotFoundError("Order not found");
   const patch = req.body || {};
-  const wasCompleted = order.status === "COMPLETED_DELIVERED";
 
-  // If moving to CONFIRMED from a state that needs confirmation, use proper confirmation flow
-  if (patch.status === "CONFIRMED" && order.status !== "CONFIRMED") {
-    try {
-      const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
-      if (session) {
-        const result = await businessService.confirmOrder(order, session.userId);
-        if (patch.notes !== undefined) {
-          const updatedWithNotes = store.updateOrder(id, { notes: patch.notes });
-          store.persist();
-          return res.json(updatedWithNotes || result.order);
-        }
-        store.persist();
-        return res.json(result.order);
-      }
-    } catch (e) {
-      // Fall through to normal update if confirmation flow fails
+  // ORD-01: whitelist PATCH fields; reject total/paymentStatus/status/customerId
+  const forbidden = ['total', 'paymentStatus', 'status', 'customerId', 'paidAt', 'balanceDue'] as const;
+  for (const key of forbidden) {
+    if (key in patch) {
+      return res.status(400).json({ error: `Field '${key}' cannot be updated via this endpoint` });
     }
   }
 
+  const wasCompleted = order.status === "COMPLETED_DELIVERED";
+
   // Determine the new station based on status transition
   let newStation: OrderStation = order.station;
-  const newStatus = patch.status || order.status;
+  const newStatus = order.status;
 
-  // Station transition logic
-  if (newStatus === "CONFIRMED" && order.station !== "confirmed") {
-    newStation = "confirmed";
-  } else if (
-    ["READY_FOR_PRODUCTION", "IN_PRODUCTION"].includes(newStatus) &&
-    !["baking", "done"].includes(order.station)
-  ) {
-    newStation = "baking";
-  } else if (newStatus === "COMPLETED_DELIVERED") {
+  // Station transition logic (status changes only via action endpoints)
+  if (newStatus === "COMPLETED_DELIVERED") {
     newStation = "done";
-  } else if (
-    newStatus === "CONFIRMED" && 
-    ["pendingConfirm"].includes(order.station)
-  ) {
-    // Order moving from pendingConfirm to confirmed
-    newStation = "confirmed";
   }
 
   // Preserve notes if not explicitly provided in patch, otherwise update
   const newNotes = patch.notes !== undefined ? patch.notes : order.notes;
 
+  const allowedUpdates: Record<string, unknown> = {};
+  const allowed = ['notes', 'deliveryType', 'deliveryLocation', 'deliveryDate', 'deliveryTime', 'dueDate', 'dueTime', 'eventType', 'reference', 'guest', 'items', 'source'] as const;
+  for (const key of allowed) {
+    if (key in patch) allowedUpdates[key] = (patch as any)[key];
+  }
+
   const updated = store.updateOrder(id, {
-    ...patch,
+    ...allowedUpdates,
     status: newStatus,
     station: newStation,
     notes: newNotes,
@@ -193,13 +199,19 @@ router.post("/:id/confirm", required("orders.confirm"), async (req, res) => {
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   try {
     const result = await businessService.confirmOrder(order, session.userId);
+    try { if ((result.order as any).station !== "confirmed") store.updateOrder(id, { station: "confirmed" }); } catch {}
     store.persist();
-    res.json({ order: result.order, history: result.history, job: result.job });
-  } catch {
-    const result = store.updateOrderStatus(id, "CONFIRMED", session.userId, "Admin confirmed order");
-    if (!result) throw new NotFoundError("Order not found");
-    store.persist();
-    res.json({ order: result.order, history: result.history });
+    res.json({ order: store.findOrder ? store.findOrder(id) || result.order : result.order, history: result.history, job: result.job });
+  } catch (err) {
+    try {
+      const result = store.updateOrderStatus(id, "CONFIRMED", session.userId, "Admin confirmed order");
+      if (!result) throw new NotFoundError("Order not found");
+      try { store.updateOrder(id, { station: "confirmed" }); } catch {}
+      store.persist();
+      res.json({ order: store.findOrder ? store.findOrder(id) || result.order : result.order, history: result.history });
+    } catch (e) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "Confirmation failed" });
+    }
   }
 });
 
@@ -230,19 +242,26 @@ router.post("/:id/repeat", required("orders.create"), (req, res) => {
   if (original.status === "CANCELLED") throw new ConflictError("Cancelled orders cannot be repeated");
   const body = req.body || {};
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
-  const items = Array.isArray(body.items)
-    ? body.items
-    : original.items.map((item) => ({
-        productId: item.productId,
-        variantOptions: item.variantOptions,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        discount: item.discount,
-        total: item.total,
-        recipeVersion: item.recipeVersion,
-      }));
-  const subtotal = body.subtotal !== undefined ? Number(body.subtotal)
-    : items.reduce((sum: number, i: { total?: number | string | null }) => sum + Number(i.total ?? 0), 0);
+  const catalogueProducts = store.db.catalogue?.products || [];
+  const sourceItems = Array.isArray(body.items) ? body.items : original.items;
+  const items = sourceItems.map((raw: any) => {
+    const productId = String(raw.productId || "");
+    const product = catalogueProducts.find((p: any) => p.id === productId);
+    const unitPrice = product && product.basePrice !== undefined ? Number(product.basePrice) : Number(raw.unitPrice || 0);
+    const quantity = Number(raw.quantity || 0);
+    const lineDiscount = Number(raw.discount || 0);
+    const total = unitPrice * quantity - lineDiscount;
+    return {
+      productId,
+      variantOptions: raw.variantOptions || "",
+      quantity,
+      unitPrice,
+      discount: lineDiscount,
+      total: Math.max(0, total),
+      recipeVersion: raw.recipeVersion || null,
+    };
+  });
+  const subtotal = items.reduce((sum: number, i: any) => sum + Number(i.total || 0) + Number(i.discount || 0), 0);
   const deliveryCharge = Number(body.deliveryCharge ?? original.deliveryCharge);
   const discount = Number(body.discount ?? original.discount);
   const taxAmount = Number(body.taxAmount ?? original.taxAmount);
@@ -256,7 +275,7 @@ router.post("/:id/repeat", required("orders.create"), (req, res) => {
     discount,
     deliveryCharge,
     taxAmount,
-    total,
+    total: Math.max(0, total),
     requiredBy: body.requiredBy ?? original.requiredBy,
     requiredAt: body.requiredAt ?? original.requiredAt,
     notes: body.notes ?? original.notes,

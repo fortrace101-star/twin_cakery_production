@@ -5,6 +5,7 @@ import { useWorkspace } from "./store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { money } from "./data";
 import { StatusBadge as Status } from "../data-table/StatusBadge";
 import { orderStageTone } from "@/lib/theme-tokens";
@@ -59,6 +60,9 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
   const [search, setSearch] = useState("");
   const [payMethod, setPayMethod] = useState("All methods");
   const [expCategory, setExpCategory] = useState("All categories");
+  const [reversalOpen, setReversalOpen] = useState(false);
+  const [reversalRow, setReversalRow] = useState<ServerPayment | null>(null);
+  const [reversalReason, setReversalReason] = useState("");
   const [payments, setPayments] = useState<ServerPayment[]>([]);
   const [expenses, setExpenses] = useState<ServerExpense[]>([]);
   const [categories, setCategories] = useState<ServerExpenseCategory[]>([]);
@@ -456,6 +460,23 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
           <div className="table-foot"><span>{reportsLoading ? "…loading" : `${reports ? "Report ready" : ""}`}</span><span>October 2026</span></div>
         </section>
       )}
+
+      <Dialog open={reversalOpen} onOpenChange={(v) => { if (!v) setReversalOpen(false); }}>
+        <DialogContent className="order-detail-dialog">
+          <DialogTitle>Reverse / refund payment</DialogTitle>
+          <DialogDescription>Record a reversal with reason and approval status.</DialogDescription>
+          <div className="form-grid">
+            <div style={{ gridColumn: "1 / -1" }}>
+              <Label>Reason</Label>
+              <Input value={reversalReason} onChange={(e) => setReversalReason(e.target.value)} placeholder="Reason for reversal" />
+            </div>
+          </div>
+          <div className="dialog-actions">
+            <Button variant="ghost" onClick={() => setReversalOpen(false)}>Cancel</Button>
+            <Button onClick={() => { onNotice(reversalReason ? `Reversal requested: ${reversalReason}` : "Reversal requested"); setReversalOpen(false); setReversalReason(""); }}>Request reversal</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

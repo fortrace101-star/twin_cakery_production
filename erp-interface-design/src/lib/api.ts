@@ -471,6 +471,19 @@ export async function hasExistingUser(): Promise<boolean> {
   return res.hasHistory === true;
 }
 
+export async function listAuthUsers(): Promise<any[]> {
+  return safe(() => request<any[]>("/auth/users"), []);
+}
+
+export async function listAuthSessions(userId?: string): Promise<any[]> {
+  const qs = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+  return safe(() => request<any[]>(`/auth/sessions${qs}`), []);
+}
+
+export async function revokeAuthSession(opts: { sessionId?: string; userId?: string; all?: boolean }): Promise<boolean> {
+  return safe(() => request<boolean>("/auth/sessions/revoke", { method: "POST", body: opts }), false);
+}
+
 export async function listCustomers(): Promise<ServerCustomer[]> {
   return safe(() => request<ServerCustomer[]>("/customers"), []);
 }

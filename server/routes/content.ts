@@ -3,9 +3,11 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { RbacService } from "../services/rbac.service.js";
 import { NotFoundError, ValidationError } from "../utils/errors.js";
 import { extractToken, AuthService } from "../services/auth.service";
+
+const rbacService = new RbacService()
 
 // Resolve bcryptjs from the frontend node_modules (reached via the server
 // junction), matching the pattern used by auth.service.ts and seeds/seed.ts.
