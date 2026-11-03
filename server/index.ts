@@ -6,8 +6,9 @@ import express, { type Request, type Response, type NextFunction } from "express
 import helmet from "helmet";
 import { attachAuth, requireAuth } from "./middleware/auth.js";
 import { apiRouter } from "./routes/api.js";
-import { rbacService } from "./services/rbac.service.js";
+import { RbacService } from "./services/rbac.service.js";
 import { businessService } from "./services/business.service.js";
+const rbacService = new RbacService(); // singleton used by index.ts itself; route modules declare their own
 import { ready, flush } from "./database/index.new.js";
 import { logger } from "./utils/logger.js";
 import { AuthService } from "./services/auth.service.js";

@@ -1,6 +1,6 @@
 import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { RbacService } from "../services/rbac.service.js";
 import { businessService } from "../services/business.service.js";
 
 import { AuthService, extractToken } from "../services/auth.service.js";
@@ -9,6 +9,7 @@ import { publishLowStockAlert } from "../services/stock-alerts.js";
 import { paginate } from "../utils/paginate.js";
 
 const router = Router();
+const rbacService = new RbacService()
 const authService = new AuthService();
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {
@@ -60,6 +61,12 @@ router.post("/jobs/:id/start", required("production.start"), (req, res) => {
   const id = String(req.params.id);
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
+  const existing = store.productionJobs().find((j) => j.id === id);
+  if (!existing) throw new NotFoundError("Production job not found");
+  const allowed = ["PENDING", "SCHEDULED", "READY_FOR_PRODUCTION"];
+  if (!allowed.includes(String(existing.status))) {
+    return res.status(409).json({ error: "Cannot start job in current state" });
+  }
   const job = store.updateProductionJob(id, { status: "IN_PRODUCTION", stage: "PRODUCE", progress: 20, updatedAt: new Date().toISOString() });
   if (!job) throw new NotFoundError("Production job not found");
   store.persist();
@@ -110,6 +117,11 @@ router.post("/jobs/:id/complete", required("production.complete"), (req, res) =>
   const id = String(req.params.id);
   const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
+  const existing = store.productionJobs().find((j) => j.id === id);
+  if (!existing) throw new NotFoundError("Production job not found");
+  if (String(existing.status) !== "IN_PRODUCTION") {
+    return res.status(409).json({ error: "Job must be IN_PRODUCTION to complete" });
+  }
   const job = store.updateProductionJob(id, { status: "READY_FOR_QUALITY", stage: "QUALITY", progress: 80, updatedAt: new Date().toISOString() });
   if (!job) throw new NotFoundError("Production job not found");
   try {

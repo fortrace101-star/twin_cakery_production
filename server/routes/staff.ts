@@ -1,9 +1,11 @@
 import { Router, Request, RequestHandler } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError, ValidationError } from "../utils/errors.js";
 import { paginate } from "../utils/paginate.js";
+
+const rbacService = new RbacService()
 
 // ---------------------------------------------------------------------------
 // E7 — Staff profiles + attendance (governing spec §§18.1–18.2).

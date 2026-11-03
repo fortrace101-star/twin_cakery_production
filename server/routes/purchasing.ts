@@ -1,11 +1,12 @@
 import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
 import { notificationService } from "../services/notification.service.js";
 
 const router = Router();
+const rbacService = new RbacService()
 const authService = new AuthService();
 
 function parseNum(value: unknown): number {
@@ -181,27 +182,15 @@ router.get("/orders/:id", required("purchasing.view"), (req, res) => {
   res.json(po);
 });
 
-router.post("/orders", (req, res, next) => {
-  try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
-    rbacService.requirePermission(session.userId, "purchasing.create").catch(() => {});
-  } catch {}
-  next();
-}, (req, res) => {
+router.post("/orders", required("purchasing.create"), (req, res) => {
   const { poNumber, supplierId, date, expectedDate, items: inputItems, notes } = req.body || {};
-  let finalSupplierId = supplierId;
+  if (!supplierId) return res.status(400).json({ error: "supplierId is required" });
   const suppliers = store.suppliersIncludingInactive();
-  if (!finalSupplierId || !suppliers.find((s) => s.id === finalSupplierId)) {
-    finalSupplierId = suppliers.find((s) => s.active !== false)?.id || suppliers[0]?.id || "default-supplier";
+  const supplier = suppliers.find((s) => s.id === supplierId);
+  if (!supplier || supplier.active === false) {
+    return res.status(400).json({ error: "Invalid or inactive supplier" });
   }
-  if (!store.suppliers().find((s) => s.id === finalSupplierId)) {
-    // create a default supplier if none exist
-    try {
-      store.createSupplier({ businessName: "Default Supplier", contactPerson: "-", phone: "-", email: "-", address: "-", productsSupplied: "-", paymentTerms: "-", notes: "", active: true });
-      store.persist();
-      finalSupplierId = store.suppliers()[store.suppliers().length - 1]?.id || finalSupplierId;
-    } catch {}
-  }
+  const finalSupplierId = supplierId;
   const items = Array.isArray(inputItems)
     ? inputItems.map((raw: Record<string, unknown>) => ({
         productId: String(raw.productId ?? ""),

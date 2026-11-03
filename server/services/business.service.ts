@@ -60,14 +60,18 @@ export class BusinessService {
     };
 
     // Persist the status move + history (updateOrderStatus writes both the row
-    // and the history entry and returns them). Do not auto-create production job
-    // on confirmation - job is created only when starting production.
+    // and the history entry and returns them). Set station to confirmed for bakery board.
     const persisted = store.updateOrderStatus(order.id, "CONFIRMED", changedBy, "Admin confirmed order");
+    try { store.updateOrder(order.id, { station: "confirmed" }); } catch {}
     const updatedOrder = persisted?.order ?? {
       ...order,
       status: "CONFIRMED" as OrderStatus,
+      station: "confirmed" as OrderStation,
       updatedAt: now,
     };
+    if ((updatedOrder as any).station !== "confirmed") {
+      try { const o = store.updateOrder(order.id, { station: "confirmed" }); if (o) Object.assign(updatedOrder, o); } catch {}
+    }
     const persistedHistory = persisted?.history ?? history;
 
     for (const item of items) {
@@ -626,7 +630,7 @@ export class BusinessService {
         {
           eventTypeId: "PaymentReceived",
           title: "Payment received",
-          message: `Order ${order.orderNumber} paid in full on delivery (Cash, USh ${Number(amount).toLocaleString("en-UG")}).`,
+          message: `Order ${order.orderNumber} paid in full on delivery (${method}, USh ${Number(amount).toLocaleString("en-UG")}).`,
           priority: "HIGH" as NotificationPriority,
           entityType: "order",
           entityId: order.id,
@@ -634,7 +638,7 @@ export class BusinessService {
           deepLink: `/workspace/orders/${order.id}`,
           createdBy: changedBy,
         },
-        { userId: changedBy, role: changedBy, isAdmin: true },
+        { userId: changedBy, role: store.users().find((u) => u.id === changedBy)?.role || "", isAdmin: false },
       );
     }
     return { order, payment };

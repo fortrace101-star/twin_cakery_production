@@ -1,23 +1,15 @@
 import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
+import { requirePermission } from "../middleware/auth.js";
 
 const router = Router();
+const rbacService = new RbacService()
 const authService = new AuthService();
 
-const required = (perm: string): RequestHandler => async (req, res, next) => {
-  try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
-    await rbacService.requirePermission(session.userId, perm);
-    next();
-  } catch (err) {
-    if (err instanceof Error && err.name === "UnauthorizedError") return res.status(401).json({ error: err.message });
-    if (err instanceof Error && err.name === "ForbiddenError") return res.status(403).json({ error: err.message });
-    next(err);
-  }
-};
+const required = requirePermission;
 
 router.get("/users", required("users.manage"), (req, res) => {
   const users = store.users();

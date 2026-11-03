@@ -42,7 +42,29 @@ const PERMS = [
   "remuneration.view","remuneration.create","remuneration.edit",
   "remuneration.approve","remuneration.process","remuneration.record_payment",
   "remuneration.close_period","remuneration.view_reports","payslip.print",
+  "expenses.view","expenses.create","expenses.approve",
 ];
+
+const roleGrants: Record<string, string[]> = {
+  "role-production": [
+    "production.view","production.schedule","production.start","production.complete",
+    "production.quality_check","production.record_wastage","production.record_consumption",
+    "inventory.view","inventory.adjust","inventory.reserve","inventory.consume",
+    "purchasing.view","purchasing.create","purchasing.receive",
+    "deliveries.view","deliveries.create","deliveries.dispatch","deliveries.complete","deliveries.cancel",
+    "orders.view","orders.confirm","customers.view","catalogue.view",
+    "staff.view",
+  ],
+  "role-sales": [
+    "orders.view","orders.create","orders.cancel","orders.confirm",
+    "quotations.view","quotations.create","quotations.accept","quotations.edit",
+    "inquiries.view","inquiries.create","inquiries.edit",
+    "customers.view","customers.create","customers.edit",
+    "feedback.view","feedback.create",
+    "sales.analytics","payments.view","payments.record",
+    "deliveries.view","catalogue.view",
+  ],
+};
 
 export async function seed(): Promise<void> {
   if ((await count("users")) > 0) {
@@ -58,11 +80,6 @@ export async function seed(): Promise<void> {
       ('role-sales','Sales Manager','Sales growth & commercial analytics', TRUE)`,
   );
   for (const [i, key] of PERMS.entries()) {
-    // Migrations 012/015/017 run BEFORE the seed on a fresh DB and already
-    // inserted some keys with their own ids (e.g. perm-staff-view). Without
-    // ON CONFLICT the positional insert died on UNIQUE(key), and the admin
-    // grant below referenced `perm-${i+1}` ids that never existed. Insert
-    // conflict-safely, then resolve the REAL id by key.
     await pool.query(`INSERT INTO permissions (id, key) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`, [
       `perm-${i + 1}`,
       key,
@@ -70,8 +87,7 @@ export async function seed(): Promise<void> {
     const perm = (await pool.query(`SELECT id FROM permissions WHERE key = $1`, [key])).rows[0] as { id: string } | undefined;
     if (perm) {
       await pool.query(
-        `INSERT INTO role_permissions (id, role_id, permission_id) VALUES ($1,'role-admin',$2)
-         ON CONFLICT (role_id, permission_id) DO NOTHING`,
+        `INSERT INTO role_permissions (id, role_id, permission_id) VALUES ($1,'role-admin',$2) ON CONFLICT (role_id, permission_id) DO NOTHING`,
         [`rp-admin-${perm.id}`, perm.id],
       );
     }
@@ -96,28 +112,6 @@ export async function seed(): Promise<void> {
   // Non-admin roles need their grants too — without them every required()
   // route 403s for Production/Sales/CSR users (and a permission-aware nav
   // would hide the whole workspace). Keys mirror migration 014.
-  const roleGrants: Record<string, string[]> = {
-    "role-production": [
-      "production.view","production.schedule","production.start","production.complete",
-      "production.quality_check","production.record_wastage","production.record_consumption",
-      "inventory.view","inventory.adjust","inventory.reserve","inventory.consume",
-      "purchasing.view","purchasing.create","purchasing.receive",
-      "deliveries.view","deliveries.create","deliveries.dispatch","deliveries.complete","deliveries.cancel",
-      "orders.view","orders.confirm","customers.view","catalogue.view",
-      "staff.view",
-    ],
-    "role-sales": [
-      "orders.view","orders.create","orders.cancel","orders.confirm",
-      "quotations.view","quotations.create","quotations.accept","quotations.edit",
-      "inquiries.view","inquiries.create","inquiries.edit",
-      "customers.view","customers.create","customers.edit",
-      "feedback.view","feedback.create",
-      "sales.analytics","payments.view","payments.record",
-      "deliveries.view","catalogue.view",
-    ],
-  };
-  // E7: Production may see staff identity for scheduling (§18.1) but never a
-  // remuneration key (§18.2 confidential). Mirrors migration 017's grants.
   for (const [roleId, keys] of Object.entries(roleGrants)) {
     for (const key of keys) {
       const perm = (await pool.query(`SELECT id FROM permissions WHERE key = $1`, [key])).rows[0];
@@ -125,11 +119,11 @@ export async function seed(): Promise<void> {
       await pool.query(
         `INSERT INTO role_permissions (id, role_id, permission_id) VALUES ($1,$2,$3)
          ON CONFLICT (role_id, permission_id) DO NOTHING`,
-        [`rp-${roleId.replace("role-", "")}-${perm.id}`, roleId, perm.id],
+        [`rp-${roleId.replace("role-","")}-${perm.id}`, roleId, perm.id],
       );
     }
   }
-  // Dummy customers intentionally removed � production seed creates none.
+  // Dummy customers intentionally removed — production seed creates none.
   await pool.query(
     `INSERT INTO catalogue_categories (id, name, code, description, display_order) VALUES
       ('cat-celebration','Celebration cakes','CELEB','Cakes for celebrations',1),
@@ -188,7 +182,7 @@ export async function seed(): Promise<void> {
       ('tx-open-5','inv-eggs',90,'pcs','OPENING_BALANCE','Opening','usr-manager',18,'Opening position'),
       ('tx-open-6','inv-cream',8,'L','OPENING_BALANCE','Opening','usr-manager',650,'Opening position')`,
   );
-  // Dummy/sample orders intentionally removed � production seed creates no orders.
+  // Dummy/sample orders intentionally removed — production seed creates no orders.
   await pool.query(
     `INSERT INTO expense_categories (id, name) VALUES ('exp-ing','Ingredients'),('exp-pack','Packaging'),('exp-util','Utilities')`,
   );
@@ -247,4 +241,3 @@ if (invokedDirectly) {
       process.exit(1);
     });
 }
-

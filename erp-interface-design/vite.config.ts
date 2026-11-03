@@ -31,8 +31,23 @@ const stableWsToken: Plugin = {
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), stableWsToken],
+  build: {
+    rolldownOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+      },
+    },
+  },
+  build: {
+    rolldownOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+      },
+    },
+  },
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
+    root: __dirname,
   },
   build: {
     rolldownOptions: {

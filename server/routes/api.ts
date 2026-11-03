@@ -48,7 +48,6 @@ apiRouter.use("/feedback", feedbackRouter);
 apiRouter.use("/notifications", notificationRouter);
 apiRouter.use("/rbac", rbacRouter);
 apiRouter.use("/analytics", analyticsRouter);
-apiRouter.use("/public", publicRouter);
 apiRouter.use("/order-proposals", orderProposalsRouter);
 apiRouter.use("/staff", staffRouter);
 apiRouter.use("/remuneration", remunerationRouter);

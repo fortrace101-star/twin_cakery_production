@@ -1,6 +1,6 @@
 import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
 import { makeId } from "../utils/make-id.js";
@@ -8,6 +8,7 @@ import { paginate } from "../utils/paginate.js";
 import { businessService } from "../services/business.service.js";
 
 const router = Router();
+const rbacService = new RbacService()
 const authService = new AuthService();
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {
@@ -77,6 +78,8 @@ function buildStkPushResponse(paymentId: string, orderId: string, amount: number
 router.post("/", required("payments.record"), (req, res) => {
   const { orderId, amount, method, reference, receivedBy, notes } = req.body || {};
   if (!orderId || amount === undefined) return res.status(400).json({ error: "orderId and amount are required" });
+  const amt = Number(amount);
+  if (!Number.isFinite(amt) || !Number.isInteger(amt) || amt < 0) return res.status(400).json({ error: "amount must be a non-negative integer (UGX)" });
 
   let ref = String(reference || "");
   if (method === "M-Pesa" && !ref) {

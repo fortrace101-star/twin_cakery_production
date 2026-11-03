@@ -234,20 +234,20 @@ const ROLES_FOR_EVENT: Record<NotificationEventType, string[]> = {
   InquiryResolved: ["Customer Service Representative"],
   CustomerComplaint: ["Admin / Proprietor", "Customer Service Representative"],
   FeedbackRecorded: ["Admin / Proprietor", "Production Manager", "Sales Manager"],
-  PaymentReceived: ["Admin / Proprietor", "Finance"],
+  PaymentReceived: ["Admin / Proprietor", "Finance / Accountant", "Sales Manager"],
   StockShortageDetected: ["Admin / Proprietor", "Production Manager", "Sales Manager"],
   LowStockAlert: ["Admin / Proprietor", "Production Manager"],
   ProductionStarted: ["Production Manager", "Admin / Proprietor", "Sales Manager"],
   ProductionCompleted: ["Production Manager", "Admin / Proprietor"],
-  GoodsReceived: ["Production Manager", "Admin / Proprietor", "Finance"],
+  GoodsReceived: ["Production Manager", "Admin / Proprietor", "Finance / Accountant"],
   PurchaseRequirementCreated: ["Production Manager", "Admin / Proprietor", "Customer Service Representative"],
   QualityFailed: ["Production Manager", "Admin / Proprietor"],
   QualityPassed: ["Production Manager"],
   DeliveryDue: ["Production Manager", "Customer Service Representative"],
   DeliveryDispatched: ["Production Manager", "Admin / Proprietor"],
   DeliveryCompleted: ["Production Manager", "Admin / Proprietor"],
-  ExpenseCreated: ["Admin / Proprietor", "Finance"],
-  ExpenseApproved: ["Admin / Proprietor", "Finance"],
+  ExpenseCreated: ["Admin / Proprietor", "Finance / Accountant"],
+  ExpenseApproved: ["Admin / Proprietor", "Finance / Accountant"],
   OrderCancelled: ["Admin / Proprietor"],
   OrderRejected: ["Admin / Proprietor"],
   SettingsUpdated: ["Admin / Proprietor"],
@@ -259,11 +259,19 @@ const ROLES_FOR_EVENT: Record<NotificationEventType, string[]> = {
 
 function resolveRecipients(session: { userId: string; role: string; isAdmin: boolean }, event: NotificationEvent): User[] {
   const users = store.users();
-  if (session.isAdmin) {
+  if (session.isAdmin && event.eventTypeId !== "PaymentReceived") {
     return users.filter((u) => u.status === "Active");
   }
   const roles = ROLES_FOR_EVENT[event.eventTypeId] || ["Admin / Proprietor"];
-  return users.filter((u) => roles.includes(u.role) && u.status === "Active");
+  const roleMatched = users.filter((u) => roles.includes(u.role) && u.status === "Active");
+  // Also ensure Finance/Accountant holders get payment notifications even if role naming differs
+  if (event.eventTypeId === "PaymentReceived") {
+    const extra = users.filter((u) => u.status === "Active" && (u.role?.toLowerCase().includes("finance") || u.role?.toLowerCase().includes("accountant")));
+    const map = new Map<string, User>();
+    [...roleMatched, ...extra].forEach((u) => map.set(u.id, u));
+    return Array.from(map.values());
+  }
+  return roleMatched;
 }
 
 const CHANNEL_ORDER: NotificationChannel_[] = ["IN_APP", "WHATSAPP", "EMAIL", "SMS"];
