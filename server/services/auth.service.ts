@@ -94,11 +94,11 @@ export class AuthService {
    * 3. expires_at is in the future.
    * No in-process Map, no token reuse after logout.
    */
-  getCurrentSession(token: string | null): AuthSession | null {
+  async getCurrentSession(token: string | null): Promise<AuthSession | null> {
     if (!token) return null;
     try {
       const tokenHash = hashToken(token);
-      const rows = query(
+      const rows = (await query(
         `SELECT s.user_id, s.expires_at, s.revoked_at, u.username, u.display_name, u.role, u.is_admin
          FROM sessions s JOIN users u ON u.id = s.user_id
          WHERE s.token_hash = $1
@@ -106,7 +106,7 @@ export class AuthService {
          ORDER BY s.created_at DESC
          LIMIT 1`,
         [tokenHash],
-      ) as unknown as Array<{
+      )) as Array<{
         user_id: string;
         expires_at: string;
         revoked_at: string | null;
@@ -132,24 +132,24 @@ export class AuthService {
     }
   }
 
-  requireAuth(token: string | null): AuthSession {
-    const session = this.getCurrentSession(token);
+  async requireAuth(token: string | null): Promise<AuthSession> {
+    const session = await this.getCurrentSession(token);
     if (!session) {
       throw new UnauthorizedError("Authentication required");
     }
     return session;
   }
 
-  requireRole(token: string | null, allowedRoles: string[]): AuthSession {
-    const session = this.requireAuth(token);
+  async requireRole(token: string | null, allowedRoles: string[]): Promise<AuthSession> {
+    const session = await this.requireAuth(token);
     if (!allowedRoles.includes(session.role)) {
       throw new ForbiddenError("Insufficient permissions for this action");
     }
     return session;
   }
 
-  hasPermission(token: string | null, permission: string): boolean {
-    const session = this.getCurrentSession(token);
+  async hasPermission(token: string | null, permission: string): Promise<boolean> {
+    const session = await this.getCurrentSession(token);
     if (!session) return false;
     if (session.isAdmin) return true;
     const rolePermissions = store.rolePermissionsForRole(session.role);
@@ -158,15 +158,15 @@ export class AuthService {
     return Boolean(requested && rolePermissionIds.includes(requested.id));
   }
 
-  static getSession(token: string | null): AuthSession | null {
+  static async getSession(token: string | null): Promise<AuthSession | null> {
     return new AuthService().getCurrentSession(token);
   }
 
-  static requireAuth(token: string | null): AuthSession {
+  static async requireAuth(token: string | null): Promise<AuthSession> {
     return new AuthService().requireAuth(token);
   }
 
-  static requireRole(token: string | null, allowedRoles: string[]): AuthSession {
+  static async requireRole(token: string | null, allowedRoles: string[]): Promise<AuthSession> {
     return new AuthService().requireRole(token, allowedRoles);
   }
 }

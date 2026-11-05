@@ -21,7 +21,7 @@ const authService = new AuthService();
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {
   try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
+    const session = await authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
@@ -32,8 +32,8 @@ const required = (perm: string): RequestHandler => async (req, res, next) => {
 };
 
 /** Authenticated staff id (userId) for auditing recordedBy / createdBy. */
-function actor(req: Request): string {
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+async function actor(req: Request): Promise<string> {
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   return session?.userId ?? "";
 }
 
@@ -41,7 +41,7 @@ const EMPLOYMENT_STATUSES = ["ACTIVE", "PROBATION", "ON_LEAVE", "INACTIVE", "TER
 const ATTENDANCE_STATUSES = ["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "SICK", "LATE"];
 
 /** GET /staff — directory, staff.view sees identity only (no salary). */
-router.get("/", required("staff.view"), (req, res) => {
+router.get("/", required("staff.view"), async (req, res) => {
   const status = req.query.status as string | undefined;
   const q = String(req.query.q ?? "").trim().toLowerCase();
   let list = store.staffList();
@@ -56,7 +56,7 @@ router.get("/", required("staff.view"), (req, res) => {
 });
 
 /** GET /staff/attendance — BEFORE /:id, or "attendance" matches as an id. */
-router.get("/attendance", required("staff.view"), (req, res) => {
+router.get("/attendance", required("staff.view"), async (req, res) => {
   const rows = store.attendance(
     (req.query.staffId as string | undefined) || undefined,
     (req.query.from as string | undefined) || undefined,
@@ -67,7 +67,7 @@ router.get("/attendance", required("staff.view"), (req, res) => {
 });
 
 /** POST /staff/attendance — record one day for one person (upsert). */
-router.post("/attendance", required("staff.attendance"), (req, res) => {
+router.post("/attendance", required("staff.attendance"), async (req, res) => {
   const body = (req.body || {}) as Record<string, unknown>;
   const staffId = String(body.staffId ?? "");
   if (!store.findStaff(staffId)) throw new ValidationError("Unknown staffId");
@@ -75,17 +75,17 @@ router.post("/attendance", required("staff.attendance"), (req, res) => {
   if (body.status && !ATTENDANCE_STATUSES.includes(String(body.status))) {
     throw new ValidationError(`status must be one of ${ATTENDANCE_STATUSES.join(", ")}`);
   }
-  res.status(201).json(store.recordAttendance({ ...body, recordedBy: body.recordedBy ?? actor(req) }));
+  res.status(201).json(store.recordAttendance({ ...body, recordedBy: body.recordedBy ?? await actor(req) }));
 });
 
-router.get("/:id", required("staff.view"), (req, res) => {
+router.get("/:id", required("staff.view"), async (req, res) => {
   const staff = store.findStaff(String(req.params.id));
   if (!staff) throw new NotFoundError("Staff member not found");
   res.json(staff);
 });
 
 /** POST /staff — new team member (identity only; salary goes in a profile). */
-router.post("/", required("staff.manage"), (req, res) => {
+router.post("/", required("staff.manage"), async (req, res) => {
   const body = (req.body || {}) as Record<string, unknown>;
   if (!String(body.name ?? "").trim()) throw new ValidationError("Staff name is required");
   if (body.employmentStatus && !EMPLOYMENT_STATUSES.includes(String(body.employmentStatus))) {
@@ -93,14 +93,14 @@ router.post("/", required("staff.manage"), (req, res) => {
   }
   const created = store.createStaff({ ...body });
   store.createAuditLog({
-    actor: actor(req), action: "staff:created", entityType: "staff", entityId: created.id,
+    actor: await actor(req), action: "staff:created", entityType: "staff", entityId: created.id,
     newStatus: created.employmentStatus, reason: `${created.name} (${created.staffNumber})`,
   });
   res.status(201).json(created);
 });
 
 /** PATCH /staff/:id — identity/schedule/status edits (never salary). */
-router.patch("/:id", required("staff.manage"), (req, res) => {
+router.patch("/:id", required("staff.manage"), async (req, res) => {
   const body = (req.body || {}) as Record<string, unknown>;
   if (body.employmentStatus && !EMPLOYMENT_STATUSES.includes(String(body.employmentStatus))) {
     throw new ValidationError(`employmentStatus must be one of ${EMPLOYMENT_STATUSES.join(", ")}`);
@@ -113,7 +113,7 @@ router.patch("/:id", required("staff.manage"), (req, res) => {
   if (!updated) throw new NotFoundError("Staff member not found");
   if (before) {
     store.createAuditLog({
-      actor: actor(req), action: "staff:updated", entityType: "staff", entityId: updated.id,
+      actor: await actor(req), action: "staff:updated", entityType: "staff", entityId: updated.id,
       previousStatus: before.employmentStatus, newStatus: updated.employmentStatus, reason: updated.name,
     });
   }
@@ -121,12 +121,12 @@ router.patch("/:id", required("staff.manage"), (req, res) => {
 });
 
 /** POST /staff/:id/archive — end employment; history stays intact (§18.7). */
-router.post("/:id/archive", required("staff.manage"), (req, res) => {
+router.post("/:id/archive", required("staff.manage"), async (req, res) => {
   const before = store.findStaff(String(req.params.id));
   const archived = store.archiveStaff(String(req.params.id));
   if (!archived) throw new NotFoundError("Staff member not found");
   store.createAuditLog({
-    actor: actor(req), action: "staff:archived", entityType: "staff", entityId: archived.id,
+    actor: await actor(req), action: "staff:archived", entityType: "staff", entityId: archived.id,
     previousStatus: before?.employmentStatus ?? "", newStatus: archived.employmentStatus,
     reason: archived.name,
   });

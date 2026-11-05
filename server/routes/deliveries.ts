@@ -1,5 +1,7 @@
 import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
+import { flush } from "../database/index.new.js";
+import { pool } from "../database/db.js";
 import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { businessService } from "../services/business.service.js";
@@ -11,7 +13,7 @@ const authService = new AuthService();
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {
   try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
+    const session = await authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
@@ -29,7 +31,7 @@ router.get("/", required("deliveries.view"), (req, res) => {
   res.json(list);
 });
 
-router.post("/", required("deliveries.create"), (req, res) => {
+router.post("/", required("deliveries.create"), async (req, res) => {
   const { orderId, type, destination, scheduledAt, scheduledDate, scheduledTime, actualDispatchTime, deliveryPerson, deliveryFee, status, notes, customerConfirmation } = req.body || {};
   const delivery = store.createDelivery({
     orderId: orderId || "",
@@ -45,13 +47,13 @@ router.post("/", required("deliveries.create"), (req, res) => {
     notes: notes || "",
     customerConfirmation: customerConfirmation || null,
   });
-  store.persist();
+  try { store.persist(); await flush(); } catch (err: any) { return res.status(503).json({ error: "Database unavailable: " + (err?.message || "persist failed") }); }
   res.status(201).json(delivery);
 });
 
-router.post("/:id/dispatch", required("deliveries.dispatch"), (req, res) => {
+router.post("/:id/dispatch", required("deliveries.dispatch"), async (req, res) => {
   const id = String(req.params.id);
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   const existing = store.findDelivery(id);
   if (!existing) throw new NotFoundError("Delivery not found");
@@ -72,9 +74,9 @@ router.post("/:id/dispatch", required("deliveries.dispatch"), (req, res) => {
   res.json(delivery);
 });
 
-router.post("/:id/complete", required("deliveries.complete"), (req, res) => {
+router.post("/:id/complete", required("deliveries.complete"), async (req, res) => {
   const id = String(req.params.id);
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   const existing = store.findDelivery(id);
   if (!existing) throw new NotFoundError("Delivery not found");
@@ -178,9 +180,9 @@ router.get("/:id", required("deliveries.view"), (req, res) => {
   res.json(delivery);
 });
 
-router.post("/:id/cancel", required("deliveries.cancel"), (req, res) => {
+router.post("/:id/cancel", required("deliveries.cancel"), async (req, res) => {
   const id = String(req.params.id);
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   const existing = store.findDelivery(id);
   if (!existing) throw new NotFoundError("Delivery not found");
@@ -196,9 +198,9 @@ router.post("/:id/cancel", required("deliveries.cancel"), (req, res) => {
   res.json(delivery);
 });
 
-router.post("/:id/fail", required("deliveries.update"), (req, res) => {
+router.post("/:id/fail", required("deliveries.update"), async (req, res) => {
   const id = String(req.params.id);
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   const existing = store.findDelivery(id);
   if (!existing) throw new NotFoundError("Delivery not found");
@@ -214,7 +216,7 @@ router.post("/:id/fail", required("deliveries.update"), (req, res) => {
   res.json(delivery);
 });
 
-router.patch("/:id", required("deliveries.update"), (req, res) => {
+router.patch("/:id", required("deliveries.update"), async (req, res) => {
   const id = String(req.params.id);
   const delivery = store.findDelivery(id);
   if (!delivery) throw new NotFoundError("Delivery not found");

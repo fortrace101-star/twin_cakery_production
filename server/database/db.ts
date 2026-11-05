@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
-import { logger } from "../utils/logger.js";
+import { logger } from "../utils/logger.cjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

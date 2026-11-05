@@ -12,7 +12,7 @@ const authService = new AuthService();
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {
   try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
+    const session = await authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
@@ -29,7 +29,7 @@ const number = (v: unknown): number => typeof v === "number" && Number.isFinite(
 // lists, GET /expenses/:id fetches one. Category reads/writes live in
 // expenseCategoryRouter below, mounted at /expense-categories.
 
-router.get("/", required("finance.view"), (req, res) => {
+router.get("/", required("finance.view"), async (req, res) => {
   const expenses = store.db.expenses as import("../database/types.js").Expense[];
   const category = req.query.category as string | undefined;
   let list = expenses;
@@ -42,7 +42,7 @@ router.get("/", required("finance.view"), (req, res) => {
   }));
 });
 
-router.post("/", required("finance.record_expense"), (req, res) => {
+router.post("/", required("finance.record_expense"), async (req, res) => {
   const { categoryId, amount, date, paymentMethod, reference, description, attachment, recordedBy } = req.body || {};
   if (!categoryId || !number(amount)) return res.status(400).json({ error: "categoryId and amount are required" });
   const expense = store.createExpense({
@@ -64,13 +64,13 @@ router.post("/", required("finance.record_expense"), (req, res) => {
   res.status(201).json(expense);
 });
 
-router.get("/:id", required("finance.view"), (req, res) => {
+router.get("/:id", required("finance.view"), async (req, res) => {
   const expense = store.db.expenses.find((e) => e.id === String(req.params.id));
   if (!expense) throw new NotFoundError("Expense not found");
   res.json(expense);
 });
 
-router.patch("/:id", required("finance.record_expense"), (req, res) => {
+router.patch("/:id", required("finance.record_expense"), async (req, res) => {
   const id = String(req.params.id);
   const expense = store.db.expenses.find((e) => e.id === id);
   if (!expense) throw new NotFoundError("Expense not found");
@@ -92,7 +92,7 @@ router.patch("/:id", required("finance.record_expense"), (req, res) => {
   res.json(expense);
 });
 
-router.delete("/:id", required("finance.record_expense"), (req, res) => {
+router.delete("/:id", required("finance.record_expense"), async (req, res) => {
   const id = String(req.params.id);
   const before = store.db.expenses.findIndex((e) => e.id === id);
   if (before === -1) throw new NotFoundError("Expense not found");
@@ -107,7 +107,7 @@ router.delete("/:id", required("finance.record_expense"), (req, res) => {
 
 export const expenseCategoryRouter = Router();
 
-expenseCategoryRouter.get("/", required("finance.view"), (req, res) => {
+expenseCategoryRouter.get("/", required("finance.view"), async (req, res) => {
   const categories = store.db.expenseCategories as import("../database/types.js").ExpenseCategory[];
   const name = req.query.name as string | undefined;
   let list = categories;
@@ -115,7 +115,7 @@ expenseCategoryRouter.get("/", required("finance.view"), (req, res) => {
   res.json(list);
 });
 
-expenseCategoryRouter.post("/", required("finance.record_expense"), (req, res) => {
+expenseCategoryRouter.post("/", required("finance.record_expense"), async (req, res) => {
   const { name } = req.body || {};
   const trimmed = String(name || "").trim();
   if (!trimmed) return res.status(400).json({ error: "name is required" });

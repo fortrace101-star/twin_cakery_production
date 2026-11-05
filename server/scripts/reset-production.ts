@@ -207,7 +207,7 @@ async function main() {
     const hash = crypto.createHash("sha256").update(adminCode).digest("hex");
     await pool.query(
       `INSERT INTO activation_codes (id, code, type, created_at, expires_at) VALUES ($1, $2, 'admin', now(), now() + interval '7 days')`,
-      [ (await import("uuid")).v4(), hash ],
+      [crypto.randomUUID(), hash],
     );
     console.log("=== ADMIN CODE (save this — shown once) ===");
     console.log(`  ${adminCode}`);
@@ -234,4 +234,22 @@ async function main() {
   await pool.end();
 }
 
-main().catch((err) => { console.error("Wipe failed:", err); process.exit(1); });
+main().catch((err) => {
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as { code?: string } | null)?.code;
+  if (code === "28P01" || /password authentication failed/i.test(msg)) {
+    console.error("Wipe failed: PostgreSQL authentication failed.");
+    console.error("");
+    console.error("This script wipes the *Postgres* database. Check DATABASE_URL and DB credentials.");
+    console.error("  - server/.env (used by the API) and/or the root .env (loaded by this script)");
+    console.error("  - ensure the DB user/password/host/port/database are correct and Postgres is running");
+    console.error("");
+    console.error("If you are using the file-backed store (server/data/store.json), this wipe script");
+    console.error("does not clear that file; handle file-store reset separately and with care.");
+    console.error("");
+    console.error(`Details: ${msg}`);
+    process.exit(1);
+  }
+  console.error("Wipe failed:", err);
+  process.exit(1);
+});

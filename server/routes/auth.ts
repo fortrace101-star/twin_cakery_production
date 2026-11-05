@@ -54,12 +54,6 @@ router.post("/claim-admin", claimRateLimit, async (req, res) => {
   if (password !== confirmPassword) {
     return res.status(400).json({ error: "Password and confirmation do not match" });
   }
-  if (store.findUserByUsername(username)) {
-    return res.status(409).json({ error: "Username is already taken" });
-  }
-  if (store.findUserByEmail(email)) {
-    return res.status(409).json({ error: "Email is already taken" });
-  }
 
   // SEC-08: claim-admin is rate limited (claimRateLimit).
 
@@ -67,8 +61,28 @@ router.post("/claim-admin", claimRateLimit, async (req, res) => {
   const crypto = await import("node:crypto");
   const codeHash = crypto.createHash("sha256").update(code).digest("hex");
 
+  const { pool } = await import("../database/db.js");
+  let bootstrapNoUsers = false;
+  try {
+    const u = await pool.query(`SELECT count(*)::int AS c FROM users`);
+    bootstrapNoUsers = Number(u.rows?.[0]?.c ?? 0) === 0;
+  } catch {
+    bootstrapNoUsers = false;
+  }
+
+  // Postgres is mandatory: enforce conflicts against DB (source of truth).
+  // In empty-DB bootstrap, stale file-store rows are ignored.
+  if (!bootstrapNoUsers) {
+    const conflict = await pool.query(
+      `SELECT 1 FROM users WHERE lower(username)=lower($1) OR ($2 <> '' AND lower(email)=lower($2)) LIMIT 1`,
+      [String(username), String(email ?? "")],
+    );
+    if (conflict.rows.length > 0) {
+      return res.status(409).json({ error: "Username or email is already taken" });
+    }
+  }
+
   const rows = await (async () => {
-    const { pool } = await import("../database/db.js");
     const result = await pool.query(
       `SELECT id, used_at, expires_at FROM activation_codes WHERE code = $1 AND type = 'admin'`,
       [codeHash],
@@ -76,16 +90,19 @@ router.post("/claim-admin", claimRateLimit, async (req, res) => {
     return result.rows as { id: string; used_at: string | null; expires_at: string }[];
   })();
 
-  if (rows.length === 0) {
-    return res.status(400).json({ error: "Invalid admin code" });
+  const validRecord = rows.find((r) => !r.used_at && new Date(r.expires_at) >= new Date());
+  if (!validRecord) {
+    // Post-wipe/bootstrap recovery: if the DB has no users, allow first-admin
+    // claim without a pre-minted activation code (the wipe may not have minted
+    // one). This is safe only in the empty-users state.
+    if (!bootstrapNoUsers) {
+      if (rows.length === 0) return res.status(400).json({ error: "Invalid admin code" });
+      const record = rows[0];
+      if (record.used_at) return res.status(400).json({ error: "Admin code already used" });
+      return res.status(400).json({ error: "Admin code expired" });
+    }
   }
-  const record = rows[0];
-  if (record.used_at) {
-    return res.status(400).json({ error: "Admin code already used" });
-  }
-  if (new Date(record.expires_at) < new Date()) {
-    return res.status(400).json({ error: "Admin code expired" });
-  }
+  const record = validRecord ?? { id: null as string | null, used_at: null, expires_at: new Date().toISOString() };
 
   // Resolve bcryptjs
   const requireFromFrontend = createRequire(
@@ -94,7 +111,7 @@ router.post("/claim-admin", claimRateLimit, async (req, res) => {
   const bcryptModule = requireFromFrontend("bcryptjs") as typeof import("bcryptjs");
   const passwordHash = bcryptModule.hashSync(password, 10);
 
-  // Create user
+  // Create user: persist to Postgres (mandatory), keep store cache in sync.
   const user = store.createUser({
     username: String(username),
     displayName: String(displayName ?? username),
@@ -106,23 +123,53 @@ router.post("/claim-admin", claimRateLimit, async (req, res) => {
     passwordHash,
   });
 
-  // Assign role-admin (keep in-memory cache + DB in sync)
+  const now = new Date().toISOString();
   try {
-    const { flush: flushDb } = await import("../database/index.new.js");
-    const now = new Date().toISOString();
+    await pool.query(
+      `INSERT INTO users (id, username, display_name, email, phone, role, is_admin, status, password_hash, notify, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       ON CONFLICT (id) DO UPDATE SET
+         username=EXCLUDED.username, display_name=EXCLUDED.display_name, email=EXCLUDED.email, phone=EXCLUDED.phone,
+         role=EXCLUDED.role, is_admin=EXCLUDED.is_admin, status=EXCLUDED.status, password_hash=EXCLUDED.password_hash,
+         updated_at=EXCLUDED.updated_at`,
+      [
+        user.id,
+        user.username,
+        user.displayName,
+        (user as any).email || null,
+        (user as any).phone || null,
+        user.role,
+        !!(user as any).isAdmin,
+        (user as any).status || "Active",
+        (user as any).passwordHash || null,
+        JSON.stringify((user as any).notify ?? null),
+        (user as any).createdAt || now,
+        (user as any).updatedAt || now,
+      ],
+    );
+    await pool.query(
+      `INSERT INTO user_roles (id, user_id, role_id, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT DO NOTHING`,
+      [`ur-${user.id}`, user.id, "role-admin", now, now],
+    );
     store.userRoles().push({ id: `ur-${user.id}`, userId: user.id, roleId: "role-admin", createdAt: now, updatedAt: now } as any);
-    await flushDb();
   } catch (err) {
-    console.error("CLAIM-ADMIN FLUSH ERROR:", err);
-    throw err;
+    console.error("CLAIM-ADMIN DB PERSIST ERROR:", err);
+    return res.status(503).json({ error: "Failed to persist admin account to database" });
   }
 
-  // Mark code as used
-  const { pool } = await import("../database/db.js");
-  await pool.query(
-    `UPDATE activation_codes SET used_at = now(), used_by = $1 WHERE id = $2`,
-    [user.id, record.id],
-  );
+  // Mark code as used (skip when bootstrap had no activation code record)
+  if (record.id) {
+    try {
+      await pool.query(
+        `UPDATE activation_codes SET used_at = now(), used_by = $1 WHERE id = $2`,
+        [user.id, record.id],
+      );
+    } catch {
+      /* non-fatal: user/admin was created */
+    }
+  }
 
   // Auto sign-in
   const session = authService.login({ username: String(username), password });
@@ -230,7 +277,7 @@ router.post("/register", registerRateLimit, async (req, res) => {
 });
 
 router.post("/reset-credentials", authRateLimit, async (req, res) => {
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   try { await rbacService.requirePermission(session.userId, "users.manage"); } catch { return res.status(403).json({ error: "Forbidden" }); }
 
@@ -258,7 +305,7 @@ router.post("/logout", (req, res) => {
 
 router.get("/me", async (req, res) => {
   const token = extractToken(req.headers.authorization as string | undefined);
-  const session = authService.getCurrentSession(token);
+  const session = await authService.getCurrentSession(token);
   if (!session) {
     return res.status(401).json({ error: "Not authenticated" });
   }
@@ -274,16 +321,20 @@ router.get("/me", async (req, res) => {
   });
 });
 
-router.get("/user-count", (req, res) => {
-  // "History" = whether the workspace already has active staff accounts.
-  // Used by the guest landing to route first-time visitors to /signup
-  // (no accounts yet) or /login (accounts exist).
-  const hasHistory = store.users().some((u) => u.status === "Active");
-  res.json({ hasHistory });
+router.get("/user-count", async (_req, res) => {
+  // Postgres is mandatory. "History" = whether the workspace has accounts.
+  try {
+    const { pool } = await import("../database/db.js");
+    const r = await pool.query(`SELECT count(*)::int AS c FROM users`);
+    const pgUsers = Number(r.rows?.[0]?.c ?? 0);
+    return res.json({ hasHistory: pgUsers > 0 });
+  } catch (err: any) {
+    return res.status(503).json({ error: "Database unavailable", detail: err?.message });
+  }
 });
 
 const requireAuthPerm = (perm: string): RequestHandler => async (req, res, next) => {
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   try { await rbacService.requirePermission(session.userId, perm); } catch { return res.status(403).json({ error: "Forbidden" }); }
   (req as any).session = session;

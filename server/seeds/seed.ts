@@ -64,6 +64,22 @@ const roleGrants: Record<string, string[]> = {
     "sales.analytics","payments.view","payments.record",
     "deliveries.view","catalogue.view",
   ],
+  "role-finance": [
+    "finance.view","finance.record_payment","finance.record_expense","finance.view_reports",
+    "payments.view","payments.record","payments.reverse","payments.refund",
+    "expenses.view","expenses.create","expenses.approve",
+    "orders.view","customers.view","purchasing.view","purchasing.pay_bill",
+    "audit.view",
+  ],
+  "role-baker": [
+    "production.view","production.schedule","production.start","production.complete",
+    "production.quality_check","production.record_wastage","production.record_consumption",
+    "inventory.view","inventory.consume","orders.view",
+  ],
+  "role-delivery": [
+    "deliveries.view","deliveries.create","deliveries.dispatch","deliveries.complete",
+    "orders.view","payments.view","payments.record",
+  ],
 };
 
 export async function seed(): Promise<void> {
@@ -77,7 +93,11 @@ export async function seed(): Promise<void> {
     `INSERT INTO roles (id, name, label, active) VALUES
       ('role-admin','Admin / Proprietor','Full business control', TRUE),
       ('role-production','Production Manager','Operational fulfillment', TRUE),
-      ('role-sales','Sales Manager','Sales growth & commercial analytics', TRUE)`,
+      ('role-sales','Sales Manager','Sales growth & commercial analytics', TRUE),
+      ('role-finance','Finance / Accountant','Finance and accounting', TRUE),
+      ('role-baker','Baker/Decorator','Baking and decoration', TRUE),
+      ('role-delivery','Delivery/Driver','Deliveries and logistics', TRUE)
+    ON CONFLICT (id) DO NOTHING`,
   );
   for (const [i, key] of PERMS.entries()) {
     await pool.query(`INSERT INTO permissions (id, key) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`, [

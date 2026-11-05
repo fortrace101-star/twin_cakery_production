@@ -403,3 +403,21 @@ export class NotificationService {
 }
 
 export const notificationService = new NotificationService();
+
+export const emit = async (_tx: any, event: any) => {
+  try {
+    notificationService.publishEvent({
+      eventTypeId: event.type === "payment.recorded" ? "PaymentReceived" : (event.eventTypeId || "PaymentReceived"),
+      title: event.title || "Event",
+      message: event.message || event.type || "",
+      priority: event.priority || "MEDIUM",
+      entityType: event.entity || event.entityType || "payment",
+      entityId: event.entityId || "",
+      actionUrl: event.actionUrl || null,
+      deepLink: event.deepLink || null,
+      createdBy: event.actor?.userId || null,
+    } as any, { userId: event.actor?.userId || "admin", role: event.actor?.role || "Admin / Proprietor", isAdmin: true });
+  } catch (e) {
+    // best effort
+  }
+}

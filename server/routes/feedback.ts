@@ -10,7 +10,7 @@ const authService = new AuthService();
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {
   try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
+    const session = await authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
@@ -20,7 +20,7 @@ const required = (perm: string): RequestHandler => async (req, res, next) => {
   }
 };
 
-router.get("/", required("feedback.view"), (req, res) => {
+router.get("/", required("feedback.view"), async (req, res) => {
   const feedback = store.db.customerFeedback as import("../database/types.js").CustomerFeedback[];
   const customerId = req.query.customerId as string | undefined;
   const orderId = req.query.orderId as string | undefined;
@@ -30,13 +30,13 @@ router.get("/", required("feedback.view"), (req, res) => {
   res.json(list);
 });
 
-router.get("/by-order/:orderId", required("feedback.view"), (req, res) => {
+router.get("/by-order/:orderId", required("feedback.view"), async (req, res) => {
   const orderId = String(req.params.orderId);
   const list = store.db.customerFeedback.filter((f) => f.orderId === orderId);
   res.json(list);
 });
 
-router.post("/", required("feedback.create"), (req, res) => {
+router.post("/", required("feedback.create"), async (req, res) => {
   const { customerId, orderId, productIds, rating, type, comment, resolution, followUpRequired, followUpCompleted, recordedBy } = req.body || {};
   if (!orderId) return res.status(400).json({ error: "orderId is required" });
   if (rating === undefined) return res.status(400).json({ error: "rating is required" });
@@ -56,7 +56,7 @@ router.post("/", required("feedback.create"), (req, res) => {
   res.status(201).json(record);
 });
 
-router.patch("/:id", required("feedback.update"), (req, res) => {
+router.patch("/:id", required("feedback.update"), async (req, res) => {
   const id = String(req.params.id);
   const feedback = store.db.customerFeedback as import("../database/types.js").CustomerFeedback[];
   const target = feedback.find((f) => f.id === id);

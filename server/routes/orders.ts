@@ -1,5 +1,6 @@
 import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
+import { pool } from "../database/db.js";
 import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { businessService } from "../services/business.service.js";
@@ -7,13 +8,76 @@ import { ConflictError, NotFoundError } from "../utils/errors.js";
 import { paginate } from "../utils/paginate.js";
 import type { OrderStation } from "../database/types.js";
 
+async function persistOrderStatusPg(orderId: string, newStatus: string, changedBy: string, reason: string) {
+  const now = new Date().toISOString();
+  const histId = `osh-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const prev = await pool.query<{ status: string }>(`SELECT status FROM orders WHERE id = $1`, [orderId]);
+  if (prev.rowCount === 0) throw new NotFoundError("Order not found");
+  const previousStatus = prev.rows[0].status;
+  await pool.query(`UPDATE orders SET status = $1, updated_at = $2 WHERE id = $3`, [newStatus, now, orderId]);
+  await pool.query(
+    `INSERT INTO order_status_history (id, order_id, previous_status, new_status, changed_by, reason, timestamp, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [histId, orderId, previousStatus, newStatus, String(changedBy ?? ""), String(reason ?? ""), now, now, now],
+  );
+  const history = { id: histId, orderId, previousStatus, newStatus, changedBy: String(changedBy ?? ""), reason: String(reason ?? ""), timestamp: now, createdAt: now, updatedAt: now };
+  // Keep in-memory cache aligned so the DB mirror (saveCache) cannot clobber
+  // direct-PG writes, and so reads in this process reflect the transition.
+  try { store.updateOrder(orderId, { status: newStatus, station: newStatus === "CONFIRMED" ? "confirmed" : undefined } as any); } catch {}
+  try {
+    const o = store.db.orders.find((x) => x.id === orderId);
+    if (o) { (o as any).status = newStatus; (o as any).station = newStatus === "CONFIRMED" ? "confirmed" : (o as any).station; (o as any).updatedAt = now; }
+  } catch {}
+  try {
+    if (!Array.isArray((store.db as any).orderStatusHistory)) (store.db as any).orderStatusHistory = [];
+    (store.db as any).orderStatusHistory.push(history);
+  } catch {}
+  return { previousStatus, newStatus, history };
+}
+
+async function persistOrderToPg(record: any, initialHistory?: any) {
+  // Postgres mandatory: persist order + items (+ optional initial history). DB columns only.
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO orders (id,order_number,customer_id,salesperson_id,subtotal,discount,delivery_charge,tax_amount,total,currency,required_by,required_at,notes,status,payment_status,delivery_status,quotation_id,inquiry_id,created_by,delivered_at,created_at,updated_at,follow_up_completed_at,delivery_location,location_note)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+       ON CONFLICT (id) DO NOTHING`,
+      [record.id, record.orderNumber, record.customerId, record.salespersonId ?? null, Number(record.subtotal||0), Number(record.discount||0), Number(record.deliveryCharge||0), Number(record.taxAmount||0), Number(record.total||0), record.currency ?? "KES", record.requiredBy ?? null, record.requiredAt ?? null, String(record.notes ?? ""), record.status, record.paymentStatus ?? "UNPAID", record.deliveryStatus ?? "PENDING", record.quotationId ?? null, record.inquiryId ?? null, String(record.createdBy ?? ""), record.deliveredAt ?? null, record.createdAt, record.updatedAt, record.followUpCompletedAt ?? null, String(record.deliveryLocation ?? ""), String(record.locationNote ?? "")],
+    );
+    for (const item of Array.isArray(record.items) ? record.items : []) {
+      await client.query(
+        `INSERT INTO order_items (id,order_id,product_id,variant_options,quantity,unit_price,discount,total,recipe_version,created_at,updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT (id) DO NOTHING`,
+        [item.id, record.id, item.productId, String(item.variantOptions ?? ""), Number(item.quantity||0), Number(item.unitPrice||0), Number(item.discount||0), Number(item.total||0), item.recipeVersion ?? null, item.createdAt ?? record.createdAt, item.updatedAt ?? record.updatedAt],
+      );
+    }
+    if (initialHistory?.id) {
+      await client.query(
+        `INSERT INTO order_status_history (id, order_id, previous_status, new_status, changed_by, reason, timestamp, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT (id) DO NOTHING`,
+        [initialHistory.id, record.id, initialHistory.previousStatus, initialHistory.newStatus, String(initialHistory.changedBy ?? ""), String(initialHistory.reason ?? ""), initialHistory.timestamp ?? record.createdAt, initialHistory.createdAt ?? record.createdAt, initialHistory.updatedAt ?? record.updatedAt],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    try { await client.query("ROLLBACK"); } catch {}
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 const router = Router();
 const rbacService = new RbacService()
 const authService = new AuthService();
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {
   try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
+    const session = await authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
@@ -38,7 +102,7 @@ router.get("/", required("orders.view"), (req, res) => {
   }));
 });
 
-router.post("/", required("orders.create"), (req, res) => {
+router.post("/", required("orders.create"), async (req, res) => {
   const { orderNumber, customerId, salespersonId, items: reqItems, subtotal: reqSubtotal, discount = 0, deliveryCharge = 0, taxAmount = 0, total: reqTotal, requiredBy, requiredAt, notes, status, paymentStatus, deliveryStatus, quotationId, inquiryId, createdBy, deliveryLocation, locationNote } = req.body || {};
   if (!customerId) return res.status(400).json({ error: "customerId is required" });
   const catalogueProducts = store.db.catalogue?.products || [];
@@ -85,7 +149,14 @@ router.post("/", required("orders.create"), (req, res) => {
     deliveryLocation: deliveryLocation || "",
     locationNote: locationNote || "",
   });
-  store.persist();
+  try {
+    const initialHistory = [...store.db.orderStatusHistory].reverse().find((h: any) => h.orderId === record.id);
+    await persistOrderToPg(record, initialHistory);
+  } catch (err: any) {
+    const msg = err?.message || "Failed to persist order";
+    if (/connect|ECONN|timeout|database/i.test(msg)) return res.status(503).json({ error: "Database unavailable", detail: msg });
+    return res.status(500).json({ error: msg });
+  }
   res.status(201).json(record);
 });
 
@@ -147,7 +218,7 @@ router.patch("/:id", required("orders.edit"), async (req, res) => {
     // Fresh completion: any stale flag is cleared and the admin is asked to
     // follow up (badge on Customers & CRM until documented).
     updated.followUpCompletedAt = null;
-    const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+    const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
     businessService.requestCustomerFollowUp(updated, session?.userId ?? "system");
     // Order just crossed into Delivered: archive the production job so it
     // moves to the History tab (non-fatal — mirrors the deliver-flow hook).
@@ -161,7 +232,7 @@ router.patch("/:id", required("orders.edit"), async (req, res) => {
     const hasJob = store.productionJobs().some((j) => j.orderId === updated.id);
     if (!hasJob) {
       try {
-        const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+        const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
         businessService.prepareOrderForProduction(updated.id, session?.userId ?? "system");
       } catch {
         /* Non-fatal: invalid transition or missing items must not block the status write. */
@@ -193,38 +264,52 @@ router.patch("/:id", required("orders.edit"), async (req, res) => {
 
 router.post("/:id/confirm", required("orders.confirm"), async (req, res) => {
   const id = String(req.params.id);
-  const order = store.orders().find((o) => o.id === id);
-  if (!order) throw new NotFoundError("Order not found");
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   try {
-    const result = await businessService.confirmOrder(order, session.userId);
-    try { if ((result.order as any).station !== "confirmed") store.updateOrder(id, { station: "confirmed" }); } catch {}
-    store.persist();
-    res.json({ order: store.findOrder ? store.findOrder(id) || result.order : result.order, history: result.history, job: result.job });
-  } catch (err) {
+    // Postgres mandatory for the state transition.
+    const { previousStatus, history } = await persistOrderStatusPg(id, "CONFIRMED", session.userId, "Admin confirmed order");
+    // Run business side-effects (job creation, inventory hooks) best-effort;
+    // the confirmed status is already durably persisted in Postgres.
+    let job: any = null;
     try {
-      const result = store.updateOrderStatus(id, "CONFIRMED", session.userId, "Admin confirmed order");
-      if (!result) throw new NotFoundError("Order not found");
-      try { store.updateOrder(id, { station: "confirmed" }); } catch {}
-      store.persist();
-      res.json({ order: store.findOrder ? store.findOrder(id) || result.order : result.order, history: result.history });
-    } catch (e) {
-      res.status(500).json({ error: err instanceof Error ? err.message : "Confirmation failed" });
-    }
+      const order = store.orders().find((o) => o.id === id) || store.findOrder?.(id);
+      if (order) job = await (businessService as any).createProductionJob?.({ ...order, status: "CONFIRMED" }, session.userId);
+    } catch { /* non-fatal side effect */ }
+    const order = store.orders().find((o) => o.id === id) || store.findOrder?.(id);
+    if (order) { (order as any).status = "CONFIRMED"; (order as any).station = "confirmed"; }
+    return res.json({ order: order || { id, status: "CONFIRMED" }, history, job, previousStatus });
+  } catch (err: any) {
+    if (err?.name === "NotFoundError" || err instanceof NotFoundError) throw err;
+    const msg = err?.message || "Confirmation failed";
+    if (/connect|ECONN|timeout|database/i.test(msg)) return res.status(503).json({ error: "Database unavailable", detail: msg });
+    return res.status(500).json({ error: msg });
   }
 });
 
-router.post("/:id/cancel", required("orders.cancel"), (req, res) => {
+router.post("/:id/cancel", required("orders.cancel"), async (req, res) => {
   const id = String(req.params.id);
-  const order = store.orders().find((o) => o.id === id);
-  if (!order) throw new NotFoundError("Order not found");
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   const { reason = "No reason provided" } = req.body || {};
-  const result = store.cancelOrder(order, session.userId, reason);
-  store.persist();
-  res.json({ order: result.order, history: result.history });
+  try {
+    const { previousStatus, history } = await persistOrderStatusPg(id, "CANCELLED", session.userId, String(reason));
+    try {
+      await pool.query(
+        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, previous_status, new_status, reason, timestamp, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$9)`,
+        [`al-${Date.now()}-${Math.random().toString(36).slice(2,8)}`, session.userId, "order:cancelled", "order", id, previousStatus, "CANCELLED", String(reason), new Date().toISOString()],
+      );
+    } catch { /* audit best-effort */ }
+    const order = store.orders().find((o) => o.id === id) || store.findOrder?.(id);
+    if (order) { (order as any).status = "CANCELLED"; }
+    res.json({ order: order || { id, status: "CANCELLED" }, history });
+  } catch (err: any) {
+    if (err?.name === "NotFoundError" || err instanceof NotFoundError) throw err;
+    const msg = err?.message || "Cancellation failed";
+    if (/connect|ECONN|timeout|database/i.test(msg)) return res.status(503).json({ error: "Database unavailable", detail: msg });
+    return res.status(500).json({ error: msg });
+  }
 });
 
 /**
@@ -236,12 +321,12 @@ router.post("/:id/cancel", required("orders.cancel"), (req, res) => {
  * own order number, status history and customer snapshot via store.createOrder.
  * Cancelled orders are not eligible templates (409).
  */
-router.post("/:id/repeat", required("orders.create"), (req, res) => {
+router.post("/:id/repeat", required("orders.create"), async (req, res) => {
   const original = store.findOrder(String(req.params.id));
   if (!original) throw new NotFoundError("Order not found");
   if (original.status === "CANCELLED") throw new ConflictError("Cancelled orders cannot be repeated");
   const body = req.body || {};
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   const catalogueProducts = store.db.catalogue?.products || [];
   const sourceItems = Array.isArray(body.items) ? body.items : original.items;
   const items = sourceItems.map((raw: any) => {
@@ -286,6 +371,14 @@ router.post("/:id/repeat", required("orders.create"), (req, res) => {
     inquiryId: null,
     createdBy: session?.userId ?? "",
   });
+  try {
+    const initialHistory = [...store.db.orderStatusHistory].reverse().find((h: any) => h.orderId === record.id);
+    await persistOrderToPg(record, initialHistory);
+  } catch (err: any) {
+    const msg = err?.message || "Failed to persist order";
+    if (/connect|ECONN|timeout|database/i.test(msg)) return res.status(503).json({ error: "Database unavailable", detail: msg });
+    return res.status(500).json({ error: msg });
+  }
   res.status(201).json({ order: record, repeatedFrom: original.id });
 });
 

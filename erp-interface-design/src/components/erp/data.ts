@@ -7,7 +7,7 @@ export const modules = [
   { id: 'inventory', label: 'Inventory', icon: 'Boxes', group: 'OPERATIONS', tabs: ['Stock', 'Reservations', 'Transactions', 'Adjustments', 'Alerts'] },
   { id: 'purchasing', label: 'Purchasing', icon: 'Truck', group: 'OPERATIONS', tabs: ['Purchase orders', 'Suppliers', 'Requirements', 'Goods received'] },
   { id: 'delivery', label: 'Deliveries', icon: 'MapPin', group: 'OPERATIONS', tabs: ['Upcoming', 'Dispatch', 'Completed'] },
-  { id: 'finance', label: 'Finance', icon: 'Wallet', group: 'BUSINESS', tabs: ['Payments', 'Expenses', 'Profitability', 'Reports'] },
+  { id: 'finance', label: 'Finance', icon: 'Wallet', group: 'BUSINESS', tabs: ['Payments', 'Invoices', 'Approvals', 'Cash-up', 'Period close', 'Expenses', 'Profitability', 'Reports'] },
   { id: 'analytics', label: 'Analytics', icon: 'ChartNoAxesCombined', group: 'BUSINESS', tabs: ['Overview', 'Order history', 'Sales trends', 'Customers', 'Product performance'] },
   { id: 'administration', label: 'Settings', icon: 'Settings', group: 'BUSINESS', tabs: ['Business settings', 'Users', 'Roles', 'Permissions', 'Audit log'] },
   { id: 'staff', label: 'Staff & Salary', icon: 'UserCog', group: 'PEOPLE', tabs: ['Team', 'Attendance', 'Salary periods', 'Advances', 'Payslips'] },

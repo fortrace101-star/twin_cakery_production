@@ -30,7 +30,7 @@ function parseDate(value: unknown): string | null {
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {
   try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
+    const session = await authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
@@ -40,7 +40,7 @@ const required = (perm: string): RequestHandler => async (req, res, next) => {
   }
 };
 
-router.post("/", required("purchasing.create"), (req, res) => {
+router.post("/", required("purchasing.create"), async (req, res) => {
   const { productIds, quantity, unit, reason, urgency, requestedBy } = req.body || {};
   if (!productIds || quantity === undefined) return res.status(400).json({ error: "productIds and quantity are required" });
   const record = store.createPurchaseRequirement({
@@ -56,7 +56,7 @@ router.post("/", required("purchasing.create"), (req, res) => {
   res.status(201).json(record);
 });
 
-router.get("/", required("purchasing.view"), (req, res) => {
+router.get("/", required("purchasing.view"), async (req, res) => {
   const requirements = store.purchaseRequirements();
   const status = req.query.status as string | undefined;
   let list = requirements;
@@ -68,13 +68,13 @@ router.get("/suppliers", required("purchasing.view"), (_req, res) => {
   res.json(store.suppliers());
 });
 
-router.get("/suppliers/:id", required("purchasing.view"), (req, res) => {
+router.get("/suppliers/:id", required("purchasing.view"), async (req, res) => {
   const supplier = store.findSupplier(String(req.params.id));
   if (!supplier) throw new NotFoundError("Supplier not found");
   res.json(supplier);
 });
 
-router.patch("/suppliers/:id", required("suppliers.edit"), (req, res) => {
+router.patch("/suppliers/:id", required("suppliers.edit"), async (req, res) => {
   const supplier = store.findSupplier(String(req.params.id));
   if (!supplier) throw new NotFoundError("Supplier not found");
   const body = req.body || {};
@@ -107,7 +107,7 @@ router.patch("/suppliers/:id", required("suppliers.edit"), (req, res) => {
   res.json(updated);
 });
 
-router.delete("/suppliers/:id", required("suppliers.archive"), (req, res) => {
+router.delete("/suppliers/:id", required("suppliers.archive"), async (req, res) => {
   const id = String(req.params.id);
   const supplier = store.findSupplier(id);
   if (!supplier) throw new NotFoundError("Supplier not found");
@@ -119,7 +119,7 @@ router.delete("/suppliers/:id", required("suppliers.archive"), (req, res) => {
   res.status(204).send();
 });
 
-router.post("/suppliers", required("suppliers.create"), (req, res) => {
+router.post("/suppliers", required("suppliers.create"), async (req, res) => {
   try {
     const body = req.body || {};
     let finalSupplierId = body.id || body.supplierId || undefined;
@@ -150,7 +150,7 @@ router.get("/receipts", required("purchasing.view"), (_req, res) => {
   res.json(receipts);
 });
 
-router.get("/price-history", required("purchasing.view"), (req, res) => {
+router.get("/price-history", required("purchasing.view"), async (req, res) => {
   const supplierId = req.query.supplierId as string | undefined;
   const productId = req.query.productId as string | undefined;
   let rows = store.supplierPriceHistory();
@@ -159,7 +159,7 @@ router.get("/price-history", required("purchasing.view"), (req, res) => {
   res.json(rows);
 });
 
-router.post("/:id/acknowledge", required("purchasing.approve"), (req, res) => {
+router.post("/:id/acknowledge", required("purchasing.approve"), async (req, res) => {
   const id = String(req.params.id);
   const requirement = store.purchaseRequirements().find((r) => r.id === id);
   if (!requirement) throw new NotFoundError("Purchase requirement not found");
@@ -168,7 +168,7 @@ router.post("/:id/acknowledge", required("purchasing.approve"), (req, res) => {
   res.json(updated);
 });
 
-router.get("/orders", required("purchasing.view"), (req, res) => {
+router.get("/orders", required("purchasing.view"), async (req, res) => {
   const orders = store.purchaseOrders();
   const status = req.query.status as string | undefined;
   let list = orders;
@@ -176,13 +176,13 @@ router.get("/orders", required("purchasing.view"), (req, res) => {
   res.json(list);
 });
 
-router.get("/orders/:id", required("purchasing.view"), (req, res) => {
+router.get("/orders/:id", required("purchasing.view"), async (req, res) => {
   const po = store.findPurchaseOrder(String(req.params.id));
   if (!po) throw new NotFoundError("Purchase order not found");
   res.json(po);
 });
 
-router.post("/orders", required("purchasing.create"), (req, res) => {
+router.post("/orders", required("purchasing.create"), async (req, res) => {
   const { poNumber, supplierId, date, expectedDate, items: inputItems, notes } = req.body || {};
   if (!supplierId) return res.status(400).json({ error: "supplierId is required" });
   const suppliers = store.suppliersIncludingInactive();
@@ -216,9 +216,9 @@ router.post("/orders", required("purchasing.create"), (req, res) => {
   res.status(201).json(po);
 });
 
-router.post("/orders/:id/receive", required("purchasing.receive"), (req, res) => {
+router.post("/orders/:id/receive", required("purchasing.receive"), async (req, res) => {
   const id = String(req.params.id);
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   const { additionalItems } = req.body || {};
   const result = store.receivePurchaseOrder(id, session.userId);

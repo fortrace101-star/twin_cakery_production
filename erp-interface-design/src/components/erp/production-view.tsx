@@ -72,7 +72,7 @@ export function ProductionView({ onSelect }: { onSelect?: (order: any) => void }
           <p>Order station board</p>
         </div>
       </div>
-      <BakeryStation onSelect={onSelect} />
+      {onSelect ? <BakeryStation onSelect={onSelect} /> : null}
     </section>
   );
 }
@@ -86,7 +86,7 @@ export function JobsView({ onSelect }: { onSelect?: (job: any) => void } = {}) {
           <p>Job station board</p>
         </div>
       </div>
-      <JobsBoard onSelect={onSelect} />
+      {onSelect ? <JobsBoard onSelect={onSelect} /> : null}
     </section>
   );
 }
@@ -202,7 +202,7 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
       }
       if (onSelect) {
         const uiMatch = (uiOrders as any[])?.find((o: any) => o.id === order.orderNumber || o.id === order.id);
-        onSelect(uiMatch || { id: order.orderNumber || order.id, customer: order.customerId, product: order.notes || "Order", status: order.status, amount: order.total, payment: order.paymentStatus, delivery: order.deliveryStatus } as any);
+        onSelect?.(uiMatch || { id: order.orderNumber || order.id, customer: order.customerId, product: order.notes || "Order", status: order.status, amount: order.total, payment: order.paymentStatus, delivery: order.deliveryStatus } as any);
       }
     };
     const badgeValue = station === "confirmed" ? "" : station === "baking" ? "Baking" : station === "decorating" ? "Decorating" : isAwaitingPickup ? "Pick Up" : "Ready";

@@ -2,26 +2,41 @@ import { useEffect, useState } from "react";
 import { useLiveRefresh } from "@/lib/live";
 import { Button } from "@/components/ui/button";
 import { DataTable, type Column } from "../data-table/DataTable";
-import { listRoles, listPermissions } from "@/lib/api";
+import { listRbacRoles, listRbacPermissions, getRolePermissionKeys } from "@/lib/api";
+import type { ServerRole, ServerPermission } from "@/lib/api";
+
+
+
 
 export function RolesView({ onNotice }: { onNotice: (s: string) => void }) {
-  const [roles, setRoles] = useState<any[]>([]);
-  const [perms, setPerms] = useState<any[]>([]);
+  const [roles, setRoles] = useState<ServerRole[]>([]);
+  const [permMap, setPermMap] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(false);
 
-  const reload = () => {
+  const reload = async () => {
     setLoading(true);
-    Promise.all([listRoles().catch(() => []), listPermissions().catch(() => [])])
-      .then(([r, p]) => { setRoles(r || []); setPerms(p || []); })
-      .finally(() => setLoading(false));
+    try {
+      const r = await listRbacRoles().catch(() => []);
+      setRoles(Array.isArray(r) ? r : []);
+      const m: Record<string, string[]> = {};
+      for (const role of Array.isArray(r) ? r : []) {
+        const keys = await getRolePermissionKeys(role.id).catch(() => []);
+        m[role.id] = Array.isArray(keys) ? keys : [];
+      }
+      setPermMap(m);
+    } catch {
+      /* keep existing rows */
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(reload, []);
-  useLiveRefresh(reload, { intervalMs: 60000 });
+  useEffect(() => { void reload(); return; }, []);
+  useLiveRefresh(reload);
 
-  const columns: Column<any>[] = [
-    { key: "name", header: "Role", render: (r) => r.name || r.roleKey || "—" },
-    { key: "permissions", header: "Permissions", render: (r) => Array.isArray(r.permissions) ? r.permissions.length : (Array.isArray(r.permissionIds) ? r.permissionIds.length : "—") },
+  const columns: Column<ServerRole>[] = [
+    { header: "Role", accessorKey: "name", accessorFn: (r: ServerRole) => r.name, render: (r: ServerRole) => r.name || "—", cell: (r: ServerRole) => r.name || "—" },
+    { header: "Permissions", accessorKey: "permissions", accessorFn: (r: ServerRole) => (permMap[r.id]?.length ?? 0).toString(), render: (r: ServerRole) => (permMap[r.id]?.length ?? 0).toString(), cell: (r: ServerRole) => (permMap[r.id]?.length ?? 0).toString() },
   ];
 
   return (
@@ -36,7 +51,7 @@ export function RolesView({ onNotice }: { onNotice: (s: string) => void }) {
         </div>
       </header>
       <DataTable columns={columns} rows={roles} rowKey={(r) => r.id || r.name} stickyHeader empty={<div className="empty-state"><h3>No roles</h3></div>} />
-      <div className="table-foot"><span>{roles.length} roles</span><span>{perms.length} permissions</span></div>
+      <div className="table-foot"><span>{roles.length} roles</span><span>{Object.values(permMap).reduce((a, b) => a + b.length, 0)} permissions</span></div>
     </section>
   );
 }

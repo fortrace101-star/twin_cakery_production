@@ -8,7 +8,13 @@ export type Column<T> = {
   width?: string;
   /** Sort key; when present the header becomes a sort button (quiet until sorted). */
   sortKey?: string;
+  /** Optional stable value used for row metadata/debugging. */
+  accessorKey?: string;
+  /** Optional accessor function; used when the column is backed by a derived value. */
+  accessorFn?: (row: T) => unknown;
   cell: (row: T, index: number) => ReactNode;
+  /** Optional render override; falls back to `cell` when omitted. */
+  render?: (row: T) => ReactNode;
 };
 
 export type SortState = { key: string; dir: "asc" | "desc" } | null;

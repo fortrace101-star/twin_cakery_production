@@ -6,30 +6,30 @@
 
 -- New action-level permission keys -------------------------------------------------------------
 INSERT INTO permissions (id, key) VALUES
-  ('perm-quotations-send', 'quotations.send')          ON CONFLICT (key) DO NOTHING,
-  ('perm-analytics-operations', 'analytics.operations') ON CONFLICT (key) DO NOTHING,
-  ('perm-analytics-finance', 'analytics.finance')       ON CONFLICT (key) DO NOTHING,
-  ('perm-analytics-customers', 'analytics.customers')   ON CONFLICT (key) DO NOTHING,
-  ('perm-analytics-staff', 'analytics.staff')           ON CONFLICT (key) DO NOTHING,
-  ('perm-payments-refund', 'payments.refund')           ON CONFLICT (key) DO NOTHING,
-  ('perm-payments-confirm-remittance', 'payments.confirm_remittance') ON CONFLICT (key) DO NOTHING,
-  ('perm-expenses-approve', 'expenses.approve')         ON CONFLICT (key) DO NOTHING,
-  ('perm-orders-override-price', 'orders.override_price') ON CONFLICT (key) DO NOTHING,
-  ('perm-inventory-approve-writeoff', 'inventory.approve_writeoff') ON CONFLICT (key) DO NOTHING,
-  ('perm-inventory-view-costs', 'inventory.view_costs') ON CONFLICT (key) DO NOTHING,
-  ('perm-finance-view-margins', 'finance.view_margins') ON CONFLICT (key) DO NOTHING,
-  ('perm-orders-view-all', 'orders.view_all')           ON CONFLICT (key) DO NOTHING,
-  ('perm-deliveries-view-all', 'deliveries.view_all')   ON CONFLICT (key) DO NOTHING,
-  ('perm-customers-view-all', 'customers.view_all')     ON CONFLICT (key) DO NOTHING,
-  ('perm-production-view-all', 'production.view_all')   ON CONFLICT (key) DO NOTHING
+  ('perm-quotations-send', 'quotations.send'),
+  ('perm-analytics-operations', 'analytics.operations'),
+  ('perm-analytics-finance', 'analytics.finance'),
+  ('perm-analytics-customers', 'analytics.customers'),
+  ('perm-analytics-staff', 'analytics.staff'),
+  ('perm-payments-refund', 'payments.refund'),
+  ('perm-payments-confirm-remittance', 'payments.confirm_remittance'),
+  ('perm-expenses-approve', 'expenses.approve'),
+  ('perm-orders-override-price', 'orders.override_price'),
+  ('perm-inventory-approve-writeoff', 'inventory.approve_writeoff'),
+  ('perm-inventory-view-costs', 'inventory.view_costs'),
+  ('perm-finance-view-margins', 'finance.view_margins'),
+  ('perm-orders-view-all', 'orders.view_all'),
+  ('perm-deliveries-view-all', 'deliveries.view_all'),
+  ('perm-customers-view-all', 'customers.view_all'),
+  ('perm-production-view-all', 'production.view_all')
 ON CONFLICT (key) DO NOTHING;
 
 -- Backfill: grant new keys to roles that held the parent key ------------------------------------
 INSERT INTO role_permissions (id, role_id, permission_id)
 SELECT 'rp-023-' || p.id, 'role-admin', p.id FROM permissions p
 WHERE p.key IN (
-  'quotations.send',        -- admin already had quotations.accept
-  'analytics.operations',   -- admin already had sales.analytics
+  'quotations.send',
+  'analytics.operations',
   'analytics.finance',
   'analytics.customers',
   'analytics.staff',
@@ -47,7 +47,7 @@ WHERE p.key IN (
 )
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
--- Matching grant for role-production (already carried most shipment ops)
+-- Matching grant for role-production
 INSERT INTO role_permissions (id, role_id, permission_id)
 SELECT 'rp-023-prod-' || p.id, 'role-production', p.id FROM permissions p
 WHERE p.key IN (
@@ -55,7 +55,7 @@ WHERE p.key IN (
 )
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
--- Matching grant for role-sales (orders.create + confirmations already held; quotes could already accept)
+-- Matching grant for role-sales
 INSERT INTO role_permissions (id, role_id, permission_id)
 SELECT 'rp-023-sales-' || p.id, 'role-sales', p.id FROM permissions p
 WHERE p.key IN (

@@ -2,6 +2,7 @@
   "watch": ["."],
   "ext": "ts,json",
   "ignore": ["node_modules", "dist-server", "seeds", "*.test.ts", "*.log"],
+  "legacyWatch": true,
   "exec": "tsx --tsconfig tsconfig.json index.ts",
   "env": {
     "NODE_ENV": "development"

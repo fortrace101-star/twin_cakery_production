@@ -49,7 +49,8 @@ type RequestOptions = {
   signal?: AbortSignal;
 };
 
-async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+export { request as apiRequest };
+export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, auth = true, signal } = opts;
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -141,7 +142,8 @@ export interface ServerOrder {
   requiredAt: string | null;
   notes: string;
   status: string;
-  paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PROCESSING" | "PAID" | "REFUNDED" | "OVERPAID";  deliveryStatus: string;
+  paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PROCESSING" | "PAID" | "REFUNDED" | "OVERPAID";
+  deliveryStatus: string;
   createdBy: string;
   deliveredAt: string | null;
   /** Stamped when the post-delivery CRM follow-up has been done & documented. */
@@ -153,6 +155,9 @@ export interface ServerOrder {
    *  Present once the backend writes station on orders; unknown order rows drop
    *  back to `undefined` so station-aware filtering degrades safely. */
   station?: "pendingConfirm" | "confirmed" | "baking" | "done" | undefined;
+  /** Optional legacy/wire date field used by a few UI paths until the backend
+   *  aligns on `requiredAt` as the canonical required-by date. */
+  date?: string | null;
 }
 export interface ServerDelivery {
   id: string;
@@ -529,7 +534,7 @@ export interface OrderSnapshot {
 }
 
 /** Order history row: a full order plus its immutable contact snapshot. */
-export type ServerCustomerOrder = ServerOrder & { snapshot: OrderSnapshot | null };
+export type ServerCustomerOrder = ServerOrder & { snapshot: OrderSnapshot | null; feedback?: unknown };
 
 /** Single row of the printable order-history list (spec §5). */
 export interface ServerOrderPrintRow {
@@ -612,7 +617,7 @@ export function createCustomerFeedback(payload: {
   rating: number;
   type?: string;
   comment?: string;
-  resolution?: string;
+  resolution?: string | undefined;
   followUpRequired?: boolean;
   followUpCompleted?: boolean;
   recordedBy?: string;
@@ -1395,6 +1400,14 @@ export interface FinanceReport {
 export async function listFinanceReports(period = "month"): Promise<FinanceReport | null> {
   const q = period ? `?period=${encodeURIComponent(period)}` : "";
   return safe(() => request<FinanceReport>(`/finance/reports${q}`), null);
+}
+
+export async function listInvoices(): Promise<any[]> {
+  return safe(() => request<any[]>("/finance/invoices"), []);
+}
+
+export async function listFinanceApprovals(): Promise<any[]> {
+  return safe(() => request<any[]>("/finance/approvals"), []);
 }
 
 export async function createExpenseCategory(name: string): Promise<ServerExpenseCategory | null> {

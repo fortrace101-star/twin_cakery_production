@@ -24,8 +24,13 @@ function fmt(log: RequestLog): string {
 }
 
 export const logger = {
-  request: (log: RequestLog): void => console.log(fmt(log)),
-  boot: (message: string): void => console.log(message),
-  failure: (scope: Exclude<LogScope, "http">, message: string): void =>
-    console.error(`[${scope}] ${message.replace(/'/g, "")}`),
+  request: (log: RequestLog): void => {
+    console.log(fmt(log));
+  },
+  boot: (message: string): void => {
+    console.log(message);
+  },
+  failure: (scope: Exclude<LogScope, "http">, message: string): void => {
+    console.error(`[${scope}] ${message.replace(/'/g, "")}`);
+  },
 };

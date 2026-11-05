@@ -1,8 +1,9 @@
 import { ConflictError, ValidationError, NotFoundError } from "../utils/errors.js";
 import { store } from "../database/store.js";
 import type { Patch } from "../database/store.js";
-import { notificationService } from "./notification.service.js";
+import { notificationService } from "../services/notification.service.js";
 import { publishLowStockAlert } from "./stock-alerts.js";
+import { invoiceService } from "./invoice.service.js";
 import type { Order, OrderStatus, User, OrderItem, Payment, ProductionJob, ProductionConsumption, OrderStatusHistory, NotificationPriority, OrderStation } from "../database/types.js";
 
 /**
@@ -73,6 +74,12 @@ export class BusinessService {
       try { const o = store.updateOrder(order.id, { station: "confirmed" }); if (o) Object.assign(updatedOrder, o); } catch {}
     }
     const persistedHistory = persisted?.history ?? history;
+
+    try {
+      await invoiceService.ensureInvoice(order.id);
+    } catch (e) {
+      /* Non-fatal */
+    }
 
     for (const item of items) {
       if (item.quantity > 0) {
@@ -254,6 +261,10 @@ export class BusinessService {
   }
 /** Create a production job from an order when it reaches the confirmed station. */
   createProductionJob(order: Order, createdBy: string): ProductionJob {
+    const existing = store.productionJobs().find((j) => j.orderId === order.id);
+    if (existing) {
+      return existing as ProductionJob;
+    }
     const job: ProductionJob = {
       id: `pj-${order.id}-${Date.now()}`,
       orderId: order.id,
@@ -265,7 +276,6 @@ export class BusinessService {
       requiredBy: order.requiredBy ?? order.requiredAt ?? null,
       requiredAt: order.requiredAt,
       status: "PENDING",
-      // Fresh pipeline job: matches store.createProductionJob's default stage.
       stage: "PLAN",
       progress: 0,
       notes: `Production job for order ${order.orderNumber}`,
@@ -273,10 +283,6 @@ export class BusinessService {
       updatedAt: new Date().toISOString(),
     };
     store.productionJobs().push(job);
-    store.updateOrder(order.id, {
-      status: "CONFIRMED" as OrderStatus,
-      station: "confirmed" as OrderStation,
-    });
     store.createAuditLog({
       orderId: order.id,
       actor: createdBy,
@@ -616,16 +622,9 @@ export class BusinessService {
       timestamp: new Date().toISOString(),
     });
     if (newStatus === "PAID") {
-      // Ensure a production job exists for orders that entered the pipeline
-      // before payment was settled. No-op when the order is already past the
-      // pipeline (e.g. COMPLETED_DELIVERED) or already carries a job —
-      // prepareOrderForProduction is idempotent and returns the existing job.
-      try {
-        this.prepareOrderForProduction(order.id, changedBy);
-      } catch {
-        /* Non-fatal: order may not be in a production-pipeline status, or a
-           job may already exist and have been reused. */
-      }
+      // Prepare a production job for orders that just reached PAID — non-fatal,
+    // idempotent, and tolerant of orders that are already past the production
+    // pipeline or already carry a job.
       notificationService.publishEvent(
         {
           eventTypeId: "PaymentReceived",
@@ -841,7 +840,7 @@ export class BusinessService {
     if (!order) throw new NotFoundError("Order not found");
     const currentStatus = order.status;
     if (currentStatus !== "CONFIRMED" && currentStatus !== "READY_FOR_PRODUCTION" && currentStatus !== "PRODUCTION_REVIEW" && currentStatus !== "AWAITING_CONFIRMATION") {
-      // Allow starting from confirmed even if status check is strict
+      throw new ConflictError(`Cannot start production from status ${currentStatus}`);
     }
     let job = store.productionJobs().find((j) => j.orderId === order.id);
     if (!job) {
@@ -849,15 +848,7 @@ export class BusinessService {
     }
     const updatedJob = store.updateProductionJob(job.id, { status: "IN_PRODUCTION", stage: "PRODUCE", progress: 20, updatedAt: new Date().toISOString() });
     if (!updatedJob) throw new NotFoundError("Production job not found");
-    // Force update order status directly
-    order.status = "IN_PRODUCTION" as OrderStatus;
-    order.station = "baking" as OrderStation;
-    order.updatedAt = new Date().toISOString();
     store.updateOrderStatus(order.id, "IN_PRODUCTION", userId, "Production started from confirmed station");
-    store.updateOrder(order.id, { status: "IN_PRODUCTION", station: "baking" });
-    try {
-      this.advanceOrderToInProduction(updatedJob, userId);
-    } catch {}
     store.createAuditLog({
       orderId: order.id,
       actor: userId,

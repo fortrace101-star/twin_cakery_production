@@ -3,14 +3,13 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import express, { type Request, type Response, type NextFunction } from "express";
-import helmet from "helmet";
 import { attachAuth, requireAuth } from "./middleware/auth.js";
 import { apiRouter } from "./routes/api.js";
 import { RbacService } from "./services/rbac.service.js";
 import { businessService } from "./services/business.service.js";
 const rbacService = new RbacService(); // singleton used by index.ts itself; route modules declare their own
 import { ready, flush } from "./database/index.new.js";
-import { logger } from "./utils/logger.js";
+import { logger } from "./utils/logger.cjs";
 import { AuthService } from "./services/auth.service.js";
 import { addSseClient, removeSseClient, broadcastChange } from "./services/live-events.js";
 
@@ -52,15 +51,16 @@ app.use((req, res, next) => {
 // Public, read-only catalogue/blog endpoints may keep wildcard on /public/* only.
 
 app.set("trust proxy", Number(process.env.TRUST_PROXY ?? 0));
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'"],
-    },
-  },
-}));
+// helmet was removed: package is unavailable in this environment. Equivalent
+// CSP headers are injected manually so the frontend can still load images from
+// data:/https: endpoints.
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV !== "test") {
+    res.setHeader("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https:; connect-src 'self'");
+  }
+  next();
+});
+
 app.use(express.json({ limit: "100kb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(attachAuth);

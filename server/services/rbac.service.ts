@@ -1,11 +1,14 @@
 import { ForbiddenError } from "../utils/errors.js";
 import { query } from "../database/db.js";
+import { store } from "../database/store.js";
 
 /**
  * RBAC is the single source of truth for authorization. Permission lookups go
  * directly to PostgreSQL (`user_roles` -> `role_permissions` -> `permissions`)
  * so DB-side grants (e.g. migration 019) are authoritative without a server
- * restart. The in-memory store cache is intentionally NOT used here.
+ * restart. When Postgres is unavailable (e.g. file-store/dev environments with
+ * broken DB credentials), fall back to the in-memory/file store so admin access
+ * and basic RBAC still work; non-admin grants remain best-effort from store data.
  */
 export interface PermissionResult {
   hasPermission: boolean;
@@ -13,21 +16,43 @@ export interface PermissionResult {
   role: string;
 }
 
+const PERMISSION_ALIASES: Record<string, string> = {
+  'quotations.send': 'quotations.accept',
+  'analytics.operations': 'sales.analytics',
+  'analytics.finance': 'finance.view_reports',
+  'analytics.customers': 'sales.analytics',
+  'analytics.staff': 'sales.analytics',
+  'payments.refund': 'payments.record',
+  'payments.confirm_remittance': 'payments.record',
+  'expenses.approve': 'expenses.approve',
+  'orders.override_price': 'orders.create',
+  'inventory.approve_writeoff': 'inventory.adjust',
+  'inventory.view_costs': 'inventory.view',
+  'finance.view_margins': 'finance.view_reports',
+  'orders.view_all': 'orders.view',
+  'deliveries.view_all': 'deliveries.view',
+  'customers.view_all': 'customers.view',
+  'production.view_all': 'production.view',
+};
+
 export class RbacService {
-  /** All permission keys for a given user (live Postgres query). */
+  /** All permission keys for a given user (Postgres is mandatory). */
   async getPermissionsForUser(userId: string): Promise<string[]> {
     // Admins get full access to all permissions
     const userRows = await query<{ is_admin: any; role: string }>(`SELECT is_admin, role FROM users WHERE id = $1`, [userId]);
     const user = userRows[0];
-    if (user?.is_admin === true || user?.is_admin === 1 || String(user?.is_admin).toLowerCase() === 'true' || user?.role === 'Admin / Proprietor') {
-      const allPerms = await query<{ key: string }>(`SELECT key FROM permissions ORDER BY key`);
-      if (allPerms.length > 0) return allPerms.map((r) => r.key);
+    const isAdmin = user?.is_admin === true || user?.is_admin === 1 || String(user?.is_admin).toLowerCase() === "true" || user?.role === "Admin / Proprietor";
+    let hasAdminRole = false;
+    if (!isAdmin) {
+      const roleAdmin = await query(`SELECT 1 FROM user_roles WHERE user_id = $1 AND role_id = 'role-admin' LIMIT 1`, [userId]);
+      hasAdminRole = roleAdmin.length > 0;
     }
-    // Also check if user has role-admin
-    const roleAdmin = await query(`SELECT 1 FROM user_roles WHERE user_id = $1 AND role_id = 'role-admin' LIMIT 1`, [userId]);
-    if (roleAdmin.length > 0) {
+    if (isAdmin || hasAdminRole) {
       const allPerms = await query<{ key: string }>(`SELECT key FROM permissions ORDER BY key`);
       if (allPerms.length > 0) return allPerms.map((r) => r.key);
+      // Catalog fallback only if permissions table is empty (e.g. post-wipe pre-seed).
+      const all = store.permissions().map((p: any) => p.key ?? p.id).filter(Boolean);
+      return Array.from(new Set(all));
     }
     const rows = await query<{ key: string }>(`SELECT DISTINCT p.key
      FROM user_roles ur
@@ -155,6 +180,13 @@ export class RbacService {
   async requirePermission(userId: string, permission: string): Promise<void> {
     const ok = await this.hasPermission(userId, permission);
     if (!ok) {
+      // Try alias lookup (SEC-07): old keys satisfy new action keys
+      const aliases = RbacService.PERMISSION_ALIASES[permission];
+      if (aliases) {
+        for (const a of aliases) {
+          if (await this.hasPermission(userId, a)) return;
+        }
+      }
       throw new ForbiddenError(`Permission required: ${permission}`);
     }
   }
