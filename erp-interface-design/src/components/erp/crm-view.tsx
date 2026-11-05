@@ -3,7 +3,7 @@ import { useLiveRefresh } from "@/lib/live";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Select } from "@/components/ui/select";
+import { Select, NativeSelect } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { CalendarDays, Check, Search, MessageSquare, Printer, Mail, Phone, Plus, Loader2, ArrowUpRight, UserPlus, Edit } from "lucide-react";
 import { StatusBadge as Status } from "@/components/data-table/StatusBadge";
@@ -17,6 +17,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Clock3, CalendarPlus } from "lucide-react";
 import type { StatusTone } from "@/lib/theme-tokens";
+import type { ChangeEvent } from "react";
+
 
 function reminderStatus(status: string): { label: string; tone: StatusTone } {
   if (status === "CONTACTED") return { label: "Contacted", tone: "green" };
@@ -43,8 +45,12 @@ function useCustomerContext(name: string, connected: boolean) {
     () => connected ? listCustomerFeedback(customerId) : Promise.resolve([]),
     [customerId, connected],
   );
-  const totalSpent = (orders ?? []).reduce((sum: number, o: ServerCustomerOrder) => sum + o.total, 0);
-  const lastOrder = (orders ?? []).slice().sort((a: ServerCustomerOrder, b: ServerCustomerOrder) => (b.requiredAt ?? b.createdAt ?? "").localeCompare(a.requiredAt ?? a.createdAt ?? ""))[0] as ServerCustomerOrder | undefined;
+  const totalSpent = (orders ?? []).reduce((sum: number, o) => sum + (o as ServerCustomerOrder & { total: number }).total, 0);
+  const lastOrder = (orders ?? []).slice().sort((a, b) => {
+    const atA = (a && b && (a as ServerCustomerOrder).requiredAt) ?? "";
+    const atB = (b && (b as ServerCustomerOrder).requiredAt) ?? "";
+    return atA.localeCompare(atB);
+  })[0] as (ServerCustomerOrder | undefined) | null;
   return { customer, orders, events, feedback, totalSpent, lastOrder };
 }
 
@@ -86,14 +92,13 @@ function CustomerMetricsSnapshot({ name, connected }: { name: string; connected:
           <Badge variant="secondary">{orders.length} orders</Badge>
         </div>
         <Separator orientation="vertical" className="h-6" />
-        <div className="metric-item">
-          <span className="text-muted-foreground text-xs">Total spent</span>
+        <div className="metric-item">            <span className="text-muted-foreground text-xs">Total spent</span>
           <strong className="text-sm">{money(totalSpent)}</strong>
         </div>
         <Separator orientation="vertical" className="h-6" />
         <div className="metric-item">
           <span className="text-muted-foreground text-xs">Last order</span>
-          <span className="text-sm">{lastOrder ? new Date(lastOrder.requiredAt ?? lastOrder.createdAt ?? '').toLocaleDateString() : '—'}</span>
+          <span className="text-sm">{lastOrder ? new Date(lastOrder.requiredAt ?? '').toLocaleDateString() : '—'}</span>
         </div>
       </div>
     </div>
@@ -162,7 +167,7 @@ function CustomerOverview({ name, connected }: { name: string; connected: boolea
             <span className="metric-label">Last order value</span>
           </div>
           <div className="crm-metric">
-            <span className="metric-value">{lastOrder ? new Date(lastOrder.requiredAt ?? lastOrder.createdAt ?? '').toLocaleDateString() : '—'}</span>
+            <span className="metric-value">{lastOrder ? new Date(lastOrder.requiredAt ?? '').toLocaleDateString() : '—'}</span>
             <span className="metric-label">Last order date</span>
           </div>
           <div className="crm-metric">
@@ -193,8 +198,7 @@ function CustomerOverview({ name, connected }: { name: string; connected: boolea
               <small className="text-muted-foreground">Recent feedback</small>
               <ul className="crm-activity-list">
                 {recentFeedback.map((f) => (
-                  <li key={f.id}>
-                    <strong>{feedbackTypeLabel(f.type)}</strong>
+                  <li key={f.id}>                     <strong>{feedbackTypeLabel(f.type)}</strong>
                     <small className="text-muted-foreground">{f.comment}</small>
                   </li>
                 ))}
@@ -222,7 +226,10 @@ function CustomerOrders({ name, connected }: { name: string; connected: boolean 
   const customer = ctx.customer!;
 
   const columns: Column<ServerCustomerOrder>[] = [
-    { header: "Order", cell: (o) => <><strong className="product-name">{o.orderNumber || o.id}</strong>{o.snapshot && <small className="cell-sub">{o.snapshot.snapshotName}</small>}</> },
+    { header: "Order", cell: (o) => {
+      const ord = o as ServerCustomerOrder & { snapshot?: { snapshotName?: string | null } };
+      return (<><strong className="product-name">{ord.orderNumber || ord.id}</strong>{ord.snapshot && <small className="cell-sub">{ord.snapshot.snapshotName || ''}</small>}</>);
+    } },
     { header: "Date", cell: (o) => <small className="text-muted-foreground">{o.requiredAt ? new Date(o.requiredAt).toLocaleDateString() : '—'}</small> },
     { header: "Amount", align: "right", cell: (o) => <span className="amount-cell">{money(o.total)}</span> },
     { header: "Status", cell: (o) => <Status value={orderStatusLabel(o.status)} /> },
@@ -270,7 +277,11 @@ function RecordFeedbackDialog({
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const completedOrders = (orders ?? []).filter(o => o.status === 'COMPLETED_DELIVERED' || o.status === 'COMPLETED');
+  const completedOrders = (orders ?? []).filter((o) => {
+    const ord = o as ServerCustomerOrder & { status?: string };
+    const s = ord.status ?? '';
+    return s === 'COMPLETED_DELIVERED' || s === 'COMPLETED';
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -306,21 +317,21 @@ function RecordFeedbackDialog({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="form-field">
             <Label>Select completed order</Label>
-            <Select value={selectedOrderId} onChange={(e) => setSelectedOrderId(e.target.value)}>
+            <NativeSelect value={selectedOrderId} onChange={(e: ChangeEvent<HTMLSelectElement>) => setSelectedOrderId(e.target.value)}>
               <option value="">Choose an order...</option>
               {completedOrders.map((o) => (
-                <option key={o.id} value={o.id}>{o.orderNumber || o.id} - {new Date(o.requiredAt ?? o.createdAt ?? '').toLocaleDateString()}</option>
+                <option key={o.id} value={o.id}>{o.orderNumber || o.id} - {new Date(o.requiredAt ?? '').toLocaleDateString()}</option>
               ))}
-            </Select>
+            </NativeSelect>
           </div>
           <div className="form-field">
             <Label>Feedback type</Label>
-            <Select value={type} onChange={(e) => setType(e.target.value)}>
+            <NativeSelect value={type} onChange={(e: ChangeEvent<HTMLSelectElement>) => setType(e.target.value)}>
               <option value="RATING">Rating</option>
               <option value="COMPLAINT">Complaint</option>
               <option value="COMPLIMENT">Compliment</option>
               <option value="GENERAL">General feedback</option>
-            </Select>
+            </NativeSelect>
           </div>
           <div className="form-field">
             <Label>Rating</Label>
@@ -362,8 +373,8 @@ function CustomerFeedback({ name, connected }: { name: string; connected: boolea
 
   const columns: Column<ServerCustomerFeedback>[] = [
     { header: "Rating", cell: (f) => <StarRating rating={f.rating} readonly /> },
-    { header: "Type", cell: (f) => <small className="text-muted-foreground">{feedbackTypeLabel(f.type)}</small> },
-    { header: "Date", cell: (f) => <small className="text-muted-foreground">{new Date(f.createdAt).toLocaleDateString()}</small> },
+    { header: "Type", cell: (f: ServerCustomerFeedback) => <small className="text-muted-foreground">{feedbackTypeLabel(f.type)}</small> },
+    { header: "Date", cell: (f: ServerCustomerFeedback) => <small className="text-muted-foreground">{new Date(f.createdAt).toLocaleDateString()}</small> },
     { header: "Comment", cell: (f) => <span className="text-sm">{f.comment || '—'}</span> },
     { header: "Resolution", cell: (f) => <span className="text-sm">{f.resolution || '—'}</span> },
     { header: "Order", cell: (f) => <small className="text-muted-foreground">{f.orderId || '—'}</small> },

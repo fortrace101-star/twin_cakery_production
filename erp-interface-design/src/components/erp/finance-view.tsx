@@ -12,6 +12,7 @@ import { orderStageTone } from "@/lib/theme-tokens";
 import { DataTable, type SortState } from "@/components/data-table/DataTable";
 import { useDensity } from "@/lib/density";
 import {
+  request,
   listPayments,
   recordPayment,
   recordPaymentCallback,
@@ -24,6 +25,8 @@ import {
   listProductionJobs,
   getProductionCosts,
   createExpenseCategory,
+  listInvoices,
+  listFinanceApprovals,
 } from "@/lib/api";
 import type { ServerExpense, ServerExpenseCategory, ServerPayment, FinanceReport } from "@/lib/api";
 
@@ -68,6 +71,8 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
   const [categories, setCategories] = useState<ServerExpenseCategory[]>([]);
   const [reports, setReports] = useState<FinanceReport | null>(null);
   const [reportsLoading, setReportsLoading] = useState(false);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [approvals, setApprovals] = useState<any[]>([]);
 
   // ---- payments -----------------------------------------------------------
   const [orderId, setOrderId] = useState("");
@@ -165,6 +170,15 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
 
   useEffect(() => { void refreshExpenses(); }, [refreshExpenses]);
   useLiveRefresh(refreshExpenses);
+
+  useEffect(() => {
+    if (activeTab === "Invoices") {
+      void listInvoices().then(setInvoices);
+    }
+    if (activeTab === "Approvals") {
+      void listFinanceApprovals().then(setApprovals);
+    }
+  }, [activeTab]);
 
   function resetExpenseForm() {
     setEditing(null);
@@ -448,6 +462,84 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
             />
           )}
           {reports && <div className="table-foot"><span>Report period: {period}</span></div>}
+        </section>
+      )}
+
+      {activeTab === "Invoices" && (
+        <section className="panel module-table">
+          <div className="panel-heading"><div><h2>Invoices <span className="inline-count">{invoices.length}</span></h2><p>Issued invoices and credit notes.</p></div></div>
+          <DataTable
+            columns={[
+              { header: "Invoice #", cell: (i) => <strong className="product-name">{i.invoice_no || i.id}</strong> },
+              { header: "Order", cell: (i) => i.order_id },
+              { header: "Customer", cell: (i) => i.customer_id },
+              { header: "Status", cell: (i) => i.status },
+              { header: "Total", align: "right", cell: (i) => <span className="amount-cell">{money(i.total || 0)}</span> },
+              { header: "Issue date", cell: (i) => i.issue_date || (i.created_at ? new Date(i.created_at).toLocaleDateString("en-UG") : "-") },
+            ]}
+            rows={invoices}
+            rowKey={(i) => i.id}
+            stickyHeader
+            density={density}
+            empty={<div className="empty-state"><Plus /><h3>No invoices yet</h3><p>Invoices are created when orders are confirmed.</p></div>}
+          />
+        </section>
+      )}
+
+      {activeTab === "Approvals" && (
+        <section className="panel module-table">
+          <div className="panel-heading"><div><h2>Approvals <span className="inline-count">{approvals.length}</span></h2><p>Pending approvals for reversals, refunds and overrides.</p></div></div>
+          <DataTable
+            columns={[
+              { header: "Kind", cell: (a) => a.kind },
+              { header: "Requested by", cell: (a) => a.requested_by },
+              { header: "Status", cell: (a) => a.status },
+              { header: "Created", cell: (a) => a.created_at ? new Date(a.created_at).toLocaleString("en-UG") : "-" },
+            ]}
+            rows={approvals}
+            rowKey={(a) => a.id}
+            stickyHeader
+            density={density}
+            empty={<div className="empty-state"><Check /><h3>No pending approvals</h3><p>All approval requests are up to date.</p></div>}
+          />
+        </section>
+      )}
+
+      {activeTab === "Cash-up" && (
+        <section className="panel module-table">
+          <div className="panel-heading"><div><h2>Cash-up</h2><p>Driver cash handovers and reconciliation.</p></div></div>
+          <div className="form-grid">
+            <div className="form-field"><Label>Driver ID</Label><Input placeholder="driver-1" id="cu-driver" /></div>
+            <div className="form-field"><Label>Expected (USh)</Label><Input type="number" placeholder="0" id="cu-expected" /></div>
+            <div className="form-field"><Label>Counted (USh)</Label><Input type="number" placeholder="0" id="cu-counted" /></div>
+          </div>
+          <div className="flex justify-end gap-2"><Button variant="secondary" onClick={async () => {
+            try {
+              const driver_id = (document.getElementById('cu-driver') as HTMLInputElement)?.value;
+              const expected = (document.getElementById('cu-expected') as HTMLInputElement)?.value;
+              const counted = (document.getElementById('cu-counted') as HTMLInputElement)?.value;
+              await request('/finance/cash-handovers', { method: 'POST', body: JSON.stringify({ driver_id, expected, counted }) });
+              onNotice('Cash handover recorded');
+              window.location.reload();
+            } catch { onNotice('Failed to record handover'); }
+          }}>Confirm handover</Button></div>
+        </section>
+      )}
+
+      {activeTab === "Period close" && (
+        <section className="panel module-table">
+          <div className="panel-heading"><div><h2>Period close</h2><p>Close accounting periods.</p></div></div>
+          <div className="form-grid">
+            <div className="form-field"><Label>Period (YYYY-MM)</Label><Input placeholder="2026-11" id="pc-period" /></div>
+          </div>
+          <div className="flex justify-end gap-2"><Button variant="secondary" onClick={async () => {
+            try {
+              const period = (document.getElementById('pc-period') as HTMLInputElement)?.value;
+              await request(`/finance/periods/${period}/close`, { method: 'POST' });
+              onNotice('Period closed');
+              window.location.reload();
+            } catch { onNotice('Failed to close period'); }
+          }}>Close period</Button></div>
         </section>
       )}
 

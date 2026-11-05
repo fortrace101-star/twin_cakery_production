@@ -74,8 +74,8 @@ function CreatePoDialog(props: {
             <option value="">Select item…</option>
             {items.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
           </select>
-          <Input aria-label={`Quantity ${idx + 1}`} type="number" min="0" placeholder="Qty" style={{flex:1,minWidth:80}} value={l.quantity} onChange={e => setLine(idx, { quantity: e.target.value })}/>
-          <Input aria-label={`Unit price ${idx + 1}`} type="number" min="0" placeholder={`Price / ${l.unit}`} style={{flex:1,minWidth:100}} value={l.unitPrice} onChange={e => setLine(idx, { unitPrice: e.target.value })}/>
+          <Input aria-label={`Quantity ${idx + 1}`} type="number" min="0" placeholder="Qty" style={{flex:1,minWidth:80}} value={l.quantity || ''} onChange={e => setLine(idx, { quantity: e.target.value })}/>
+          <Input aria-label={`Unit price ${idx + 1}`} type="number" min="0" placeholder={`Price / ${l.unit}`} style={{flex:1,minWidth:100}} value={l.unitPrice || ''} onChange={e => setLine(idx, { unitPrice: e.target.value })}/>
           <Button variant="ghost" size="icon" aria-label={`Remove line ${idx + 1}`} disabled={form.lines.length === 1} onClick={() => setForm({ ...form, lines: form.lines.filter((_, i) => i !== idx) })}><Trash2/></Button>
         </div>)}
         <Button variant="outline" size="sm" onClick={() => setForm({ ...form, lines: [...form.lines, { productId: "", quantity: "", unit: "unit", unitPrice: "", newItem: false, newName: "", newSku: "", newCategory: "" }] })}><Plus/> Add line</Button>
@@ -396,41 +396,43 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
         {detail.status !== "COMPLETED" && detail.status !== "CANCELLED" && <>
           <div>
             <h3 className="text-sm font-semibold mb-2">Additional items received (not on original PO)</h3>
-            {extraReceiveItems.map((ex, idx) => (
-              <div key={idx} className="form-row" style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:8}}>
-                <select className="input" style={{flex:2,minWidth:160}} value={ex.productId} onChange={e => {
-                  const next = [...extraReceiveItems];
-                  if (e.target.value === "__new__") {
-                    next[idx] = { ...next[idx], productId: "__new__" };
+            {extraReceiveItems.map((ex, idx) => {
+              const productId = ((ex as any).productId as string | undefined) ?? "";
+              return (
+                <div key={idx} className="form-row" style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:8}}>
+                  <select className="input" style={{flex:2,minWidth:160}} value={productId || ""} onChange={e => {
+                    const next = [...extraReceiveItems];
+                    if (e.target.value === "__new__") {
+                      next[idx] = { ...next[idx], productId: "__new__" };
+                      setExtraReceiveItems(next);
+                      return;
+                    }
+                    const it = invItems.find(i => i.id === e.target.value);
+                    next[idx] = { ...next[idx], productId: e.target.value, unit: it?.unit ?? next[idx].unit };
                     setExtraReceiveItems(next);
-                    return;
-                  }
-                  const it = invItems.find(i => i.id === e.target.value);
-                  next[idx] = { ...next[idx], productId: e.target.value, unit: it?.unit ?? next[idx].unit };
-                  setExtraReceiveItems(next);
-                }}>
-                  <option value="">Select item…</option>
-                  {invItems.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
-                  <option value="__new__">+ Add new item</option>
-                </select>
-                {ex.productId === "__new__" && <>
-                  <Input placeholder="Item name" style={{flex:2,minWidth:120}} value={(ex as any).newName || ""} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).newName = e.target.value; setExtraReceiveItems(next); }}/>
-                  <Input placeholder="SKU" style={{flex:1,minWidth:80}} value={(ex as any).newSku || ""} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).newSku = e.target.value; setExtraReceiveItems(next); }}/>
-                  <Input placeholder="Unit" style={{flex:1,minWidth:60}} value={(ex as any).unit || "unit"} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).unit = e.target.value; setExtraReceiveItems(next); }}/>
-                </>}
-                <Input placeholder="Qty" style={{flex:1,minWidth:80}} value={ex.quantity} onChange={e => { const next=[...extraReceiveItems]; next[idx]={...next[idx],quantity:e.target.value}; setExtraReceiveItems(next); }}/>
-                <Input placeholder="Unit price" style={{flex:1,minWidth:100}} value={ex.unitPrice} onChange={e => { const next=[...extraReceiveItems]; next[idx]={...next[idx],unitPrice:e.target.value}; setExtraReceiveItems(next); }}/>
-                <Button variant="ghost" size="icon" onClick={() => setExtraReceiveItems(extraReceiveItems.filter((_,i)=>i!==idx))}><Trash2/></Button>
-              </div>
-            ))}
-            <Button variant="outline" size="sm" onClick={() => setExtraReceiveItems([...extraReceiveItems, { productId: invItems[0]?.id ?? "", quantity: "", unit: invItems[0]?.unit ?? "unit", unitPrice: "" }])}><Plus/> Add extra item</Button>
+                  }}>
+                    <option value="">Select item…</option>
+                    {invItems.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
+                    <option value="__new__">+ Add new item</option>
+                  </select>
+                  {productId === "__new__" && <>
+                  <Input placeholder="Item name" style={{flex:2,minWidth:120}} value={(ex as any).newName || ''} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).newName = e.target.value; setExtraReceiveItems(next); }}/>
+                  <Input placeholder="SKU" style={{flex:1,minWidth:80}} value={(ex as any).newSku || ''} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).newSku = e.target.value; setExtraReceiveItems(next); }}/>
+                  <Input placeholder="Unit" style={{flex:1,minWidth:60}} value={(ex as any).unit || 'unit'} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).unit = e.target.value; setExtraReceiveItems(next); }}/>
+                  </>}
+                  <Input placeholder="Qty" style={{flex:1,minWidth:80}} value={ex.quantity || ''} onChange={e => { const next=[...extraReceiveItems]; next[idx]={...next[idx],quantity:e.target.value}; setExtraReceiveItems(next); }}/>
+                  <Input placeholder="Unit price" style={{flex:1,minWidth:100}} value={ex.unitPrice || ''} onChange={e => { const next=[...extraReceiveItems]; next[idx]={...next[idx],unitPrice:e.target.value}; setExtraReceiveItems(next); }}/>
+                  <Button variant="ghost" size="icon" onClick={() => setExtraReceiveItems(extraReceiveItems.filter((_,i)=>i!==idx))}><Trash2/></Button>
+                </div>
+              );
+            })}              <Button variant="outline" size="sm" onClick={() => setExtraReceiveItems([...extraReceiveItems, { productId: invItems[0]?.id ?? "", quantity: "", unit: invItems[0]?.unit ?? "unit", unitPrice: "" }])}><Plus/> Add extra item</Button>
           </div>
           <div className="dialog-actions">
             <Button disabled={busy} onClick={async () => {
               setBusy(true);
               const extras: any[] = [];
               for (const e of extraReceiveItems) {
-                if (!Number(e.quantity) || Number(e.quantity) <= 0) continue;
+                if (!e.quantity || !Number(e.quantity) || Number(e.quantity) <= 0) continue;
                 if ((e as any).productId === "__new__") {
                   const name = ((e as any).newName || "").trim();
                   if (!name) continue;

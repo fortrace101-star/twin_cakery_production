@@ -245,24 +245,37 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     );
     void (async () => {
       try {
-        const server = serverOrdersRef.current.find((o) => (o.orderNumber || o.id) === id);
-        if (!server) return;
+        const server = serverOrdersRef.current.find((o) => (o.orderNumber || o.id) === id)
+          ?? serverOrdersRef.current.find((o) => o.id === id || o.orderNumber === id);
+        // If the server ref isn't hydrated yet, fall back to the UI id (often the
+        // order number / server id) so state transitions still reach the API.
+        const serverId = server?.id ?? id;
         if (paidDelta && paidDelta > 0) {
           // Land the payment in the server ledger (POST /payments) so it
           // survives refreshes; the server derives PARTIALLY_PAID/PAID from
           // the ledger (spec §14), which refresh() then re-reads.
-          await recordPayment({ orderId: server.id, amount: paidDelta, method: payMeta?.method || "Cash", receivedBy: payMeta?.receivedBy || user?.id || "", ...(payMeta?.reference ? { reference: payMeta.reference } : {}), ...(payMeta?.notes ? { notes: payMeta.notes } : {}) });
+          await recordPayment({ orderId: serverId, amount: paidDelta, method: payMeta?.method || "Cash", receivedBy: payMeta?.receivedBy || user?.id || "", ...(payMeta?.reference ? { reference: payMeta.reference } : {}), ...(payMeta?.notes ? { notes: payMeta.notes } : {}) });
         }
-        await updateOrderApi(server.id, {
-          status: orderStatusEnum(status),
-          ...(payment ? { paymentStatus: paymentStatusEnum(payment) } : {}),
-          ...(delivered ? { deliveryStatus: "COMPLETED_DELIVERED" } : {}),
-        });
+        const serverStatus = /^[A-Z_]+$/.test(status) ? status : orderStatusEnum(status);
+        const isConfirmed = serverStatus === "CONFIRMED" || status === "Confirmed";
+        // Use proper action endpoints for specific status transitions
+        if (isConfirmed) {
+          const { confirmOrderApi } = await import("@/lib/api");
+          await confirmOrderApi(serverId);
+        } else {
+          await updateOrderApi(serverId, {
+            status: serverStatus,
+            ...(payment ? { paymentStatus: paymentStatusEnum(payment) } : {}),
+            ...(delivered ? { deliveryStatus: "COMPLETED_DELIVERED" } : {}),
+          });
+        }
+        // Refresh to get latest state from server
+        await refresh();
       } catch {
         /* Non-fatal: the optimistic change stays for this session. */
       }
     })();
-  }, [user]);
+  }, [user, refresh]);
 
   const completeFollowUp = useCallback((id: string) => {
     // Documenting the follow-up stamps the order; the CRM sidebar badge and the

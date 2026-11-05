@@ -1,44 +1,25 @@
 {
-  "name": "twin-cakery-erp-server",
+  "name": "twincakery-erp-server",
+  "version": "0.1.0",
   "private": true,
-  "version": "1.0.0",
   "type": "module",
-  "description": "Twin Cakery ERP Express API. Run from this folder (server/) or the repo root (erp/).",
   "scripts": {
-    "dev": "tsx --tsconfig tsconfig.json index.ts",
-    "dev:api": "tsx --tsconfig tsconfig.json index.ts",
-    "dev:nodemon": "nodemon --config nodemon.json",
-    "start": "node ../dist-server/index.js",
+    "dev": "nodemon",
+    "start": "node dist-server/index.js",
     "build": "tsc -p tsconfig.json",
-    "build:api": "tsc -p tsconfig.json",
-    "db:migrate": "tsx --tsconfig tsconfig.json database/migrate.ts",
-    "db:seed": "tsx --tsconfig tsconfig.json seeds/seed.ts",
-    "wipe": "tsx --tsconfig tsconfig.json scripts/reset-production.ts",
-    "code:admin": "tsx --tsconfig tsconfig.json scripts/code-admin.ts",
-    "code:staff": "tsx --tsconfig tsconfig.json scripts/code-staff.ts",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:register": "node scripts/test-register-flow.mjs",
-    "test:claim-admin": "node scripts/test-claim-admin-flow.mjs"
+    "migrate": "tsx migrate.ts",
+    "seed": "tsx seeds/seed.ts",
+    "wipe": "tsx --tsconfig tsconfig.json scripts/reset-production.ts"
   },
   "dependencies": {
-    "@types/helmet": "^0.0.48",
-    "bcryptjs": "^3.0.3",
-    "dotenv": "^18.0.6",
-    "express": "^5.2.1",
-    "helmet": "^8.3.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
     "nodemon": "^3.1.14",
-    "pg": "^8.23.1",
-    "uuid": "^14.0.2"
+    "pg": "^8.11.3",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
-    "@types/express": "^5.0.6",
-    "@types/node": "^26.6.6",
-    "@types/pg": "^8.23.1",
-    "supertest": "^7.3.1",
-    "tsx": "^4.23.15",
-    "typescript": "^5.8.3",
-    "vitest": "^5.0.5"
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
   }
 }

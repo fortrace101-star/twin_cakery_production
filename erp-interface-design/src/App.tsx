@@ -10,6 +10,8 @@ import { SignUpPage } from "./pages/SignUpPage";
 import { ClaimAdminPage } from "./pages/ClaimAdminPage";
 import { hasExistingUser } from "./lib/api";
 
+const TOKEN_KEY = "twin_cakery_token";
+
 function applyMeta(title: string, description: string) {
   document.title = title;
   const desc = document.querySelector('meta[name="description"]');
@@ -111,6 +113,9 @@ function GuestPage() {
 export default function App() {
   const navigate = useNavigate();
   useEffect(() => {
+    // Don't hijack authenticated sessions: a logged-in user must not be forced
+    // to claim-admin by a transient/misaligned user-count response.
+    if (typeof window !== "undefined" && window.localStorage.getItem(TOKEN_KEY)) return;
     (async () => {
       try {
         const exists = await hasExistingUser();

@@ -586,12 +586,11 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
       return (<div key={c.id} className="flex justify-between text-xs"><span>{name} × {c.quantity} {c.unit}</span><span>{c.notes || ''}</span></div>);
     })}</div>)}
     <div className="mt-3 space-y-2">
-      {materialEntries.map((m, idx) => (<div key={idx} className="flex gap-2 items-center">
-        <select className="input flex-1" value={m.itemId} onChange={e => { const next = [...materialEntries]; next[idx] = { ...next[idx], itemId: e.target.value }; setMaterialEntries(next); }}>
+      {materialEntries.map((m, idx) => (<div key={idx} className="flex gap-2 items-center">          <select className="input flex-1" value={m.itemId} onChange={e => { const next = [...materialEntries]; next[idx] = { ...next[idx], itemId: e.target.value }; setMaterialEntries(next); }}>
           <option value="">Select item...</option>
           {inventoryItems.map(it => <option key={it.id} value={it.id}>{it.name} - {it.physicalStock} {it.unit}</option>)}
         </select>
-        <Input className="w-24" type="number" placeholder="Qty" value={m.quantity || ''} onChange={e => { const next = [...materialEntries]; next[idx] = { ...next[idx], quantity: Number(e.target.value) }; setMaterialEntries(next); }} />
+        <Input className="w-24" type="number" placeholder="Qty" value={m.quantity} onChange={e => { const next = [...materialEntries]; next[idx] = { ...next[idx], quantity: Number(e.target.value) }; setMaterialEntries(next); }} />
         <Input className="flex-1" placeholder="Notes" value={m.notes} onChange={e => { const next = [...materialEntries]; next[idx] = { ...next[idx], notes: e.target.value }; setMaterialEntries(next); }} />
       </div>))}
       <div className="flex gap-2">

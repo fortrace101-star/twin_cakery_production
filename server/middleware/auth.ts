@@ -12,15 +12,19 @@ declare module "express-serve-static-core" {
 
 const rbacService = new RbacService();
 
-export function attachAuth(req: Request, res: Response, next: NextFunction): void {
-  const authHeader = req.headers.authorization as string | undefined;
-  const token = extractToken(authHeader);
-  const session = token ? AuthService.getSession(token) : null;
-  (req as unknown as { auth?: { token: string | null; session: unknown } }).auth = {
-    token: token ?? null,
-    session,
-  };
-  next();
+export async function attachAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const authHeader = req.headers.authorization as string | undefined;
+    const token = extractToken(authHeader);
+    const session = token ? await AuthService.getSession(token) : null;
+    (req as unknown as { auth?: { token: string | null; session: unknown } }).auth = {
+      token: token ?? null,
+      session,
+    };
+    next();
+  } catch (err) {
+    next(err);
+  }
 }
 
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {

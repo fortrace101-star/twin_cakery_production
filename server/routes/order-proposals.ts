@@ -10,7 +10,7 @@ const authService = new AuthService();
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {
   try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
+    const session = await authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
@@ -20,9 +20,9 @@ const required = (perm: string): RequestHandler => async (req, res, next) => {
   }
 };
 
-function currentUser(req: { headers: { authorization?: string } }): string {
+async function currentUser(req: { headers: { authorization?: string } }): Promise<string> {
   try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization));
+    const session = await authService.requireAuth(extractToken(req.headers.authorization));
     return session.userId;
   } catch {
     return "";
@@ -38,26 +38,26 @@ function currentUser(req: { headers: { authorization?: string } }): string {
  * confirm → produce → deliver pipeline — or cancel with a reason.
  */
 
-router.get("/", required("orders.view"), (req, res) => {
+router.get("/", required("orders.view"), async (req, res) => {
   const status = req.query.status as string | undefined;
   let list = store.orderProposals().slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   if (status) list = list.filter((p) => p.status === status);
   res.json(list);
 });
 
-router.get("/:id", required("orders.view"), (req, res) => {
+router.get("/:id", required("orders.view"), async (req, res) => {
   const proposal = store.findOrderProposal(String(req.params.id));
   if (!proposal) throw new NotFoundError("Order proposal not found");
   res.json(proposal);
 });
 
-router.post("/:id/confirm", required("orders.confirm"), (req, res) => {
+router.post("/:id/confirm", required("orders.confirm"), async (req, res) => {
   const proposal = store.findOrderProposal(String(req.params.id));
   if (!proposal) throw new NotFoundError("Order proposal not found");
   if (proposal.status !== "PENDING_REVIEW") {
     throw new ValidationError(`Proposal is already ${proposal.status}`);
   }
-  const me = currentUser(req);
+  const me = await currentUser(req);
   // Resolve-or-create the canonical customer (exact email/phone match only).
   const email = proposal.email.trim().toLowerCase();
   const phone = proposal.phone.trim();
@@ -131,13 +131,13 @@ router.post("/:id/confirm", required("orders.confirm"), (req, res) => {
   res.status(201).json({ proposal: store.findOrderProposal(proposal.id), order });
 });
 
-router.post("/:id/cancel", required("orders.confirm"), (req, res) => {
+router.post("/:id/cancel", required("orders.confirm"), async (req, res) => {
   const proposal = store.findOrderProposal(String(req.params.id));
   if (!proposal) throw new NotFoundError("Order proposal not found");
   if (proposal.status !== "PENDING_REVIEW") {
     throw new ValidationError(`Proposal is already ${proposal.status}`);
   }
-  const me = currentUser(req);
+  const me = await currentUser(req);
   store.updateOrderProposal(proposal.id, {
     status: "CANCELLED",
     reviewedBy: me || null,

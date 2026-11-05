@@ -15,7 +15,7 @@ function parseNum(value: unknown): number {
 
 const required = (perm: string) => async (req, res, next) => {
   try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
+    const session = await authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
@@ -31,13 +31,13 @@ router.get("/categories", required("production.view"), (_req, res) => {
   res.json(store.productionFixedCostCategories().filter((c) => c.deletedAt === undefined));
 });
 
-router.get("/categories/:id", required("production.view"), (req, res) => {
+router.get("/categories/:id", required("production.view"), async (req, res) => {
   const category = store.findProductionFixedCostCategory(String(req.params.id));
   if (!category) throw new NotFoundError("Fixed cost category not found");
   res.json(category);
 });
 
-router.post("/categories", required("production.manage"), (req, res) => {
+router.post("/categories", required("production.manage"), async (req, res) => {
   const body = req.body || {};
   if (!body.name) return res.status(400).json({ error: "name is required" });
   const category = store.createProductionFixedCostCategory({
@@ -51,13 +51,13 @@ router.post("/categories", required("production.manage"), (req, res) => {
   res.status(201).json(category);
 });
 
-router.patch("/categories/:id", required("production.manage"), (req, res) => {
+router.patch("/categories/:id", required("production.manage"), async (req, res) => {
   const category = store.updateProductionFixedCostCategory(String(req.params.id), req.body || {});
   if (!category) throw new NotFoundError("Fixed cost category not found");
   res.json(category);
 });
 
-router.delete("/categories/:id", required("production.manage"), (req, res) => {
+router.delete("/categories/:id", required("production.manage"), async (req, res) => {
   const ok = store.deleteProductionFixedCostCategory(String(req.params.id));
   if (!ok) throw new NotFoundError("Fixed cost category not found or in use");
   res.status(204).send();
@@ -65,11 +65,11 @@ router.delete("/categories/:id", required("production.manage"), (req, res) => {
 
 // ---- job-level fixed cost entries ----
 
-router.get("/jobs/:jobId/entries", required("production.view"), (req, res) => {
+router.get("/jobs/:jobId/entries", required("production.view"), async (req, res) => {
   res.json(store.productionFixedCostEntriesForJob(String(req.params.jobId)));
 });
 
-router.post("/jobs/:jobId/entries", required("production.manage"), (req, res) => {
+router.post("/jobs/:jobId/entries", required("production.manage"), async (req, res) => {
   const body = req.body || {};
   if (!body.categoryId) return res.status(400).json({ error: "categoryId is required" });
   const category = store.findProductionFixedCostCategory(body.categoryId);
@@ -88,13 +88,13 @@ router.post("/jobs/:jobId/entries", required("production.manage"), (req, res) =>
   res.status(201).json(entry);
 });
 
-router.patch("/entries/:id", required("production.manage"), (req, res) => {
+router.patch("/entries/:id", required("production.manage"), async (req, res) => {
   const entry = store.updateProductionFixedCostEntry(String(req.params.id), req.body || {});
   if (!entry) throw new NotFoundError("Fixed cost entry not found");
   res.json(entry);
 });
 
-router.delete("/entries/:id", required("production.manage"), (req, res) => {
+router.delete("/entries/:id", required("production.manage"), async (req, res) => {
   const ok = store.deleteProductionFixedCostEntry(String(req.params.id));
   if (!ok) throw new NotFoundError("Fixed cost entry not found");
   res.status(204).send();

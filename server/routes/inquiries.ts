@@ -9,7 +9,7 @@ const authService = new AuthService();
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {
   try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
+    const session = await authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
@@ -19,7 +19,7 @@ const required = (perm: string): RequestHandler => async (req, res, next) => {
   }
 };
 
-router.get("/", required("inquiries.view"), (req, res) => {
+router.get("/", required("inquiries.view"), async (req, res) => {
   const inquiries = store.inquiries();
   const status = req.query.status as string | undefined;
   const channel = req.query.channel as string | undefined;
@@ -29,7 +29,7 @@ router.get("/", required("inquiries.view"), (req, res) => {
   res.json(list);
 });
 
-router.post("/", required("inquiries.create"), (req, res) => {
+router.post("/", required("inquiries.create"), async (req, res) => {
   const { customerId, channel, staffMember, subject, summary, details, status, priority, followUpRequired, source } = req.body || {};
   if (!subject || !channel) return res.status(400).json({ error: "subject and channel are required" });
   const record = store.createInquiry({
@@ -47,13 +47,13 @@ router.post("/", required("inquiries.create"), (req, res) => {
   res.status(201).json(record);
 });
 
-router.get("/:id", required("inquiries.view"), (req, res) => {
+router.get("/:id", required("inquiries.view"), async (req, res) => {
   const inquiry = store.inquiries().find((i) => i.id === String(req.params.id));
   if (!inquiry) throw new Error("Inquiry not found");
   res.json(inquiry);
 });
 
-router.patch("/:id", required("inquiries.edit"), (req, res) => {
+router.patch("/:id", required("inquiries.edit"), async (req, res) => {
   const id = String(req.params.id);
   const inquiry = store.inquiries().find((i) => i.id === id);
   if (!inquiry) throw new Error("Inquiry not found");

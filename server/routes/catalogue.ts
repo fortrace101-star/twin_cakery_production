@@ -9,7 +9,7 @@ const router = Router();
 const required = requirePermission;
 const authService = new AuthService();
 
-router.get("/", required("catalogue.view"), (req, res) => {
+router.get("/", required("catalogue.view"), async (req, res) => {
   const categories = store.db.catalogue?.categories || [];
   const products = store.db.catalogue?.products || [];
   const visible = products.filter((p) => p.catalogueVisible);
@@ -24,12 +24,12 @@ router.get("/", required("catalogue.view"), (req, res) => {
   return res.json({ categories, ...paged });
 });
 
-router.get("/categories", required("catalogue.view"), (req, res) => {
+router.get("/categories", required("catalogue.view"), async (req, res) => {
   const cats = store.db.catalogue?.categories || [];
   res.json(cats);
 });
 
-router.post("/categories", required("catalogue.create"), (req, res) => {
+router.post("/categories", required("catalogue.create"), async (req, res) => {
   const { name, code, description, image, displayOrder, active, catalogueVisible } = req.body || {};
   if (!name || !code) return res.status(400).json({ error: "Name and code are required" });
   const now = new Date().toISOString();
@@ -50,7 +50,7 @@ router.post("/categories", required("catalogue.create"), (req, res) => {
   res.status(201).json(category);
 });
 
-router.patch("/categories/:id", required("catalogue.edit"), (req, res) => {
+router.patch("/categories/:id", required("catalogue.edit"), async (req, res) => {
   const id = String(req.params.id);
   const cats = store.db.catalogue?.categories || [];
   const idx = cats.findIndex((c) => c.id === id);
@@ -61,7 +61,7 @@ router.patch("/categories/:id", required("catalogue.edit"), (req, res) => {
   res.json(cats[idx]);
 });
 
-router.post("/types", required("catalogue.create"), (req, res) => {
+router.post("/types", required("catalogue.create"), async (req, res) => {
   const { categoryId, name, code, description, displayOrder, active, catalogueVisible } = req.body || {};
   if (!categoryId || !name) return res.status(400).json({ error: "categoryId and name are required" });
   const now = new Date().toISOString();
@@ -82,12 +82,12 @@ router.post("/types", required("catalogue.create"), (req, res) => {
   res.status(201).json(type);
 });
 
-router.get("/types", required("catalogue.view"), (req, res) => {
+router.get("/types", required("catalogue.view"), async (req, res) => {
   const types = store.db.catalogue?.types || [];
   res.json(types);
 });
 
-router.get("/products", required("catalogue.view"), (req, res) => {
+router.get("/products", required("catalogue.view"), async (req, res) => {
   const products = store.db.catalogue?.products || [];
   const name = req.query.name as string | undefined;
   const active = req.query.active;
@@ -99,7 +99,7 @@ router.get("/products", required("catalogue.view"), (req, res) => {
   res.json(list);
 });
 
-router.post("/products", required("catalogue.create"), (req, res) => {
+router.post("/products", required("catalogue.create"), async (req, res) => {
   const { sku, categoryId, productId, name, description, basePrice, costReference, catalogueVisible, productionEnabled, image, active, notes } = req.body || {};
   if (!sku || !categoryId || !name) return res.status(400).json({ error: "sku, categoryId, and name are required" });
   const now = new Date().toISOString();
@@ -122,7 +122,7 @@ router.post("/products", required("catalogue.create"), (req, res) => {
     updatedAt: now,
   };
   store.db.catalogue.products.push(product);
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   store.createAuditLog({
     actor: session?.userId ?? "", action: "product:created",
     entityType: "product", entityId: product.id, reason: `${product.sku} · ${product.name}`,
@@ -131,13 +131,13 @@ router.post("/products", required("catalogue.create"), (req, res) => {
   res.status(201).json(product);
 });
 
-router.get("/products/:id", required("catalogue.view"), (req, res) => {
+router.get("/products/:id", required("catalogue.view"), async (req, res) => {
   const product = store.db.catalogue?.products?.find((p) => p.id === String(req.params.id));
   if (!product) throw new NotFoundError("Product not found");
   res.json(product);
 });
 
-router.patch("/products/:id", required("catalogue.edit"), (req, res) => {
+router.patch("/products/:id", required("catalogue.edit"), async (req, res) => {
   const id = String(req.params.id);
   const products = store.db.catalogue?.products || [];
   const idx = products.findIndex((p) => p.id === id);
@@ -145,7 +145,7 @@ router.patch("/products/:id", required("catalogue.edit"), (req, res) => {
   const update = req.body || {};
   const before = products[idx];
   products[idx] = { ...before, ...update, updatedAt: new Date().toISOString() };
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   // §34 "price changes" — the reason flags a basePrice change explicitly.
   store.createAuditLog({
     actor: session?.userId ?? "", action: "product:updated",
@@ -158,13 +158,13 @@ router.patch("/products/:id", required("catalogue.edit"), (req, res) => {
   res.json(products[idx]);
 });
 
-router.post("/products/:id/archive", required("catalogue.archive"), (req, res) => {
+router.post("/products/:id/archive", required("catalogue.archive"), async (req, res) => {
   const id = String(req.params.id);
   const products = store.db.catalogue?.products || [];
   const idx = products.findIndex((p) => p.id === id);
   if (idx === -1) throw new NotFoundError("Product not found");
   products[idx] = { ...products[idx], archived: true, active: false, updatedAt: new Date().toISOString() };
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   store.createAuditLog({
     actor: session?.userId ?? "", action: "product:archived",
     entityType: "product", entityId: id, reason: String(products[idx].name),
