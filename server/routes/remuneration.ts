@@ -1,8 +1,8 @@
 import { Router, Request, RequestHandler } from "express";
-import { store } from "../database/store.js";
-import { RbacService } from "../services/rbac.service.js";
-import { AuthService, extractToken } from "../services/auth.service.js";
-import { NotFoundError, ValidationError, ConflictError } from "../utils/errors.js";
+import { store } from "../database/store";
+import { RbacService } from "../services/rbac.service";
+import { AuthService, extractToken } from "../services/auth.service";
+import { NotFoundError, ValidationError, ConflictError } from "../utils/errors";
 
 const rbacService = new RbacService()
 
@@ -431,7 +431,7 @@ router.get("/reports", required("remuneration.view_reports"), async (req, res) =
   if (!rawPeriod || typeof rawPeriod !== "object" || !("id" in rawPeriod)) {
     throw new NotFoundError("Remuneration period not found");
   }
-  const period = rawPeriod as import("../database/types.js").RemunerationPeriod;
+  const period = rawPeriod as import("../database/types").RemunerationPeriod;
   const items = store.periodItems(period.id).map((i) => ({
     ...i,
     staffName: staffById.get(i.staffId)?.name ?? "",

@@ -1,7 +1,7 @@
 import { Router, RequestHandler } from "express";
-import { AuthService, extractToken } from "../services/auth.service.js";
-import { store } from "../database/store.js";
-import { NotFoundError } from "../utils/errors.js";
+import { AuthService, extractToken } from "../services/auth.service";
+import { store } from "../database/store";
+import { NotFoundError } from "../utils/errors";
 
 const router = Router();
 const authService = new AuthService();

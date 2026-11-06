@@ -1,9 +1,9 @@
 import { Router, Request, RequestHandler } from "express";
-import { store } from "../database/store.js";
-import { RbacService } from "../services/rbac.service.js";
-import { AuthService, extractToken } from "../services/auth.service.js";
-import { NotFoundError, ValidationError } from "../utils/errors.js";
-import { paginate } from "../utils/paginate.js";
+import { store } from "../database/store";
+import { RbacService } from "../services/rbac.service";
+import { AuthService, extractToken } from "../services/auth.service";
+import { NotFoundError, ValidationError } from "../utils/errors";
+import { paginate } from "../utils/paginate";
 
 const rbacService = new RbacService()
 

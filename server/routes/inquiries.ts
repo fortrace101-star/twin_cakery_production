@@ -1,7 +1,7 @@
 import { Router, RequestHandler } from "express";
-import { store } from "../database/store.js";
-import { RbacService } from "../services/rbac.service.js";
-import { AuthService, extractToken } from "../services/auth.service.js";
+import { store } from "../database/store";
+import { RbacService } from "../services/rbac.service";
+import { AuthService, extractToken } from "../services/auth.service";
 
 const router = Router();
 const rbacService = new RbacService()
@@ -34,7 +34,7 @@ router.post("/", required("inquiries.create"), async (req, res) => {
   if (!subject || !channel) return res.status(400).json({ error: "subject and channel are required" });
   const record = store.createInquiry({
     customerId: customerId || "",
-    channel: channel as import("../database/types.js").Channel,
+    channel: channel as import("../database/types").Channel,
     staffMember: staffMember || null,
     subject,
     summary: summary || "",

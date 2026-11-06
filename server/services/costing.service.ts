@@ -1,4 +1,4 @@
-import { store } from "../database/store.js";
+import { store } from "../database/store";
 
 export const costingService = {
   getJobCost(jobId: string) {

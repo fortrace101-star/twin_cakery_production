@@ -1,11 +1,11 @@
 import { Router, RequestHandler } from "express";
-import { store } from "../database/store.js";
-import { flush } from "../database/index.new.js";
-import { pool } from "../database/db.js";
-import { RbacService } from "../services/rbac.service.js";
-import { AuthService, extractToken } from "../services/auth.service.js";
-import { businessService } from "../services/business.service.js";
-import { NotFoundError } from "../utils/errors.js";
+import { store } from "../database/store";
+import { flush } from "../database/index.new";
+import { pool } from "../database/db";
+import { RbacService } from "../services/rbac.service";
+import { AuthService, extractToken } from "../services/auth.service";
+import { businessService } from "../services/business.service";
+import { NotFoundError } from "../utils/errors";
 
 const router = Router();
 const rbacService = new RbacService()
@@ -222,7 +222,7 @@ router.patch("/:id", required("deliveries.update"), async (req, res) => {
   if (!delivery) throw new NotFoundError("Delivery not found");
   const { status, notes, scheduledAt, scheduledDate, scheduledTime, actualDispatchTime, actualDeliveryDate, deliveryPerson, deliveryFee, customerConfirmation, type } = req.body || {};
   const patched = { ...(req.body || {}) };
-  if (status !== undefined) delivery.status = String(status) as import("../database/types.js").DeliveryStatus;
+  if (status !== undefined) delivery.status = String(status) as import("../database/types").DeliveryStatus;
   if (notes !== undefined) delivery.notes = String(notes);
   if (scheduledAt !== undefined) delivery.scheduledAt = scheduledAt;
   if (scheduledDate !== undefined) delivery.scheduledDate = scheduledDate;
@@ -232,7 +232,7 @@ router.patch("/:id", required("deliveries.update"), async (req, res) => {
   if (deliveryPerson !== undefined) delivery.deliveryPerson = deliveryPerson;
   if (deliveryFee !== undefined) delivery.deliveryFee = Number(deliveryFee);
   if (customerConfirmation !== undefined) delivery.customerConfirmation = customerConfirmation;
-  if (type !== undefined) delivery.type = String(type) as import("../database/types.js").DeliveryType_;
+  if (type !== undefined) delivery.type = String(type) as import("../database/types").DeliveryType_;
   delivery.updatedAt = new Date().toISOString();
   store.persist();
   res.json(delivery);

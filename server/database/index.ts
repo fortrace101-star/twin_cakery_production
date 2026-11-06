@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-// import type { CustomerMeta } from "./types.js";
+// import type { CustomerMeta } from "./types";
 import { v4 as uuidv4 } from "uuid";
 import type {
   Customer,
@@ -46,7 +46,7 @@ import type {
   User,
   UserRole,
   RolePermission,
-} from "./types.js";
+} from "./types";
 
 const DATA_DIR = path.resolve(process.cwd(), "server", "data");
 const DATA_FILE = path.resolve(DATA_DIR, "store.json");

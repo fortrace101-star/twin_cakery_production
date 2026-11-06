@@ -1,10 +1,10 @@
-import { ConflictError, ValidationError, NotFoundError } from "../utils/errors.js";
-import { store } from "../database/store.js";
-import type { Patch } from "../database/store.js";
-import { notificationService } from "../services/notification.service.js";
-import { publishLowStockAlert } from "./stock-alerts.js";
-import { invoiceService } from "./invoice.service.js";
-import type { Order, OrderStatus, User, OrderItem, Payment, ProductionJob, ProductionConsumption, OrderStatusHistory, NotificationPriority, OrderStation } from "../database/types.js";
+import { ConflictError, ValidationError, NotFoundError } from "../utils/errors";
+import { store } from "../database/store";
+import type { Patch } from "../database/store";
+import { notificationService } from "../services/notification.service";
+import { publishLowStockAlert } from "./stock-alerts";
+import { invoiceService } from "./invoice.service";
+import type { Order, OrderStatus, User, OrderItem, Payment, ProductionJob, ProductionConsumption, OrderStatusHistory, NotificationPriority, OrderStation } from "../database/types";
 
 /**
  * Resolve required_by for production job from order data.
@@ -345,10 +345,10 @@ export class BusinessService {
     reworkRequired: boolean,
     reworkCost: number,
     wastageCaused: number,
-  ): { job: ProductionJob; check: import("../database/types.js").QualityCheck } {
+  ): { job: ProductionJob; check: import("../database/types").QualityCheck } {
     const job = store.productionJobs().find((j) => j.id === jobId);
     if (!job) throw new NotFoundError("Production job not found");
-    const check: import("../database/types.js").QualityCheck = store.createQualityCheck({
+    const check: import("../database/types").QualityCheck = store.createQualityCheck({
       jobId,
       checkedBy,
       checkedAt: new Date().toISOString(),
@@ -772,7 +772,7 @@ export class BusinessService {
         actualCost,
         notes: "Recorded during production",
       });
-      const cost: import("../database/types.js").ProductionCost = store.createProductionCost({
+      const cost: import("../database/types").ProductionCost = store.createProductionCost({
         jobId,
         ingredientCost: actualCost,
         packagingCost: 0,

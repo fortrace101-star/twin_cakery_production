@@ -1,8 +1,8 @@
 import { Router, RequestHandler } from "express";
-import { store } from "../database/store.js";
-import { RbacService } from "../services/rbac.service.js";
-import { AuthService, extractToken } from "../services/auth.service.js";
-import { NotFoundError } from "../utils/errors.js";
+import { store } from "../database/store";
+import { RbacService } from "../services/rbac.service";
+import { AuthService, extractToken } from "../services/auth.service";
+import { NotFoundError } from "../utils/errors";
 
 const router = Router();
 const rbacService = new RbacService()
@@ -25,12 +25,12 @@ router.get("/dashboard", required("sales.analytics"), (_req, res) => {
   const inquiries = store.inquiries();
   const quotations = store.quotations();
   const payments = store.payments();
-  const expenses = store.db.expenses as import("../database/types.js").Expense[];
+  const expenses = store.db.expenses as import("../database/types").Expense[];
   const productionCosts = store.productionCosts();
   const inventoryItems = store.inventoryItems();
   const jobs = store.productionJobs();
   const deliveries = store.deliveries();
-  const feedback = store.db.customerFeedback as import("../database/types.js").CustomerFeedback[];
+  const feedback = store.db.customerFeedback as import("../database/types").CustomerFeedback[];
 
   const isToday = (iso: string | null) => !!iso && new Date(iso).toDateString() === new Date().toDateString();
   const ordersToday = orders.filter((o) => isToday(o.createdAt)).length;
@@ -109,7 +109,7 @@ router.get("/dashboard", required("sales.analytics"), (_req, res) => {
     purchaseRequirements: "",
     estimatedCost: 0,
     actualCost: productionCosts.filter((c) => c.jobId === j.id).reduce((s, c) => s + (c.total || 0), 0),
-  })) as import("../database/types.js").ProductionJobSummary[];
+  })) as import("../database/types").ProductionJobSummary[];
 
   const inventorySummary = inventoryItems.map((i) => {
     const reserved = reservations.filter((r) => r.itemId === i.id).reduce((s, r) => s + (r.quantity || 0), 0);
@@ -127,7 +127,7 @@ router.get("/dashboard", required("sales.analytics"), (_req, res) => {
       lowStock: (i.physicalStock || 0) <= (i.reorderLevel || 0),
       outOfStock: (i.physicalStock || 0) <= 0,
     };
-  }) as import("../database/types.js").InventorySummary[];
+  }) as import("../database/types").InventorySummary[];
 
   res.json({
     metrics: {
@@ -145,14 +145,14 @@ router.get("/dashboard", required("sales.analytics"), (_req, res) => {
       expenses: expensesTotal,
       deliveryStatus,
       recentFeedback: feedback.slice(0, 5).map((f) => f.comment).join("; "),
-    } as import("../database/types.js").Metrics,
+    } as import("../database/types").Metrics,
     revenueTrend,
     expensesTrend,
     trendLabels,
     orderStatusBreakdown,
     productionSummary,
     inventorySummary,
-  } as unknown as import("../database/types.js").DashboardData);
+  } as unknown as import("../database/types").DashboardData);
 });
 
 // ── Sales-manager commercial dashboard (spec §18) ────────────────────────────

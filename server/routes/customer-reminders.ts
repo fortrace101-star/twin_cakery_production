@@ -1,9 +1,9 @@
 import { Router, Request, RequestHandler } from "express";
-import { store } from "../database/store.js";
-import { RbacService } from "../services/rbac.service.js";
-import { AuthService, extractToken } from "../services/auth.service.js";
-import { NotFoundError } from "../utils/errors.js";
-import type { CustomerEventReminder } from "../database/types.js";
+import { store } from "../database/store";
+import { RbacService } from "../services/rbac.service";
+import { AuthService, extractToken } from "../services/auth.service";
+import { NotFoundError } from "../utils/errors";
+import type { CustomerEventReminder } from "../database/types";
 
 const rbacService = new RbacService()
 
