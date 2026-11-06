@@ -650,7 +650,7 @@ export class BusinessService {
         {
           eventTypeId: "PaymentReceived",
           title: "Payment received",
-          message: `Order ${order.orderNumber} paid in full on delivery (${method}, USh ${Number(amount).toLocaleString("en-UG")}).`,
+          message: `Order ${order.orderNumber} paid in full on delivery (Cash, USh ${Number(amount).toLocaleString("en-UG")}).`,
           priority: "HIGH" as NotificationPriority,
           entityType: "order",
           entityId: order.id,

@@ -1,7 +1,5 @@
-﻿import { Router, RequestHandler } from "express";
-import { createRequire } from "node:module";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { Router, type RequestHandler } from "express";
+import bcrypt from "bcryptjs";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { RbacService } from "../services/rbac.service.js";
 import { rateLimit } from "../middleware/rateLimit.js";
@@ -104,12 +102,7 @@ router.post("/claim-admin", claimRateLimit, async (req, res) => {
   }
   const record = validRecord ?? { id: null as string | null, used_at: null, expires_at: new Date().toISOString() };
 
-  // Resolve bcryptjs
-  const requireFromFrontend = createRequire(
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "erp-interface-design", "package.json"),
-  );
-  const bcryptModule = requireFromFrontend("bcryptjs") as typeof import("bcryptjs");
-  const passwordHash = bcryptModule.hashSync(password, 10);
+  const passwordHash = bcrypt.hashSync(password, 10);
 
   // Create user: persist to Postgres (mandatory), keep store cache in sync.
   const user = store.createUser({
@@ -229,13 +222,7 @@ router.post("/register", registerRateLimit, async (req, res) => {
     return res.status(400).json({ error: "Staff register code expired" });
   }
 
-  // Resolve bcryptjs
-  const requireFromFrontend = createRequire(
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "erp-interface-design", "package.json"),
-  );
-  const bcryptModule = requireFromFrontend("bcryptjs") as typeof import("bcryptjs");
-
-  const passwordHash = bcryptModule.hashSync(password, 10);
+  const passwordHash = bcrypt.hashSync(password, 10);
   const user = store.createUser({
     username: String(username),
     displayName: String(displayName ?? username),
@@ -289,11 +276,7 @@ router.post("/reset-credentials", authRateLimit, async (req, res) => {
   if (!user) return res.status(404).json({ error: "User not found" });
 
   const tempPassword = Math.random().toString(36).slice(-10) + "A1!";
-  const requireFromFrontend = createRequire(
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "erp-interface-design", "package.json"),
-  );
-  const bcryptModule = requireFromFrontend("bcryptjs") as typeof import("bcryptjs");
-  const hash = bcryptModule.hashSync(tempPassword, 10);
+  const hash = bcrypt.hashSync(tempPassword, 10);
   store.updateUser(user.id, { passwordHash: hash });
 
   res.json({ userId: user.id, username: user.username, tempPassword });

@@ -1,15 +1,8 @@
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
 import crypto from "node:crypto";
+import bcrypt from "bcryptjs";
 import { UnauthorizedError, ForbiddenError } from "../utils/errors.js";
 import { store } from "../database/store.js";
 import { query } from "../database/db.js";
-
-const requireFromFrontend = createRequire(
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "erp-interface-design", "package.json"),
-);
-const bcryptModule = requireFromFrontend("bcryptjs") as typeof import("bcryptjs");
 
 export interface AuthSession {
   userId: string;
@@ -49,7 +42,7 @@ export class AuthService {
     const hash = user.passwordHash || "";
     let ok = false;
     try {
-      ok = hash.startsWith("$2") && bcryptModule.compareSync(credentials.password, hash);
+      ok = hash.startsWith("$2") && bcrypt.compareSync(credentials.password, hash);
     } catch {
       ok = false;
     }

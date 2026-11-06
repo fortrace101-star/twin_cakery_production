@@ -2,6 +2,7 @@ import { pool, withTransaction } from "../database/db.js";
 import { store } from "../database/store.js";
 import { ConflictError, NotFoundError, ValidationError } from "../utils/errors.js";
 import { ledgerService } from "./ledger.service.js";
+import { notificationService } from "./notification.service.js";
 
 export type PaymentMethod = "Cash" | "MTN MoMo" | "Airtel Money" | "Bank Transfer" | "M-Pesa" | "Card" | "Other";
 
@@ -122,7 +123,7 @@ export const paymentsService = {
         // Persisted notifications: publish an append-only event after the payment row is committed.
         if (notificationService) {
           notificationService.publishEvent({
-            eventTypeId: "PaymentRecorded" as const,
+            eventTypeId: "PaymentReceived" as const,
             title: "Payment recorded",
             message: `UGX ${payment.amount.toLocaleString()} received for ${input.method}${input.reference ? ` (${input.reference})` : ""} on order #${order.orderNumber}.`,
             priority: "LOW" as const,

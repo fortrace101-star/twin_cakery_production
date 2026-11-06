@@ -3,7 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import express, { type Request, type Response, type NextFunction } from "express";
-import { attachAuth, requireAuth } from "./middleware/auth.ts";
+import { attachAuth, requireAuth } from "./middleware/auth.js";
 import { apiRouter } from "./routes/api.js";
 import { RbacService } from "./services/rbac.service.js";
 import { businessService } from "./services/business.service.js";
