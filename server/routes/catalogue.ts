@@ -1,9 +1,9 @@
 import { Router, RequestHandler } from "express";
-import { store } from "../database/store";
-import { NotFoundError } from "../utils/errors";
-import { AuthService, extractToken } from "../services/auth.service";
-import { paginate } from "../utils/paginate";
-import { requirePermission } from "../middleware/auth";
+import { store } from "../database/store.js";
+import { NotFoundError } from "../utils/errors.js";
+import { AuthService, extractToken } from "../services/auth.service.js";
+import { paginate } from "../utils/paginate.js";
+import { requirePermission } from "../middleware/auth.js";
 
 const router = Router();
 const required = requirePermission;

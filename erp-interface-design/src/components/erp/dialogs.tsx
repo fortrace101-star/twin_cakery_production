@@ -56,7 +56,8 @@ export function NewOrderDialog({open,onOpenChange,onCreated}: {open:boolean;onOp
       void (async () => {
         try {
           const existing = await findCustomerByName(targetName);
-          const customerId = existing?.id ?? selected?.id;
+          const existingOne = Array.isArray(existing) ? existing[0] : existing;
+          const customerId = existingOne?.id ?? selected?.id;
           if (!customerId) return;
           await createCustomerEvent(customerId, {
             eventType: d.occasionType.trim(),
@@ -113,22 +114,30 @@ export function OrderDialog({order,onClose,onNotice}: {order:Order|null;onClose:
   // The calculated status differs from what the server holds → applying the
   // update persists it alongside the stage move.
   const paymentChanged=resolvedPayment!==normalizePayment(current.payment);
-  function update(e:FormEvent){
+  async function update(e:FormEvent){
     e.preventDefault();
     if(!current||(!statusChanged&&!paymentChanged))return;
-    updateOrder(current.id,nextStatus,paymentChanged?resolvedPayment:undefined);
-    onNotice(statusChanged&&paymentChanged?`${current.id} updated to ${nextStatus} · payment ${resolvedPayment}`:paymentChanged?`${current.id} payment resolved to ${resolvedPayment}`:`${current.id} updated to ${nextStatus}`);
-    setOverride(null);
+    const ok=await updateOrder(current.id,nextStatus,paymentChanged?resolvedPayment:undefined);
+    if(ok){
+      onNotice(statusChanged&&paymentChanged?`${current.id} updated to ${nextStatus} · payment ${resolvedPayment}`:paymentChanged?`${current.id} payment resolved to ${resolvedPayment}`:`${current.id} updated to ${nextStatus}`);
+      setOverride(null);
+    }else{
+      onNotice(`Failed to update ${current.id}. The server may have rejected the change or the database is unavailable — refreshed to the current state.`);
+    }
   }
   // Record a payment against this order: the store POSTs it to the server
   // ledger and accumulates paidAmount, which re-resolves the payment status
   // and the outstanding balance shown above.
-  const recordPayment=()=>{
+  const recordPayment=async()=>{
     const amt=Number(payForm.amount);
     if(!amt||amt<=0)return;
-    updateOrder(current.id,current.status,undefined,amt,{method:payForm.method||'Cash'});
-    onNotice(`Payment of ${money(amt)} recorded for ${current.id}`);
-    setPayForm({amount:'',method:'Cash'});
+    const ok=await updateOrder(current.id,current.status,undefined,amt,{method:payForm.method||'Cash'});
+    if(ok){
+      onNotice(`Payment of ${money(amt)} recorded for ${current.id}`);
+      setPayForm({amount:'',method:'Cash'});
+    }else{
+      onNotice(`Failed to record payment for ${current.id}.`);
+    }
   }
   return <Dialog open={Boolean(order)} onOpenChange={v=>{if(!v)onClose()}}><DialogContent className="order-detail-dialog"><div className="dialog-head"><div><DialogTitle>Order #{current.id}</DialogTitle><DialogDescription>{current.customer} · {current.channel}</DialogDescription></div><span className="dialog-head-loc" aria-label="Delivery location"><span className="dialog-head-loc-main"><MapPin size={14}/>{current.deliveryLocation||'No delivery location'}</span>{current.locationNote&&<small className="dialog-head-note">{current.locationNote}</small>}</span></div><div className="order-form-scroll"><div className="order-detail-product"><img src={cake} alt="Chocolate celebration cake sample" width={1024} height={768}/><div><h3>{current.product}</h3><p>{current.options}</p><strong>{money(current.amount)}{paidOnPartial>0&&<span className="amount-paid" title="Amount paid so far"> ({money(paidOnPartial)})</span>}</strong></div></div><div className="order-status-grid"><div className={`tone-${orderStageTone(current.status)}`}><small>ORDER</small><Status value={current.status}/></div><div className={`tone-${orderStageTone(resolvedPayment)}`}><small>PAYMENT</small><Status value={resolvedPayment}/></div><div className={`tone-${orderStageTone(current.delivery)}`}><small>DELIVERY</small><Status value={current.delivery}/></div></div><div className="detail-meta"><span><CalendarDays size={15}/>{current.date} · {current.time}</span><span>Recipe v1.2 · Price snapshot retained</span></div><form className="erp-form" onSubmit={update}><ol className="order-stage-strip" aria-label="Order pipeline stages">{ORDER_STAGE_PIPELINE.map((s,i)=><li key={s} className={`tone-${orderStageTone(s)}${s===current.status?' is-current':''}${s===nextStatus&&s!==current.status?' is-target':''}${i<stageIdx?' is-done':''}`} aria-current={s===current.status?'step':undefined}>{i<stageIdx&&<Check size={12}/>}{s}</li>)}</ol>{stageIdx<0&&<p className="text-xs text-muted-foreground">This order sits outside the production pipeline — stage navigation is unavailable.</p>}<div className="stage-nav"><Button type="button" variant="outline" className={`stage-nav-btn tone-${orderStageTone(prevStage||current.status)}`} disabled={!prevStage} onClick={()=>prevStage&&setOverride({key:stageKey,value:prevStage})}><ChevronLeft size={14}/>Previous{prevStage?`: ${prevStage}`:''}</Button><Button type="button" variant="outline" className={`stage-nav-btn tone-${orderStageTone(nextStage||current.status)}`} disabled={!nextStage} onClick={()=>nextStage&&setOverride({key:stageKey,value:nextStage})}>Next{nextStage?`: ${nextStage}`:''}<ChevronRight size={14}/></Button></div><label>Payment status<Input value={resolvedPayment} readOnly aria-label="Payment status"/></label>{paymentChanged&&<p className="form-note"><CircleAlert size={15}/>Calculated from the amount paid — will be saved as “{resolvedPayment}”.</p>}{outstandingAmount>0&&<p className="form-note balance-due"><CircleAlert size={15}/>Outstanding balance: <strong>{money(outstandingAmount)}</strong></p>}{resolvedPayment!=='Paid'&&<div className="payment-recorder"><p className="recorder-head"><Wallet size={15}/>Record a payment for this order</p><div className="recorder-fields"><label>Amount<Input type="number" min={0} value={payForm.amount} onChange={e=>setPayForm({...payForm,amount:e.target.value})}/></label><label>Method<Input value={payForm.method} onChange={e=>setPayForm({...payForm,method:e.target.value})}/></label></div></div>}<div className="dialog-actions">{resolvedPayment!=='Paid'&&<Button type="button" variant="outline" onClick={recordPayment} disabled={!payForm.amount}><Wallet size={14}/>Record payment</Button>}<Button type="submit" disabled={!statusChanged&&!paymentChanged}><Check/>Update status</Button></div></form></div></DialogContent></Dialog>
 }

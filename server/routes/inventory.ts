@@ -1,11 +1,11 @@
 import { Router, RequestHandler } from "express";
-import { store } from "../database/store";
-import { pool } from "../database/db";
-import { RbacService } from "../services/rbac.service";
-import { AuthService, extractToken } from "../services/auth.service";
-import { NotFoundError } from "../utils/errors";
-import { publishLowStockAlert } from "../services/stock-alerts";
-import { paginate } from "../utils/paginate";
+import { store } from "../database/store.js";
+import { pool } from "../database/db.js";
+import { RbacService } from "../services/rbac.service.js";
+import { AuthService, extractToken } from "../services/auth.service.js";
+import { NotFoundError } from "../utils/errors.js";
+import { publishLowStockAlert } from "../services/stock-alerts.js";
+import { paginate } from "../utils/paginate.js";
 
 const router = Router();
 const rbacService = new RbacService()
@@ -124,7 +124,7 @@ router.post("/reservations", required("inventory.reserve"), async (req, res) => 
   const available = (item.physicalStock || 0) - (store.stockReservations().filter((r) => r.itemId === item.id).reduce((s, r) => s + r.quantity, 0));
   if (Number(quantity) > available) return res.status(409).json({ error: `Only ${available} ${(item as any).unit} available` });
   const now = new Date().toISOString();
-  const reservation: import("../database/types").StockReservation = {
+  const reservation: import("../database/types.js").StockReservation = {
     id: `res-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     itemId,
     quantity: Number(quantity),

@@ -2,10 +2,10 @@ import { Router, RequestHandler } from "express";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { store } from "../database/store";
-import { RbacService } from "../services/rbac.service";
-import { NotFoundError, ValidationError } from "../utils/errors";
-import { extractToken, AuthService } from "../services/auth.service";
+import { store } from "../database/store.js";
+import { RbacService } from "../services/rbac.service.js";
+import { NotFoundError, ValidationError } from "../utils/errors.js";
+import { extractToken, AuthService } from "../services/auth.service.js";
 
 const rbacService = new RbacService()
 

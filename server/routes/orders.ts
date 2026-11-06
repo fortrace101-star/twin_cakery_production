@@ -1,18 +1,37 @@
 import { Router, RequestHandler } from "express";
-import { store } from "../database/store";
-import { pool } from "../database/db";
-import { RbacService } from "../services/rbac.service";
-import { AuthService, extractToken } from "../services/auth.service";
-import { businessService } from "../services/business.service";
-import { ConflictError, NotFoundError } from "../utils/errors";
-import { paginate } from "../utils/paginate";
-import type { OrderStation } from "../database/types";
+import { store } from "../database/store.js";
+import { pool } from "../database/db.js";
+import { RbacService } from "../services/rbac.service.js";
+import { AuthService, extractToken } from "../services/auth.service.js";
+import { businessService } from "../services/business.service.js";
+import { ConflictError, NotFoundError } from "../utils/errors.js";
+import { paginate } from "../utils/paginate.js";
+import type { OrderStation } from "../database/types.js";
 
-async function persistOrderStatusPg(orderId: string, newStatus: string, changedBy: string, reason: string) {
+function resolveOrderRef(idOrNumber: string) {
+  const key = String(idOrNumber || "");
+  return store.orders().find((o) => o.id === key || o.orderNumber === key) || store.findOrder?.(key);
+}
+
+async function resolveOrderIdPg(idOrNumber: string): Promise<string | null> {
+  const key = String(idOrNumber || "");
+  const byId = await pool.query<{ id: string }>(`SELECT id FROM orders WHERE id = $1 LIMIT 1`, [key]);
+  if (byId.rowCount) return byId.rows[0].id;
+  const byNum = await pool.query<{ id: string }>(`SELECT id FROM orders WHERE order_number = $1 LIMIT 1`, [key]);
+  if (byNum.rowCount) return byNum.rows[0].id;
+  const mem = resolveOrderRef(key);
+  return mem?.id ?? null;
+}
+
+async function persistOrderStatusPg(orderIdOrNumber: string, newStatus: string, changedBy: string, reason: string) {
   const now = new Date().toISOString();
   const histId = `osh-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const prev = await pool.query<{ status: string }>(`SELECT status FROM orders WHERE id = $1`, [orderId]);
+  const prev = await pool.query<{ id: string; status: string }>(
+    `SELECT id, status FROM orders WHERE id = $1 OR order_number = $1 LIMIT 1`,
+    [String(orderIdOrNumber || "")],
+  );
   if (prev.rowCount === 0) throw new NotFoundError("Order not found");
+  const orderId = prev.rows[0].id;
   const previousStatus = prev.rows[0].status;
   await pool.query(`UPDATE orders SET status = $1, updated_at = $2 WHERE id = $3`, [newStatus, now, orderId]);
   await pool.query(
@@ -25,14 +44,14 @@ async function persistOrderStatusPg(orderId: string, newStatus: string, changedB
   // direct-PG writes, and so reads in this process reflect the transition.
   try { store.updateOrder(orderId, { status: newStatus, station: newStatus === "CONFIRMED" ? "confirmed" : undefined } as any); } catch {}
   try {
-    const o = store.db.orders.find((x) => x.id === orderId);
+    const o = store.db.orders.find((x) => x.id === orderId || (x as any).orderNumber === orderId);
     if (o) { (o as any).status = newStatus; (o as any).station = newStatus === "CONFIRMED" ? "confirmed" : (o as any).station; (o as any).updatedAt = now; }
   } catch {}
   try {
     if (!Array.isArray((store.db as any).orderStatusHistory)) (store.db as any).orderStatusHistory = [];
     (store.db as any).orderStatusHistory.push(history);
   } catch {}
-  return { previousStatus, newStatus, history };
+  return { orderId, previousStatus, newStatus, history };
 }
 
 async function persistOrderToPg(record: any, initialHistory?: any) {
@@ -161,22 +180,23 @@ router.post("/", required("orders.create"), async (req, res) => {
 });
 
 router.get("/:id", required("orders.view"), (req, res) => {
-  const order = store.orders().find((o) => o.id === String(req.params.id));
+  const order = resolveOrderRef(String(req.params.id));
   if (!order) throw new NotFoundError("Order not found");
   res.json(order);
 });
 
 router.get("/:id/history", required("orders.view"), (req, res) => {
-  const order = store.orders().find((o) => o.id === String(req.params.id));
+  const order = resolveOrderRef(String(req.params.id));
   if (!order) throw new NotFoundError("Order not found");
-  const history = store.db.orderStatusHistory as import("../database/types").OrderStatusHistory[];
+  const history = store.db.orderStatusHistory as import("../database/types.js").OrderStatusHistory[];
   res.json(history.filter((h) => h.orderId === order.id));
 });
 
 router.patch("/:id", required("deliveries.update"), async (req, res) => {
-  const id = String(req.params.id);
-  let order = store.orders().find((o) => o.id === id) || store.findOrder?.(id);
+  const rawId = String(req.params.id);
+  let order = resolveOrderRef(rawId);
   if (!order) throw new NotFoundError("Order not found");
+  const id = order.id;
   const patch = req.body || {};
 
   // ORD-01: whitelist financial/identity fields; status transitions are allowed
@@ -267,30 +287,64 @@ router.patch("/:id", required("deliveries.update"), async (req, res) => {
 });
 
 router.post("/:id/confirm", required("orders.confirm"), async (req, res) => {
-  const id = String(req.params.id);
+  const rawId = String(req.params.id);
   const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   try {
-    // Postgres mandatory for the state transition.
-    const { previousStatus, history } = await persistOrderStatusPg(id, "CONFIRMED", session.userId, "Admin confirmed order");
-    // Run business side-effects (job creation, inventory hooks) best-effort;
-    // the confirmed status is already durably persisted in Postgres.
-    let job: any = null;
+    // Resolve + validate against the authoritative Postgres state (accepts id or orderNumber).
+    const cur = await pool.query<{ id: string; status: string }>(
+      `SELECT id, status FROM orders WHERE id = $1 OR order_number = $1 LIMIT 1`,
+      [rawId],
+    );
+    if (!cur.rowCount) throw new NotFoundError("Order not found");
+    const { id: orderId, status: previousStatus } = cur.rows[0];
+
+    if (previousStatus === "CONFIRMED") {
+      const order = resolveOrderRef(orderId);
+      if (order) { (order as any).status = "CONFIRMED"; (order as any).station = "confirmed"; }
+      let job: any = store.productionJobs().find((j) => j.orderId === orderId) ?? null;
+      if (!job) {
+        try { job = businessService.prepareOrderForProduction(orderId, session.userId).job; } catch {}
+      }
+      return res.json({ order: order || { id: orderId, status: "CONFIRMED" }, history: null, job, previousStatus, idempotent: true });
+    }
+
     try {
-      const order = store.orders().find((o) => o.id === id) || store.findOrder?.(id);
-      if (order) job = await (businessService as any).createProductionJob?.({ ...order, status: "CONFIRMED" }, session.userId);
-    } catch { /* non-fatal side effect */ }
-    // Re-read the authoritative in-memory state *before* returning so the
-    // response payload reflects the transition regardless of async side-effects.
-    const order = store.orders().find((o) => o.id === id) || store.findOrder?.(id);
+      (businessService as any).validateOrderStatusTransition?.(previousStatus, "CONFIRMED");
+    } catch (err: any) {
+      return res.status(409).json({ error: err?.message || "Invalid status transition" });
+    }
+
+    // Postgres mandatory for the state transition.
+    const { history } = await persistOrderStatusPg(orderId, "CONFIRMED", session.userId, "Admin confirmed order");
+
+    // Full confirm side effects (invoice, inventory reservation, notifications, audit,
+    // production job) run once for the real transition; best-effort per effect.
+    let job: any = null;
+    if (previousStatus !== "CONFIRMED") {
+      try {
+        const orderForEffects = resolveOrderRef(orderId) || ({ id: orderId, status: previousStatus, orderNumber: String(rawId) } as any);
+        const out = await (businessService as any).applyConfirmSideEffects?.({ ...orderForEffects, status: previousStatus }, session.userId);
+        job = out?.job ?? null;
+      } catch { /* non-fatal side effects */ }
+    }
+    if (!job) {
+      try { job = businessService.prepareOrderForProduction(orderId, session.userId).job; } catch {}
+      try { job = job ?? store.productionJobs().find((j) => j.orderId === orderId) ?? null; } catch {}
+    }
+
+    // Re-read authoritative in-memory state before returning.
+    const order = resolveOrderRef(orderId);
     if (order) {
       (order as any).status = "CONFIRMED";
       (order as any).station = "confirmed";
       (order as any).updatedAt = new Date().toISOString();
     }
-    return res.json({ order: order || { id, status: "CONFIRMED" }, history, job, previousStatus });
+    try { store.persist(); await store.flush?.(); } catch { /* status already in PG */ }
+    return res.json({ order: order || { id: orderId, status: "CONFIRMED" }, history, job, previousStatus });
   } catch (err: any) {
     if (err?.name === "NotFoundError" || err instanceof NotFoundError) throw err;
+    if (err?.name === "ConflictError" || err?.statusCode === 409) return res.status(409).json({ error: err?.message || "Invalid status transition" });
     const msg = err?.message || "Confirmation failed";
     if (/connect|ECONN|timeout|database/i.test(msg)) return res.status(503).json({ error: "Database unavailable", detail: msg });
     return res.status(500).json({ error: msg });
@@ -298,22 +352,23 @@ router.post("/:id/confirm", required("orders.confirm"), async (req, res) => {
 });
 
 router.post("/:id/cancel", required("orders.cancel"), async (req, res) => {
-  const id = String(req.params.id);
+  const rawId = String(req.params.id);
   const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   const { reason = "No reason provided" } = req.body || {};
   try {
-    const { previousStatus, history } = await persistOrderStatusPg(id, "CANCELLED", session.userId, String(reason));
+    const { orderId, previousStatus, history } = await persistOrderStatusPg(rawId, "CANCELLED", session.userId, String(reason));
     try {
       await pool.query(
         `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, previous_status, new_status, reason, timestamp, created_at, updated_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$9)`,
-        [`al-${Date.now()}-${Math.random().toString(36).slice(2,8)}`, session.userId, "order:cancelled", "order", id, previousStatus, "CANCELLED", String(reason), new Date().toISOString()],
+        [`al-${Date.now()}-${Math.random().toString(36).slice(2,8)}`, session.userId, "order:cancelled", "order", orderId, previousStatus, "CANCELLED", String(reason), new Date().toISOString()],
       );
     } catch { /* audit best-effort */ }
-    const order = store.orders().find((o) => o.id === id) || store.findOrder?.(id);
+    const order = resolveOrderRef(orderId);
     if (order) { (order as any).status = "CANCELLED"; (order as any).station = "done"; }
-    res.json({ order: order || { id, status: "CANCELLED" }, history });
+    try { store.persist(); await store.flush?.(); } catch { /* status already in PG */ }
+    res.json({ order: order || { id: orderId, status: "CANCELLED" }, history });
   } catch (err: any) {
     if (err?.name === "NotFoundError" || err instanceof NotFoundError) throw err;
     const msg = err?.message || "Cancellation failed";

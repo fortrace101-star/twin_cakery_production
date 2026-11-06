@@ -2,9 +2,9 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import crypto from "node:crypto";
-import { UnauthorizedError, ForbiddenError } from "../utils/errors";
-import { store } from "../database/store";
-import { query } from "../database/db";
+import { UnauthorizedError, ForbiddenError } from "../utils/errors.js";
+import { store } from "../database/store.js";
+import { query } from "../database/db.js";
 
 const requireFromFrontend = createRequire(
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "erp-interface-design", "package.json"),

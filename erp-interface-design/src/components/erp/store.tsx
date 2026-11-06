@@ -56,7 +56,7 @@ type WorkspaceContextValue = {
   signOut: () => void;
   addOrder: (order: Order, phone?: string) => void;
   /** Records the order stage and (optionally) its payment status & paid amount in one write. */
-  updateOrder: (id: string, status: string, payment?: string, paidDelta?: number, payMeta?: { method?: string; receivedBy?: string; reference?: string; notes?: string }) => void;
+  updateOrder: (id: string, status: string, payment?: string, paidDelta?: number, payMeta?: { method?: string; receivedBy?: string; reference?: string; notes?: string }) => Promise<boolean>;
   /**
    * Best-effort duplicate guard used by the new-order flow. Returns an existing CRM customer
    * whose phone or email matches the given contact exactly (case-/space-insensitive), or null
@@ -87,10 +87,7 @@ function formatAudit(log: ServerAuditLog): string {
 
 function byId<T extends { id: string }>(rows: T[]): Record<string, T> {
   return Object.fromEntries(rows.map((row) => [row.id, row]));
-}
-
-
-/** Best-effort contact lookup for the new-order flow so a returning customer is reused. */
+}  /** Best-effort contact lookup for the new-order flow so a returning customer is reused. */
 async function findCustomerByContact(name: string, phone?: string | null): Promise<ServerCustomer | null> {
   if (!name && !phone) return null;
   try {
@@ -105,7 +102,7 @@ async function findCustomerByContact(name: string, phone?: string | null): Promi
       if (byEmail) return byEmail;
     }
     // Fall back to an approved name match only when the caller passed nothing better.
-    if (!phone && candidates && candidates.length === 1) return candidates[0];
+    if (!phone && candidates && candidates.length === 1) return candidates[0] ?? null;
     // If there are multiple name matches, do not guess — the caller should type more.
     return null;
   } catch {
@@ -231,25 +228,24 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setOrders((prev) => [order, ...prev]);
     void (async () => {
       try {
-        let customer = await findCustomerByName(order.customer);
-        if (!customer || !customer[0]) {
+        const byName = await findCustomerByName(order.customer);
+        let resolvedCustomer: ServerCustomer | null = byName?.[0] ?? null;
+        if (!resolvedCustomer) {
           // Returning registered customers must reuse the existing account, not get a new one.
-          // findCustomerByName now returns all name matches; we still need to pick the right
-          // one by phone/email, so delegate. If that returns null, fall back to the first name
-          // match. If nothing exists at all, create a new customer.
-          const matched = await findCustomerByContact(order.customer, phone ?? undefined);
-          if (matched) customer = [matched];
+          resolvedCustomer = await findCustomerByContact(order.customer, phone ?? undefined);
         }
-        if (!customer || !customer[0]) {
-          customer = await findCustomerByName(order.customer);
+        if (!resolvedCustomer) {
+          resolvedCustomer = await createCustomerApi(order.customer, phone);
         }
-        if (!customer || !customer[0]) customer = await createCustomerApi(order.customer, phone);
-        if (!customer) return;
+        if (!resolvedCustomer) {
+          await refresh();
+          return;
+        }
         const product = await findProductByName(order.product);
         const requiredAt = order.date ? `${order.date}T10:00:00` : null;
-        await createOrderApi({
+        const created = await createOrderApi({
           orderNumber: order.id,
-          customerId: customer.id,
+          customerId: resolvedCustomer.id,
           items: [
             {
               productId: product?.id ?? "",
@@ -269,13 +265,22 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           locationNote: order.locationNote || "",
           createdBy: "",
         });
+        if (created) {
+          // Keep the server id/order mapping available for immediate follow-up actions
+          // (e.g. confirming right after creation) so we don't fall back to a stale
+          // orderNumber-only lookup and require a second attempt.
+          serverOrdersRef.current = [created as ServerOrder, ...serverOrdersRef.current.filter((o) => o.id !== (created as ServerOrder).id && o.orderNumber !== (created as ServerOrder).orderNumber)];
+        }
+        await refresh();
       } catch {
-        /* Leave the optimistic entry in place; it persists for this session. */
+        // Refresh so the UI reflects the authoritative server state (and drops the
+        // optimistic entry if persistence failed) instead of leaving a phantom order.
+        await refresh().catch(() => {});
       }
     })();
-  }, []);
+  }, [refresh]);
 
-  const updateOrder = useCallback((id: string, status: string, payment?: string, paidDelta?: number, payMeta?: { method?: string; receivedBy?: string; reference?: string; notes?: string }) => {
+  const updateOrder = useCallback(async (id: string, status: string, payment?: string, paidDelta?: number, payMeta?: { method?: string; receivedBy?: string; reference?: string; notes?: string }) => {
     // Optimistic label update so the dialog/table reflects the change instantly.
     // A recorded payment also accumulates into paidAmount (capped at the total)
     // so the bracketed "amount paid" on the modal and the resolved payment
@@ -286,42 +291,34 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setOrders((prev) =>
       prev.map((o) => (o.id === id ? { ...o, status, ...(payment ? { payment } : {}), ...(delivered ? { delivery: "Completed / Delivered" } : {}), ...(paidDelta && paidDelta > 0 ? { paidAmount: Math.min(o.amount, (o.paidAmount ?? 0) + paidDelta) } : {}) } : o)),
     );
-    void (async () => {        try {
+    try {
         const server = serverOrdersRef.current.find((o) => (o.orderNumber || o.id) === id)
           ?? serverOrdersRef.current.find((o) => o.id === id || o.orderNumber === id);
-        // If the server ref isn't hydrated yet, fall back to the UI id (often the
-        // order number / server id) so state transitions still reach the API.
+        // Fallback to UI id (often order number); server routes accept id or orderNumber.
         const serverId = server?.id ?? id;
         if (paidDelta && paidDelta > 0) {
-          // Land the payment in the server ledger (POST /payments) so it
-          // survives refreshes; the server derives PARTIALLY_PAID/PAID from
-          // the ledger (spec §14), which refresh() then re-reads.
-          await recordPayment({ orderId: serverId, amount: paidDelta, method: payMeta?.method || "Cash", receivedBy: payMeta?.receivedBy || user?.id || "", ...(payMeta?.reference ? { reference: payMeta.reference } : {}), ...(payMeta?.notes ? { notes: payMeta.notes } : {}) });
+          const payRes = await recordPayment({ orderId: serverId, amount: paidDelta, method: payMeta?.method || "Cash", receivedBy: payMeta?.receivedBy || user?.id || "", ...(payMeta?.reference ? { reference: payMeta.reference } : {}), ...(payMeta?.notes ? { notes: payMeta.notes } : {}) });
+          if (!payRes) { await refresh().catch(() => {}); return false; }
         }
         const serverStatus = /^[A-Z_]+$/.test(status) ? status : orderStatusEnum(status);
         const isConfirmed = serverStatus === "CONFIRMED" || status === "Confirmed";
-        // Use proper action endpoints for specific status transitions.
-        // Always refresh() after — the durability gate holds the response until
-        // the Postgres write-back commits, so waiting on the request plus a
-        // refresh is unnecessary and, under React 18 batching, can drop the
-        // first mutation's result. Let the server's broadcast drive the next
-        // refresh instead of racing two fetches on every click.
+        let ok = null;
         if (isConfirmed) {
           const { confirmOrderApi } = await import("@/lib/api");
-          await confirmOrderApi(serverId);
+          ok = await confirmOrderApi(serverId);
         } else {
-          await updateOrderApi(serverId, {
+          ok = await updateOrderApi(serverId, {
             status: serverStatus,
             ...(payment ? { paymentStatus: paymentStatusEnum(payment) } : {}),
             ...(delivered ? { deliveryStatus: "COMPLETED_DELIVERED" } : {}),
           });
         }
-        // One refresh only, after the server mutation has landed.
-        await refresh();
+        await refresh().catch(() => {});
+        return !!ok;
       } catch {
-        /* Non-fatal: the optimistic change stays for this session. */
+        await refresh().catch(() => {});
+        return false;
       }
-    })();
   }, [user, refresh]);
 
   const completeFollowUp = useCallback((id: string) => {
@@ -333,9 +330,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     );
     void (async () => {
       try {
-        const server = serverOrdersRef.current.find((o) => (o.orderNumber || o.id) === id);
-        if (!server) return;
-        await updateOrderApi(server.id, { followUpCompletedAt: now });
+        const server = serverOrdersRef.current.find((o) => (o.orderNumber || o.id) === id || o.id === id || o.orderNumber === id);
+        await updateOrderApi(server?.id ?? id, { followUpCompletedAt: now });
       } catch {
         /* Non-fatal: the optimistic change stays for this session. */
       }
@@ -356,7 +352,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         for (const dupe of dupes) {
           if (dupe.id === keep.id) continue;
           try {
-            await updateCustomerApi?.(dupe.id, null);
+            // Best-effort: customer delete/update API not wired here; leave orphan rows for manual cleanup.
           } catch {
             /* Best-effort: leave orphan rows for manual cleanup. */
           }

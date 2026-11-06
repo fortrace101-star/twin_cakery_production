@@ -1,9 +1,9 @@
 import { Router, RequestHandler } from "express";
-import { store } from "../database/store";
-import { RbacService } from "../services/rbac.service";
-import { AuthService, extractToken } from "../services/auth.service";
-import { NotFoundError } from "../utils/errors";
-import { paymentsService } from "../services/payments.service";
+import { store } from "../database/store.js";
+import { RbacService } from "../services/rbac.service.js";
+import { AuthService, extractToken } from "../services/auth.service.js";
+import { NotFoundError } from "../utils/errors.js";
+import { paymentsService } from "../services/payments.service.js";
 
 const router = Router();
 const rbacService = new RbacService()
@@ -62,7 +62,7 @@ router.get("/reports", required("finance.view_reports"), async (req, res) => {
   const period = (req.query.period as "day" | "week" | "month" | "year") || "month";
   const orders = store.orders();
   const payments = store.payments();
-  const expenses = store.db.expenses as import("../database/types").Expense[];
+  const expenses = store.db.expenses as import("../database/types.js").Expense[];
   const productionCosts = store.productionCosts();
   const now = new Date();
   const inPeriod = (iso: string): boolean => {
@@ -110,7 +110,7 @@ router.get("/reports", required("finance.view_reports"), async (req, res) => {
 // Basic stubs for new finance features
 router.get("/invoices", required("finance.manage_invoices"), async (req, res, next) => {
   try {
-    const { pool } = await import("../database/db");
+    const { pool } = await import("../database/db.js");
     const result = await pool.query("SELECT * FROM invoices ORDER BY created_at DESC");
     res.json(result.rows || []);
   } catch (e) {
@@ -120,7 +120,7 @@ router.get("/invoices", required("finance.manage_invoices"), async (req, res, ne
 
 router.post("/invoices/:id/credit-note", required("finance.manage_invoices"), async (req, res, next) => {
   try {
-    const { pool } = await import("../database/db");
+    const { pool } = await import("../database/db.js");
     const { amount, reason } = req.body || {};
     if (!amount || !reason) return res.status(400).json({ error: "amount and reason required" });
     const invoiceId = req.params.id;
@@ -149,7 +149,7 @@ router.get("/approvals", required("finance.view_reports"), async (req, res) => {
 
 router.post("/periods/:period/close", required("finance.close_period"), async (req, res, next) => {
   try {
-    const { pool } = await import("../database/db");
+    const { pool } = await import("../database/db.js");
     const period = req.params.period;
     await pool.query(`INSERT INTO accounting_periods (period, status) VALUES ($1,'CLOSED') ON CONFLICT (period) DO UPDATE SET status='CLOSED', closed_at=NOW()`, [period]);
     res.json({ ok: true, period, status: "CLOSED" });
@@ -160,7 +160,7 @@ router.post("/periods/:period/close", required("finance.close_period"), async (r
 
 router.get("/periods", required("finance.view_reports"), async (req, res) => {
   try {
-    const { pool } = await import("../database/db");
+    const { pool } = await import("../database/db.js");
     const result = await pool.query("SELECT * FROM accounting_periods ORDER BY period DESC");
     res.json(result.rows || []);
   } catch (e) {
@@ -170,7 +170,7 @@ router.get("/periods", required("finance.view_reports"), async (req, res) => {
 
 router.get("/cash-handovers", required("finance.confirm_handover"), async (req, res) => {
   try {
-    const { pool } = await import("../database/db");
+    const { pool } = await import("../database/db.js");
     const result = await pool.query("SELECT * FROM cash_handovers ORDER BY confirmed_at DESC");
     res.json(result.rows || []);
   } catch (e) {
@@ -180,9 +180,9 @@ router.get("/cash-handovers", required("finance.confirm_handover"), async (req, 
 
 router.post("/cash-handovers", required("finance.confirm_handover"), async (req, res, next) => {
   try {
-    const { pool } = await import("../database/db");
+    const { pool } = await import("../database/db.js");
     const { driver_id, expected, counted, note } = req.body || {};
-    const { AuthService, extractToken } = await import("../services/auth.service");
+    const { AuthService, extractToken } = await import("../services/auth.service.js");
     const authService = new AuthService();
     const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
     const res2 = await pool.query(
@@ -198,7 +198,7 @@ router.post("/cash-handovers", required("finance.confirm_handover"), async (req,
 
 router.get("/reconciliation", required("finance.reconcile"), async (req, res) => {
   try {
-    const { pool } = await import("../database/db");
+    const { pool } = await import("../database/db.js");
     const result = await pool.query("SELECT * FROM provider_statement_lines ORDER BY occurred_at DESC");
     res.json(result.rows || []);
   } catch (e) {
@@ -208,8 +208,8 @@ router.get("/reconciliation", required("finance.reconcile"), async (req, res) =>
 
 router.get("/margin/:orderId", required("finance.view_margins"), async (req, res, next) => {
   try {
-    const { costingService } = await import("../services/costing.service");
-    const { store } = await import("../database/store");
+    const { costingService } = await import("../services/costing.service.js");
+    const { store } = await import("../database/store.js");
     const order = store.orders().find((o: any) => o.id === req.params.orderId);
     const job = store.productionJobs().find((j: any) => j.orderId === req.params.orderId);
     const cost = job ? costingService.getJobCost(job.id) : { actualCost: 0 };
@@ -224,7 +224,7 @@ router.get("/margin/:orderId", required("finance.view_margins"), async (req, res
 
 router.get("/bills", required("purchasing.pay_bill"), async (req, res) => {
   try {
-    const { pool } = await import("../database/db");
+    const { pool } = await import("../database/db.js");
     const result = await pool.query("SELECT * FROM bills ORDER BY created_at DESC");
     res.json(result.rows || []);
   } catch (e) {
@@ -234,7 +234,7 @@ router.get("/bills", required("purchasing.pay_bill"), async (req, res) => {
 
 router.get("/reports/pnl", required("finance.view_reports"), async (req, res) => {
   try {
-    const { pool } = await import("../database/db");
+    const { pool } = await import("../database/db.js");
     const { from, to } = req.query as any;
     const f = from || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10);
     const t = to || new Date().toISOString().slice(0,10);

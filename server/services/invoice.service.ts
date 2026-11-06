@@ -1,6 +1,6 @@
-import { withTransaction } from "../database/db";
-import { store } from "../database/store";
-import { makeId } from "../utils/make-id";
+import { withTransaction } from "../database/db.js";
+import { store } from "../database/store.js";
+import { makeId } from "../utils/make-id.js";
 
 export const invoiceService = {
   async ensureInvoice(orderId: string) {

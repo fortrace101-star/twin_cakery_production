@@ -11,5 +11,6 @@
     "rootDir": ".",
     "sourceMap": true
   },
-  "include": ["index.ts", "routes", "services", "middleware", "utils", "database", "seeds", "migrations"]
+  "include": ["index.ts", "routes", "services", "middleware", "utils", "database", "seeds", "migrations"],
+  "exclude": ["**/*.legacy.ts", "dist-server", "node_modules"]
 }

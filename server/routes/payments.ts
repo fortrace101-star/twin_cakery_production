@@ -1,12 +1,12 @@
 import { Router, RequestHandler } from "express";
-import { store } from "../database/store";
-import { pool } from "../database/db";
-import { RbacService } from "../services/rbac.service";
-import { AuthService, extractToken } from "../services/auth.service";
-import { NotFoundError } from "../utils/errors";
-import { makeId } from "../utils/make-id";
-import { paginate } from "../utils/paginate";
-import { businessService } from "../services/business.service";
+import { store } from "../database/store.js";
+import { pool } from "../database/db.js";
+import { RbacService } from "../services/rbac.service.js";
+import { AuthService, extractToken } from "../services/auth.service.js";
+import { NotFoundError } from "../utils/errors.js";
+import { makeId } from "../utils/make-id.js";
+import { paginate } from "../utils/paginate.js";
+import { businessService } from "../services/business.service.js";
 
 async function recomputePaymentStatusPg(orderId: string) {
   await pool.query(
@@ -97,8 +97,8 @@ function buildStkPushResponse(paymentId: string, orderId: string, amount: number
   };
 }
 
-import { paymentsService } from "../services/payments.service";
-import { getPaymentProvider } from "../services/payments-provider.service";
+import { paymentsService } from "../services/payments.service.js";
+import { getPaymentProvider } from "../services/payments-provider.service.js";
 
 router.post("/webhooks/:provider", async (req, res, next) => {
   try {

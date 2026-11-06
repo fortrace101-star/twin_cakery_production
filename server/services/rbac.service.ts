@@ -1,6 +1,6 @@
-import { ForbiddenError } from "../utils/errors";
-import { query } from "../database/db";
-import { store } from "../database/store";
+import { ForbiddenError } from "../utils/errors.js";
+import { query } from "../database/db.js";
+import { store } from "../database/store.js";
 
 /**
  * RBAC is the single source of truth for authorization. Permission lookups go

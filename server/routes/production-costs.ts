@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { store } from "../database/store";
-import { RbacService } from "../services/rbac.service";
-import { AuthService, extractToken } from "../services/auth.service";
-import { NotFoundError } from "../utils/errors";
+import { store } from "../database/store.js";
+import { RbacService } from "../services/rbac.service.js";
+import { AuthService, extractToken } from "../services/auth.service.js";
+import { NotFoundError } from "../utils/errors.js";
 
 const router = Router();
 const rbacService = new RbacService()

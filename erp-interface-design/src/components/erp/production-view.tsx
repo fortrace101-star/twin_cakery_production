@@ -555,12 +555,12 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
               })}</div>)}
               <div className="mt-3 space-y-2">
                 {materialEntries.map((m, idx) => (<div key={idx} className="flex gap-2 items-center">
-                  <select className="input flex-1" value={m.itemId} onChange={e => { const next = [...materialEntries]; next[idx] = { ...next[idx], itemId: e.target.value }; setMaterialEntries(next); }}>
+                  <select className="input flex-1" value={m.itemId} onChange={e => { const next = [...materialEntries]; next[idx] = { itemId: e.target.value, quantity: next[idx]?.quantity ?? 0, notes: next[idx]?.notes ?? '' }; setMaterialEntries(next); }}>
                     <option value="">Select item...</option>
                     {inventoryItems.map((it: any) => <option key={it.id} value={it.id}>{it.name} - {it.physicalStock} {it.unit}</option>)}
                   </select>
-                  <input className="input w-24" type="number" placeholder="Qty" value={m.quantity || ''} onChange={e => { const next = [...materialEntries]; next[idx] = { ...next[idx], quantity: Number(e.target.value) }; setMaterialEntries(next); }} />
-                  <input className="input flex-1" placeholder="Notes" value={m.notes} onChange={e => { const next = [...materialEntries]; next[idx] = { ...next[idx], notes: e.target.value }; setMaterialEntries(next); }} />
+                  <input className="input w-24" type="number" placeholder="Qty" value={m.quantity || ''} onChange={e => { const next = [...materialEntries]; next[idx] = { itemId: next[idx]?.itemId ?? '', quantity: Number(e.target.value), notes: next[idx]?.notes ?? '' }; setMaterialEntries(next); }} />
+                  <input className="input flex-1" placeholder="Notes" value={m.notes} onChange={e => { const next = [...materialEntries]; next[idx] = { itemId: next[idx]?.itemId ?? '', quantity: next[idx]?.quantity ?? 0, notes: e.target.value }; setMaterialEntries(next); }} />
                 </div>))}
                 <div className="flex gap-2">
                   <Button size="sm" variant="outline" onClick={() => setMaterialEntries([...materialEntries, { itemId: "", quantity: 0, notes: "" }])}>Add Row</Button>

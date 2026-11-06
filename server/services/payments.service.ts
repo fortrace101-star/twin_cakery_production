@@ -1,7 +1,7 @@
-import { pool, withTransaction } from "../database/db";
-import { store } from "../database/store";
-import { ConflictError, NotFoundError, ValidationError } from "../utils/errors";
-import { ledgerService } from "./ledger.service";
+import { pool, withTransaction } from "../database/db.js";
+import { store } from "../database/store.js";
+import { ConflictError, NotFoundError, ValidationError } from "../utils/errors.js";
+import { ledgerService } from "./ledger.service.js";
 
 export type PaymentMethod = "Cash" | "MTN MoMo" | "Airtel Money" | "Bank Transfer" | "M-Pesa" | "Card" | "Other";
 

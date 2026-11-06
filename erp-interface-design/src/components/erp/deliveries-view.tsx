@@ -47,17 +47,6 @@ export function DeliveriesView({ onNotice }: { onNotice: (s: string) => void }) 
     const key = (o.id || o.orderNumber);
     return arr.findIndex((x) => ((x.id || x.orderNumber)) === key) === idx;
   });
-  const counts = {
-    Upcoming: upcomingFromOrders.filter((row: any) => {
-      const s = String(row.status || "").toUpperCase();
-      return s === "AWAITING_COLLECTION" || s === "AWAITING COLLECTION";
-    }).length,
-    Dispatch: deliveries.filter((d) => d.status === "IN_TRANSIT").length + (allOrdersForUpcoming.filter((row: any) => {
-      const s = String(row.status || "").toUpperCase();
-      return s === "IN_TRANSIT" || s === "IN TRANSIT";
-    }).filter((row: any) => !deliveries.some((d) => d.orderId === row.orderNumber || d.orderId === row.id)).length),
-    Completed: deliveries.filter((d) => d.status === "COMPLETED_DELIVERED").length,
-  };
 
   const [fOrderId, setFOrderId] = useState("");
   const [fType, setFType] = useState("HOME_DELIVERY");

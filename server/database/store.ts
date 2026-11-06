@@ -1,5 +1,5 @@
-﻿import { getDb, resetStore, type DbCache } from "./index.new";
-import { pool } from "./db";
+﻿import { getDb, resetStore, type DbCache } from "./index.new.js";
+import { pool } from "./db.js";
 import type {
   AuditLog,
   BlogCategory,
@@ -60,7 +60,7 @@ import type {
   WebsiteUser,
   WebsiteUserRole,
   WebsiteUserStatus,
-} from "./types";
+} from "./types.js";
 
 function mapNum(value: unknown): number {
   const parsed = typeof value === "number" ? value : Number(value);
@@ -479,11 +479,11 @@ export class MemoryStore {
   }
 
   findOrder(id: string): Order | undefined {
-    return this.db.orders.find((o) => o.id === id);
+    return this.db.orders.find((o) => o.id === id || o.orderNumber === id);
   }
 
   orderWithItems(orderId: string): Order | undefined {
-    return this.db.orders.find((o) => o.id === orderId);
+    return this.db.orders.find((o) => o.id === orderId || o.orderNumber === orderId);
   }
 
   createOrder(input: Patch): Order {
@@ -2586,7 +2586,7 @@ export class MemoryStore {
 }
 
 // ---------------------------------------------------------------------------
-// Singleton (routes import { store } from "../database/store")
+// Singleton (routes import { store } from "../database/store.js")
 // ---------------------------------------------------------------------------
 
 export const store = new MemoryStore();

@@ -1,10 +1,10 @@
-import { ConflictError, ValidationError, NotFoundError } from "../utils/errors";
-import { store } from "../database/store";
-import type { Patch } from "../database/store";
-import { notificationService } from "../services/notification.service";
-import { publishLowStockAlert } from "./stock-alerts";
-import { invoiceService } from "./invoice.service";
-import type { Order, OrderStatus, User, OrderItem, Payment, ProductionJob, ProductionConsumption, OrderStatusHistory, NotificationPriority, OrderStation } from "../database/types";
+import { ConflictError, ValidationError, NotFoundError } from "../utils/errors.js";
+import { store } from "../database/store.js";
+import type { Patch } from "../database/store.js";
+import { notificationService } from "../services/notification.service.js";
+import { publishLowStockAlert } from "./stock-alerts.js";
+import { invoiceService } from "./invoice.service.js";
+import type { Order, OrderStatus, User, OrderItem, Payment, ProductionJob, ProductionConsumption, OrderStatusHistory, NotificationPriority, OrderStation } from "../database/types.js";
 
 /**
  * Resolve required_by for production job from order data.
@@ -43,11 +43,79 @@ export class BusinessService {
     }
   }
 
+  /**
+   * Side effects of confirming an order (invoice, inventory reservation, notifications,
+   * audit, production job). Does NOT perform the status transition/history persistence —
+   * callers that already persisted CONFIRMED (e.g. direct-PG route for durability) can
+   * run these once for the real transition. Best-effort per side effect.
+   */
+  async applyConfirmSideEffects(order: Order, changedBy: string): Promise<{ job?: ProductionJob | null }> {
+    const now = new Date().toISOString();
+    const items = order.items || [];
+
+    try {
+      await invoiceService.ensureInvoice(order.id);
+    } catch {
+      /* Non-fatal */
+    }
+
+    for (const item of items) {
+      if (item.quantity > 0) {
+        try {
+          const previousStock = store.inventoryItems().find((i) => i.id === item.productId)?.physicalStock ?? 0;
+          store.adjustInventory(item.productId, -item.quantity, item.unit || "unit", "PRODUCTION_CONSUMPTION", `Pre-reservation for ${order.id}`, changedBy, item.unitPrice, "Manufacturing reservation");
+          publishLowStockAlert(item.productId, previousStock, { userId: changedBy, role: changedBy, isAdmin: true });
+        } catch {
+          /* Non-fatal per item */
+        }
+      }
+    }
+
+    try {
+      const notificationEvent = {
+        eventTypeId: "OrderConfirmed" as const,
+        title: `Order ${order.orderNumber} confirmed`,
+        message: `Order #${order.orderNumber} has been confirmed by ${changedBy}.`,
+        priority: "MEDIUM" as NotificationPriority,
+        entityType: "order",
+        entityId: order.id,
+        actionUrl: `/workspace/${order.id}`,
+        deepLink: `/workspace/${order.id}`,
+        createdBy: changedBy,
+      };
+      notificationService.publishEvent(notificationEvent, { userId: changedBy, role: changedBy, isAdmin: true });
+    } catch {
+      /* Non-fatal */
+    }
+
+    try {
+      store.createAuditLog({
+        orderId: order.id,
+        actor: changedBy,
+        action: "order:confirmed",
+        previousStatus: order.status,
+        newStatus: "CONFIRMED",
+        reason: "Admin confirmed order",
+        timestamp: now,
+      });
+    } catch {
+      /* Non-fatal */
+    }
+
+    let job: ProductionJob | null = null;
+    try {
+      job = this.prepareOrderForProduction(order.id, changedBy).job;
+    } catch {
+      try { job = store.productionJobs().find((j) => j.orderId === order.id) ?? null; } catch {}
+    }
+
+    return { job };
+  }
+
   async confirmOrder(order: Order, changedBy: string): Promise<{ order: Order; history: OrderStatusHistory; job?: ProductionJob | null }> {
     this.validateOrderStatusTransition(order.status, "CONFIRMED");
     const now = new Date().toISOString();
 
-    const items = order.items || [];
     const history: OrderStatusHistory = {
       id: `osh-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       orderId: order.id,
@@ -75,54 +143,7 @@ export class BusinessService {
     }
     const persistedHistory = persisted?.history ?? history;
 
-    try {
-      await invoiceService.ensureInvoice(order.id);
-    } catch (e) {
-      /* Non-fatal */
-    }
-
-    for (const item of items) {
-      if (item.quantity > 0) {
-        const previousStock = store.inventoryItems().find((i) => i.id === item.productId)?.physicalStock ?? 0;
-        store.adjustInventory(item.productId, -item.quantity, item.unit || "unit", "PRODUCTION_CONSUMPTION", `Pre-reservation for ${order.id}`, changedBy, item.unitPrice, "Manufacturing reservation");
-        publishLowStockAlert(item.productId, previousStock, { userId: changedBy, role: changedBy, isAdmin: true });
-      }
-    }
-
-    const notificationEvent = {
-      eventTypeId: "OrderConfirmed" as const,
-      title: `Order ${order.orderNumber} confirmed`,
-      message: `Order #${order.orderNumber} has been confirmed by ${changedBy}.`,
-      priority: "MEDIUM" as NotificationPriority,
-      entityType: "order",
-      entityId: order.id,
-      actionUrl: `/workspace/${order.id}`,
-      deepLink: `/workspace/${order.id}`,
-      createdBy: changedBy,
-    };
-    notificationService.publishEvent(notificationEvent, { userId: changedBy, role: changedBy, isAdmin: true });
-
-    store.createAuditLog({
-      orderId: order.id,
-      actor: changedBy,
-      action: "order:confirmed",
-      previousStatus: order.status,
-      newStatus: "CONFIRMED",
-      reason: "Admin confirmed order",
-      timestamp: now,
-    });
-
-    let job: ProductionJob | null = null;
-    try {
-      const existing = store.productionJobs().find((j) => j.orderId === updatedOrder.id);
-      if (!existing) {
-        job = this.prepareOrderForProduction(updatedOrder.id, changedBy).job;
-      } else {
-        job = existing;
-      }
-    } catch {
-      /* Non-fatal */
-    }
+    const { job } = await this.applyConfirmSideEffects({ ...order, orderNumber: order.orderNumber }, changedBy);
 
     return { order: updatedOrder, history: persistedHistory, job };
   }
@@ -345,10 +366,10 @@ export class BusinessService {
     reworkRequired: boolean,
     reworkCost: number,
     wastageCaused: number,
-  ): { job: ProductionJob; check: import("../database/types").QualityCheck } {
+  ): { job: ProductionJob; check: import("../database/types.js").QualityCheck } {
     const job = store.productionJobs().find((j) => j.id === jobId);
     if (!job) throw new NotFoundError("Production job not found");
-    const check: import("../database/types").QualityCheck = store.createQualityCheck({
+    const check: import("../database/types.js").QualityCheck = store.createQualityCheck({
       jobId,
       checkedBy,
       checkedAt: new Date().toISOString(),
@@ -772,7 +793,7 @@ export class BusinessService {
         actualCost,
         notes: "Recorded during production",
       });
-      const cost: import("../database/types").ProductionCost = store.createProductionCost({
+      const cost: import("../database/types.js").ProductionCost = store.createProductionCost({
         jobId,
         ingredientCost: actualCost,
         packagingCost: 0,
