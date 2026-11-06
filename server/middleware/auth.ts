@@ -1,12 +1,14 @@
-import { Request, Response, NextFunction, RequestHandler } from "express";
-import { UnauthorizedError, ForbiddenError } from "../utils/errors.js";
+import type { Request, Response, NextFunction, RequestHandler } from "express";
 import { extractToken, AuthService } from "../services/auth.service.js";
 import { RbacService } from "../services/rbac.service.js";
 
-declare module "express-serve-static-core" {
-  interface Request {
-    auth?: { token: string | null; session: unknown };
-    perms?: ReadonlySet<string>;
+declare global {
+  namespace Express {
+    interface Request {
+      auth?: { token: string | null; session: unknown };
+      perms?: ReadonlySet<string>;
+      session?: unknown;
+    }
   }
 }
 
