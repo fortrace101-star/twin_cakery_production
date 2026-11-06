@@ -1,0 +1,20 @@
+# Render Blueprint for the Gabfix ERP API (Node/Express).
+# Apply via Render Dashboard "New > Blueprint" or use these settings on the existing web service.
+# IMPORTANT: the API source lives in /server (repo root), NOT /src/server.
+services:
+  - type: web
+    name: gabfix-erp-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Configure in Render dashboard (do not commit secrets):
+      # - DATABASE_URL        (Postgres connection string)
+      # - FRONTEND_ORIGIN     (allowed CORS origin(s), comma-separated)
+      # - PORT                (Render sets this automatically)
+      # - TRUST_PROXY         (e.g. 1 when behind Render's proxy)
+      # - any auth/session secrets required by server/middleware & services

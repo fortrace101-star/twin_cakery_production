@@ -3,15 +3,15 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import express, { type Request, type Response, type NextFunction } from "express";
-import { attachAuth, requireAuth } from "./middleware/auth";
-import { apiRouter } from "./routes/api";
-import { RbacService } from "./services/rbac.service";
-import { businessService } from "./services/business.service";
+import { attachAuth, requireAuth } from "./middleware/auth.js";
+import { apiRouter } from "./routes/api.js";
+import { RbacService } from "./services/rbac.service.js";
+import { businessService } from "./services/business.service.js";
 const rbacService = new RbacService(); // singleton used by index.ts itself; route modules declare their own
-import { ready, flush } from "./database/index.new";
-import { logger } from "./utils/logger";
-import { addSseClient, removeSseClient, broadcastChange } from "./services/live-events";
-import { AuthService } from "./services/auth.service";
+import { ready, flush } from "./database/index.new.js";
+import { logger } from "./utils/logger.js";
+import { addSseClient, removeSseClient, broadcastChange } from "./services/live-events.js";
+import { AuthService } from "./services/auth.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

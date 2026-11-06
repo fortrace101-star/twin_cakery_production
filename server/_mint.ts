@@ -1,4 +1,4 @@
-import { query } from "./database/db";
+import { query } from "./database/db.js";
 import crypto from "node:crypto";
 
 const token = "testtoken_" + crypto.randomBytes(16).toString("hex");

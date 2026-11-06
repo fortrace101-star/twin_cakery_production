@@ -1,13 +1,13 @@
 import { Router, RequestHandler } from "express";
-import { store } from "../database/store";
-import { flush } from "../database/index.new";
-import { RbacService } from "../services/rbac.service";
-import { businessService } from "../services/business.service";
+import { store } from "../database/store.js";
+import { flush } from "../database/index.new.js";
+import { RbacService } from "../services/rbac.service.js";
+import { businessService } from "../services/business.service.js";
 
-import { AuthService, extractToken } from "../services/auth.service";
-import { NotFoundError } from "../utils/errors";
-import { publishLowStockAlert } from "../services/stock-alerts";
-import { paginate } from "../utils/paginate";
+import { AuthService, extractToken } from "../services/auth.service.js";
+import { NotFoundError } from "../utils/errors.js";
+import { publishLowStockAlert } from "../services/stock-alerts.js";
+import { paginate } from "../utils/paginate.js";
 
 const router = Router();
 const rbacService = new RbacService()

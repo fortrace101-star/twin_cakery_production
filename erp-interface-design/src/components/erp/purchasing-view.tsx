@@ -53,7 +53,7 @@ function CreatePoDialog(props: {
   };
   useEffect(() => {
     if (!form.supplierId && suppliers.length > 0) {
-      const def = suppliers.find(s => s.active)?.id ?? suppliers[0].id;
+      const def = suppliers.find(s => s.active)?.id ?? suppliers[0]?.id ?? '';
       setForm({ ...form, supplierId: def });
     }
   }, [suppliers]);
@@ -403,12 +403,12 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
                   <select className="input" style={{flex:2,minWidth:160}} value={productId || ""} onChange={e => {
                     const next = [...extraReceiveItems];
                     if (e.target.value === "__new__") {
-                      next[idx] = { ...next[idx], productId: "__new__" };
+                      next[idx] = { productId: "__new__", quantity: next[idx]?.quantity ?? '', unit: next[idx]?.unit ?? 'unit', unitPrice: next[idx]?.unitPrice ?? '' };
                       setExtraReceiveItems(next);
                       return;
                     }
                     const it = invItems.find(i => i.id === e.target.value);
-                    next[idx] = { ...next[idx], productId: e.target.value, unit: it?.unit ?? next[idx].unit };
+                    next[idx] = { productId: e.target.value, quantity: next[idx]?.quantity ?? '', unit: it?.unit ?? next[idx]?.unit ?? 'unit', unitPrice: next[idx]?.unitPrice ?? '' };
                     setExtraReceiveItems(next);
                   }}>
                     <option value="">Select item…</option>
@@ -420,8 +420,8 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
                   <Input placeholder="SKU" style={{flex:1,minWidth:80}} value={(ex as any).newSku || ''} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).newSku = e.target.value; setExtraReceiveItems(next); }}/>
                   <Input placeholder="Unit" style={{flex:1,minWidth:60}} value={(ex as any).unit || 'unit'} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).unit = e.target.value; setExtraReceiveItems(next); }}/>
                   </>}
-                  <Input placeholder="Qty" style={{flex:1,minWidth:80}} value={ex.quantity || ''} onChange={e => { const next=[...extraReceiveItems]; next[idx]={...next[idx],quantity:e.target.value}; setExtraReceiveItems(next); }}/>
-                  <Input placeholder="Unit price" style={{flex:1,minWidth:100}} value={ex.unitPrice || ''} onChange={e => { const next=[...extraReceiveItems]; next[idx]={...next[idx],unitPrice:e.target.value}; setExtraReceiveItems(next); }}/>
+                  <Input placeholder="Qty" style={{flex:1,minWidth:80}} value={ex.quantity || ''} onChange={e => { const next=[...extraReceiveItems]; next[idx]={ productId: ((next[idx] as any).productId ?? ''), quantity: e.target.value, unit: next[idx]?.unit ?? 'unit', unitPrice: next[idx]?.unitPrice ?? '' }; setExtraReceiveItems(next); }}/>
+                  <Input placeholder="Unit price" style={{flex:1,minWidth:100}} value={ex.unitPrice || ''} onChange={e => { const next=[...extraReceiveItems]; next[idx]={ productId: ((next[idx] as any).productId ?? ''), quantity: next[idx]?.quantity ?? '', unit: next[idx]?.unit ?? 'unit', unitPrice: e.target.value }; setExtraReceiveItems(next); }}/>
                   <Button variant="ghost" size="icon" onClick={() => setExtraReceiveItems(extraReceiveItems.filter((_,i)=>i!==idx))}><Trash2/></Button>
                 </div>
               );

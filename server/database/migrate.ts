@@ -8,7 +8,7 @@ const requireFromFrontend = createRequire(
 const dotenvModule = requireFromFrontend("dotenv") as { config: (opts?: unknown) => void };
 dotenvModule.config();
 import fs from "node:fs";
-import { pool } from "./db";
+import { pool } from "./db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

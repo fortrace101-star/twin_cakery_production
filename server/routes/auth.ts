@@ -2,10 +2,10 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AuthService, extractToken } from "../services/auth.service";
-import { RbacService } from "../services/rbac.service";
-import { rateLimit } from "../middleware/rateLimit";
-import { store } from "../database/store";
+import { AuthService, extractToken } from "../services/auth.service.js";
+import { RbacService } from "../services/rbac.service.js";
+import { rateLimit } from "../middleware/rateLimit.js";
+import { store } from "../database/store.js";
 
 const router = Router();
 const rbacService = new RbacService()
@@ -61,7 +61,7 @@ router.post("/claim-admin", claimRateLimit, async (req, res) => {
   const crypto = await import("node:crypto");
   const codeHash = crypto.createHash("sha256").update(code).digest("hex");
 
-  const { pool } = await import("../database/db");
+  const { pool } = await import("../database/db.js");
   let bootstrapNoUsers = false;
   try {
     const u = await pool.query(`SELECT count(*)::int AS c FROM users`);
@@ -212,7 +212,7 @@ router.post("/register", registerRateLimit, async (req, res) => {
   // SEC-07: validate staff register code then resolve role from the code, not from the body.
   const crypto = await import("node:crypto");
   const codeHash = crypto.createHash("sha256").update(registerCode).digest("hex");
-  const { pool } = await import("../database/db");
+  const { pool } = await import("../database/db.js");
   const codeResult = await pool.query(
     `SELECT id, used_at, expires_at FROM activation_codes WHERE code = $1 AND type = 'staff'`,
     [codeHash],
@@ -249,7 +249,7 @@ router.post("/register", registerRateLimit, async (req, res) => {
 
   // SEC-07: staff signups always land on the least-privileged role from the validated code.
   const roleId = "role-csr";
-  const { flush: flushDb } = await import("../database/index.new");
+  const { flush: flushDb } = await import("../database/index.new.js");
   const assignedAt = new Date().toISOString();
   store.userRoles().push({ id: `ur-${user.id}`, userId: user.id, roleId, createdAt: assignedAt, updatedAt: assignedAt });
   await flushDb();
@@ -324,7 +324,7 @@ router.get("/me", async (req, res) => {
 router.get("/user-count", async (_req, res) => {
   // Postgres is mandatory. "History" = whether the workspace has accounts.
   try {
-    const { pool } = await import("../database/db");
+    const { pool } = await import("../database/db.js");
     const r = await pool.query(`SELECT count(*)::int AS c FROM users`);
     const pgUsers = Number(r.rows?.[0]?.c ?? 0);
     return res.json({ hasHistory: pgUsers > 0 });

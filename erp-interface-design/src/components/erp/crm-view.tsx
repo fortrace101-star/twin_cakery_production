@@ -29,7 +29,7 @@ function reminderStatus(status: string): { label: string; tone: StatusTone } {
 
 function useCustomerContext(name: string, connected: boolean) {
   const { data: customer } = useAsync<ServerCustomer | null>(
-    () => connected ? findCustomerByName(name).then((c) => c ?? null) : Promise.resolve(null),
+    () => connected ? findCustomerByName(name).then((c) => (Array.isArray(c) ? (c[0] ?? null) : (c ?? null))) : Promise.resolve(null),
     [name, connected],
   );
   const customerId = customer?.id ?? name;

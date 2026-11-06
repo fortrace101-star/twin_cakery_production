@@ -433,7 +433,8 @@ export function CustomerE1Panels({ name, connected }: { name: string; connected:
     setResolved(false);
     void findCustomerByName(name).then((customer) => {
       if (!alive) return;
-      setCustomerId(customer?.id ?? null);
+      const one = Array.isArray(customer) ? customer[0] : customer;
+      setCustomerId(one?.id ?? null);
       setResolved(true);
     });
     return () => {
