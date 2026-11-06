@@ -1,4 +1,4 @@
-import { query, withTransaction, type TxClient } from "./db.js";
+import { query, withTransaction, type TxClient } from "./db";
 import { logger } from "../utils/logger.cjs";
 import fs from "node:fs";
 import path from "node:path";
@@ -62,7 +62,7 @@ import type {
   User,
   UserRole,
   WebsiteUser,
-} from "./types.js";
+} from "./types";
 
 // ---------------------------------------------------------------------------
 // helpers (semantics identical to the legacy JSON store)

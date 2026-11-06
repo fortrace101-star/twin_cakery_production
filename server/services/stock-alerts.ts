@@ -1,5 +1,5 @@
-import { store } from "../database/store.js";
-import { notificationService } from "../services/notification.service.js";
+import { store } from "../database/store";
+import { notificationService } from "../services/notification.service";
 
 /**
  * Low-stock alerts (E3). Callers invoke this after any stock decrement with the

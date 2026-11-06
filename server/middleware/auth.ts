@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction, RequestHandler } from "express";
-import { UnauthorizedError, ForbiddenError } from "../utils/errors.js";
-import { extractToken, AuthService } from "../services/auth.service.js";
-import { RbacService } from "../services/rbac.service.js";
+import { UnauthorizedError, ForbiddenError } from "../utils/errors";
+import { extractToken, AuthService } from "../services/auth.service";
+import { RbacService } from "../services/rbac.service";
 
 declare module "express-serve-static-core" {
   interface Request {

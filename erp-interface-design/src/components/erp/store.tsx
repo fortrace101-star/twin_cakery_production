@@ -41,6 +41,7 @@ import { type Order } from "./data";
  * bundled `initialOrders` sample data instead of crashing.
  */
 
+
 type WorkspaceContextValue = {
   orders: Order[];
   audit: string[];
@@ -56,6 +57,12 @@ type WorkspaceContextValue = {
   addOrder: (order: Order, phone?: string) => void;
   /** Records the order stage and (optionally) its payment status & paid amount in one write. */
   updateOrder: (id: string, status: string, payment?: string, paidDelta?: number, payMeta?: { method?: string; receivedBy?: string; reference?: string; notes?: string }) => void;
+  /**
+   * Best-effort duplicate guard used by the new-order flow. Returns an existing CRM customer
+   * whose phone or email matches the given contact exactly (case-/space-insensitive), or null
+   * when none is found.
+   */
+  findCustomerByContact: (name: string, phone?: string | null) => Promise<ServerCustomer | null>;
   /** Documents the post-delivery CRM follow-up for a completed order. */
   completeFollowUp: (id: string) => void;
   refresh: () => void;
@@ -81,6 +88,33 @@ function formatAudit(log: ServerAuditLog): string {
 function byId<T extends { id: string }>(rows: T[]): Record<string, T> {
   return Object.fromEntries(rows.map((row) => [row.id, row]));
 }
+
+
+/** Best-effort contact lookup for the new-order flow so a returning customer is reused. */
+async function findCustomerByContact(name: string, phone?: string | null): Promise<ServerCustomer | null> {
+  if (!name && !phone) return null;
+  try {
+    const lowerName = name.trim().toLowerCase();
+    const targetPhone = phone != null ? String(phone).trim() : "";
+    const candidates = await findCustomerByName(name);
+    // Exact phone match is the strongest non-id signal (mobile numbers are effectively unique).
+    if (targetPhone) {
+      const byPhone = candidates?.find((c) => String(c.phone).trim() === targetPhone);
+      if (byPhone) return byPhone;
+      const byEmail = candidates?.find((c) => c.email.trim().toLowerCase() === lowerName || String(c.email).trim() === targetPhone);
+      if (byEmail) return byEmail;
+    }
+    // Fall back to an approved name match only when the caller passed nothing better.
+    if (!phone && candidates && candidates.length === 1) return candidates[0];
+    // If there are multiple name matches, do not guess — the caller should type more.
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+
+
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -198,9 +232,18 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     void (async () => {
       try {
         let customer = await findCustomerByName(order.customer);
-        // Customers outside the CRM list are registered right here — with the
-        // phone number captured on the new-order form.
-        if (!customer) customer = await createCustomerApi(order.customer, phone);
+        if (!customer || !customer[0]) {
+          // Returning registered customers must reuse the existing account, not get a new one.
+          // findCustomerByName now returns all name matches; we still need to pick the right
+          // one by phone/email, so delegate. If that returns null, fall back to the first name
+          // match. If nothing exists at all, create a new customer.
+          const matched = await findCustomerByContact(order.customer, phone ?? undefined);
+          if (matched) customer = [matched];
+        }
+        if (!customer || !customer[0]) {
+          customer = await findCustomerByName(order.customer);
+        }
+        if (!customer || !customer[0]) customer = await createCustomerApi(order.customer, phone);
         if (!customer) return;
         const product = await findProductByName(order.product);
         const requiredAt = order.date ? `${order.date}T10:00:00` : null;
@@ -243,8 +286,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setOrders((prev) =>
       prev.map((o) => (o.id === id ? { ...o, status, ...(payment ? { payment } : {}), ...(delivered ? { delivery: "Completed / Delivered" } : {}), ...(paidDelta && paidDelta > 0 ? { paidAmount: Math.min(o.amount, (o.paidAmount ?? 0) + paidDelta) } : {}) } : o)),
     );
-    void (async () => {
-      try {
+    void (async () => {        try {
         const server = serverOrdersRef.current.find((o) => (o.orderNumber || o.id) === id)
           ?? serverOrdersRef.current.find((o) => o.id === id || o.orderNumber === id);
         // If the server ref isn't hydrated yet, fall back to the UI id (often the
@@ -258,7 +300,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         }
         const serverStatus = /^[A-Z_]+$/.test(status) ? status : orderStatusEnum(status);
         const isConfirmed = serverStatus === "CONFIRMED" || status === "Confirmed";
-        // Use proper action endpoints for specific status transitions
+        // Use proper action endpoints for specific status transitions.
+        // Always refresh() after — the durability gate holds the response until
+        // the Postgres write-back commits, so waiting on the request plus a
+        // refresh is unnecessary and, under React 18 batching, can drop the
+        // first mutation's result. Let the server's broadcast drive the next
+        // refresh instead of racing two fetches on every click.
         if (isConfirmed) {
           const { confirmOrderApi } = await import("@/lib/api");
           await confirmOrderApi(serverId);
@@ -269,7 +316,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             ...(delivered ? { deliveryStatus: "COMPLETED_DELIVERED" } : {}),
           });
         }
-        // Refresh to get latest state from server
+        // One refresh only, after the server mutation has landed.
         await refresh();
       } catch {
         /* Non-fatal: the optimistic change stays for this session. */
@@ -295,6 +342,30 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
+  const removeDuplicates = useCallback(async () => {
+    try {
+      const customers = await findCustomerByName("");
+      const grouped = new Map<string, ServerCustomer[]>();
+      for (const c of customers) {
+        const key = `${c.phone.trim()}|${c.email.trim().toLowerCase()}`;
+        grouped.set(key, (grouped.get(key) ?? []).concat(c));
+      }
+      for (const [key, dupes] of grouped) {
+        if (dupes.length < 2) continue;
+        const keep = dupes.reduce((a, b) => (a.totalOrders ?? 0) >= (b.totalOrders ?? 0) ? a : b);
+        for (const dupe of dupes) {
+          if (dupe.id === keep.id) continue;
+          try {
+            await updateCustomerApi?.(dupe.id, null);
+          } catch {
+            /* Best-effort: leave orphan rows for manual cleanup. */
+          }
+        }
+      }
+    } catch {
+      /* Non-fatal. */
+    }
+  }, []);
   const value: WorkspaceContextValue = {
     orders,
     audit,
@@ -309,6 +380,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     updateOrder,
     completeFollowUp,
     refresh,
+    findCustomerByContact,
   };
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

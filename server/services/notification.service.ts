@@ -1,5 +1,5 @@
-import { store } from "../database/store.js";
-import type { Patch } from "../database/store.js";
+import { store } from "../database/store";
+import type { Patch } from "../database/store";
 import type {
   Notification,
   NotificationRecipient,
@@ -7,7 +7,7 @@ import type {
   NotificationTemplate,
   NotificationPriority,
   User,
-} from "../database/types.js";
+} from "../database/types";
 
 export type EventSource = "order" | "quotation" | "inquiry" | "customer" | "production" | "inventory" | "purchasing" | "delivery" | "payment" | "feedback" | "expense" | "catalogue" | "settings";
 

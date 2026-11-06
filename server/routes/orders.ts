@@ -1,12 +1,12 @@
 import { Router, RequestHandler } from "express";
-import { store } from "../database/store.js";
-import { pool } from "../database/db.js";
-import { RbacService } from "../services/rbac.service.js";
-import { AuthService, extractToken } from "../services/auth.service.js";
-import { businessService } from "../services/business.service.js";
-import { ConflictError, NotFoundError } from "../utils/errors.js";
-import { paginate } from "../utils/paginate.js";
-import type { OrderStation } from "../database/types.js";
+import { store } from "../database/store";
+import { pool } from "../database/db";
+import { RbacService } from "../services/rbac.service";
+import { AuthService, extractToken } from "../services/auth.service";
+import { businessService } from "../services/business.service";
+import { ConflictError, NotFoundError } from "../utils/errors";
+import { paginate } from "../utils/paginate";
+import type { OrderStation } from "../database/types";
 
 async function persistOrderStatusPg(orderId: string, newStatus: string, changedBy: string, reason: string) {
   const now = new Date().toISOString();
@@ -169,18 +169,20 @@ router.get("/:id", required("orders.view"), (req, res) => {
 router.get("/:id/history", required("orders.view"), (req, res) => {
   const order = store.orders().find((o) => o.id === String(req.params.id));
   if (!order) throw new NotFoundError("Order not found");
-  const history = store.db.orderStatusHistory as import("../database/types.js").OrderStatusHistory[];
+  const history = store.db.orderStatusHistory as import("../database/types").OrderStatusHistory[];
   res.json(history.filter((h) => h.orderId === order.id));
 });
 
-router.patch("/:id", required("orders.edit"), async (req, res) => {
+router.patch("/:id", required("deliveries.update"), async (req, res) => {
   const id = String(req.params.id);
-  const order = store.orders().find((o) => o.id === id);
+  let order = store.orders().find((o) => o.id === id) || store.findOrder?.(id);
   if (!order) throw new NotFoundError("Order not found");
   const patch = req.body || {};
 
-  // ORD-01: whitelist PATCH fields; reject total/paymentStatus/status/customerId
-  const forbidden = ['total', 'paymentStatus', 'status', 'customerId', 'paidAt', 'balanceDue'] as const;
+  // ORD-01: whitelist financial/identity fields; status transitions are allowed
+  // (validated + durably persisted) to support production/delivery flows (e.g.
+  // "Mark Awaiting Pickup" → AWAITING_COLLECTION).
+  const forbidden = ['total', 'paymentStatus', 'customerId', 'paidAt', 'balanceDue'] as const;
   for (const key of forbidden) {
     if (key in patch) {
       return res.status(400).json({ error: `Field '${key}' cannot be updated via this endpoint` });
@@ -189,77 +191,79 @@ router.patch("/:id", required("orders.edit"), async (req, res) => {
 
   const wasCompleted = order.status === "COMPLETED_DELIVERED";
 
-  // Determine the new station based on status transition
-  let newStation: OrderStation = order.station;
-  const newStatus = order.status;
-
-  // Station transition logic (status changes only via action endpoints)
-  if (newStatus === "COMPLETED_DELIVERED") {
-    newStation = "done";
+  // Status transition (optional): validate, then persist durably to Postgres.
+  if (patch.status !== undefined) {
+    let nextStatus = String(patch.status || "").trim().toUpperCase().replace(/s+/g, "_");
+    if (nextStatus === "AWAITING_PICKUP") nextStatus = "AWAITING_COLLECTION"; // legacy alias
+    if (nextStatus && nextStatus !== String(order.status)) {
+      try {
+        (businessService as any).validateOrderStatusTransition?.(order.status, nextStatus);
+      } catch (err: any) {
+        return res.status(409).json({ error: err?.message || "Invalid status transition" });
+      }
+      const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+      try {
+        await persistOrderStatusPg(id, nextStatus, session?.userId ?? "system", String(patch.statusReason || patch.reason || "Status updated"));
+      } catch (err: any) {
+        if (err?.name === "NotFoundError" || err instanceof NotFoundError) throw err;
+        const msg = err?.message || "Failed to persist status";
+        if (/connect|ECONN|timeout|database/i.test(msg)) return res.status(503).json({ error: "Database unavailable", detail: msg });
+        return res.status(500).json({ error: msg });
+      }
+      // Re-read authoritative in-memory state so the response payload reflects
+      // the transition, and so the client does not see a stale label on retry.
+      order = store.orders().find((o) => o.id === id) || store.findOrder?.(id);
+      if (order) {
+        (order as any).status = nextStatus;
+        (order as any).updatedAt = new Date().toISOString();
+        if (nextStatus === "CONFIRMED" || nextStatus === "COMPLETED_DELIVERED" || nextStatus === "CANCELLED")
+          (order as any).station = nextStatus === "CONFIRMED" ? "confirmed" : "done";
+      }
+    }
   }
 
-  // Preserve notes if not explicitly provided in patch, otherwise update
-  const newNotes = patch.notes !== undefined ? patch.notes : order.notes;
-
+  // Non-status field updates (allowed subset).
   const allowedUpdates: Record<string, unknown> = {};
-  const allowed = ['notes', 'deliveryType', 'deliveryLocation', 'deliveryDate', 'deliveryTime', 'dueDate', 'dueTime', 'eventType', 'reference', 'guest', 'items', 'source'] as const;
+  const allowed = ['notes', 'deliveryType', 'deliveryLocation', 'deliveryDate', 'deliveryTime', 'dueDate', 'dueTime', 'eventType', 'reference', 'guest', 'items', 'source', 'fulfilmentType'] as const;
   for (const key of allowed) {
     if (key in patch) allowedUpdates[key] = (patch as any)[key];
   }
 
-  const updated = store.updateOrder(id, {
-    ...allowedUpdates,
-    status: newStatus,
-    station: newStation,
-    notes: newNotes,
-  });
+  let updated = order;
+  if (Object.keys(allowedUpdates).length > 0) {
+    updated = store.updateOrder(id, { ...allowedUpdates }) || order;
+  }
 
   if (updated && !wasCompleted && updated.status === "COMPLETED_DELIVERED") {
-    // Fresh completion: any stale flag is cleared and the admin is asked to
-    // follow up (badge on Customers & CRM until documented).
     updated.followUpCompletedAt = null;
     const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
     businessService.requestCustomerFollowUp(updated, session?.userId ?? "system");
-    // Order just crossed into Delivered: archive the production job so it
-    // moves to the History tab (non-fatal — mirrors the deliver-flow hook).
     try { businessService.archiveCompletedJob(updated, session?.userId ?? "system"); } catch { /* non-fatal */ }
   }
 
   if (updated && ["CONFIRMED", "PRODUCTION_REVIEW", "READY_FOR_PRODUCTION", "IN_PRODUCTION"].includes(updated.status)) {
-    // Moving an order into the production pipeline must leave a Production Job
-    // behind — otherwise the Jobs board stays empty. Idempotent: skip when a
-    // job already exists for this order.
     const hasJob = store.productionJobs().some((j) => j.orderId === updated.id);
     if (!hasJob) {
       try {
         const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
         businessService.prepareOrderForProduction(updated.id, session?.userId ?? "system");
-      } catch {
-        /* Non-fatal: invalid transition or missing items must not block the status write. */
-      }
+      } catch { /* Non-fatal */ }
     }
   }
 
-  // Propagate baking station status changes to global order status
-  if (updated?.station === "baking" && patch.status && order.station !== "baking") {
-    // When order moves to baking station, ensure global status is consistent
-    // with the baking station's state. This ensures the global order status
-    // reflects what's happening at the baking station.
-    const statusMap: Record<OrderStation, string> = {
-      pendingConfirm: "AWAITING_CONFIRMATION",
-      confirmed: "CONFIRMED",
-      baking: "IN_PRODUCTION",
-      done: "COMPLETED_DELIVERED",
-    };
-    // If the baking station has a specific status, apply it
-    if (statusMap[updated.station] && !updated.status.includes(statusMap[updated.station])) {
-      // Update the global order status to match the station state
-      // This is a one-way propagation: baking station → global status
-    }
+  try {
+    store.persist();
+    await store.flush?.();
+  } catch (err: any) {
+    const msg = err?.message || "Failed to persist order";
+    if (/connect|ECONN|timeout|database/i.test(msg)) return res.status(503).json({ error: "Database unavailable", detail: msg });
+    return res.status(500).json({ error: msg });
   }
-
-  store.persist();
-  res.json(updated);
+  // Re-read so the client receives the same authoritative label the server will
+  // persist to Postgres; avoids stale reads when another request mutated the
+  // in-memory record between the patch and the durability gate.
+  const final = store.orders().find((o) => o.id === id) || store.findOrder?.(id) || updated;
+  res.json(final);
 });
 
 router.post("/:id/confirm", required("orders.confirm"), async (req, res) => {
@@ -276,8 +280,14 @@ router.post("/:id/confirm", required("orders.confirm"), async (req, res) => {
       const order = store.orders().find((o) => o.id === id) || store.findOrder?.(id);
       if (order) job = await (businessService as any).createProductionJob?.({ ...order, status: "CONFIRMED" }, session.userId);
     } catch { /* non-fatal side effect */ }
+    // Re-read the authoritative in-memory state *before* returning so the
+    // response payload reflects the transition regardless of async side-effects.
     const order = store.orders().find((o) => o.id === id) || store.findOrder?.(id);
-    if (order) { (order as any).status = "CONFIRMED"; (order as any).station = "confirmed"; }
+    if (order) {
+      (order as any).status = "CONFIRMED";
+      (order as any).station = "confirmed";
+      (order as any).updatedAt = new Date().toISOString();
+    }
     return res.json({ order: order || { id, status: "CONFIRMED" }, history, job, previousStatus });
   } catch (err: any) {
     if (err?.name === "NotFoundError" || err instanceof NotFoundError) throw err;
@@ -302,7 +312,7 @@ router.post("/:id/cancel", required("orders.cancel"), async (req, res) => {
       );
     } catch { /* audit best-effort */ }
     const order = store.orders().find((o) => o.id === id) || store.findOrder?.(id);
-    if (order) { (order as any).status = "CANCELLED"; }
+    if (order) { (order as any).status = "CANCELLED"; (order as any).station = "done"; }
     res.json({ order: order || { id, status: "CANCELLED" }, history });
   } catch (err: any) {
     if (err?.name === "NotFoundError" || err instanceof NotFoundError) throw err;

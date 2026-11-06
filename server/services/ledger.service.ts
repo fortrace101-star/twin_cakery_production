@@ -1,4 +1,4 @@
-import { withTransaction } from "../database/db.js";
+import { withTransaction } from "../database/db";
 
 export interface JournalLine {
   account: string;

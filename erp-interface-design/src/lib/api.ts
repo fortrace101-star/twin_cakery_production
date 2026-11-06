@@ -508,9 +508,10 @@ export async function createOrderApi(payload: Record<string, unknown>): Promise<
 export async function updateOrderApi(id: string, patch: Record<string, unknown>): Promise<ServerOrder | null> {
   return safe(() => request<ServerOrder>(`/orders/${id}`, { method: "PATCH", body: patch }), null);
 }
-export async function findCustomerByName(name: string): Promise<ServerCustomer | null> {
+export async function findCustomerByName(name: string): Promise<ServerCustomer[]> {
   const list = await safe(() => request<ServerCustomer[]>(`/customers?name=${encodeURIComponent(name)}`), []);
-  return list[0] ?? null;
+  if (!Array.isArray(list)) return [];
+  return list.filter((c) => c.name.toLowerCase() === name.toLowerCase());
 }
 export async function createCustomerApi(name: string, phone?: string): Promise<ServerCustomer | null> {
   // Phone is optional here so callers that only know a name still work; the

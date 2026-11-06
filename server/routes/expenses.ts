@@ -1,10 +1,10 @@
 import { Router, RequestHandler } from "express";
-import { store } from "../database/store.js";
-import { RbacService } from "../services/rbac.service.js";
-import { AuthService, extractToken } from "../services/auth.service.js";
-import { NotFoundError, ConflictError } from "../utils/errors.js";
-import { makeId } from "../utils/make-id.js";
-import { paginate } from "../utils/paginate.js";
+import { store } from "../database/store";
+import { RbacService } from "../services/rbac.service";
+import { AuthService, extractToken } from "../services/auth.service";
+import { NotFoundError, ConflictError } from "../utils/errors";
+import { makeId } from "../utils/make-id";
+import { paginate } from "../utils/paginate";
 
 const router = Router();
 const rbacService = new RbacService()
@@ -30,7 +30,7 @@ const number = (v: unknown): number => typeof v === "number" && Number.isFinite(
 // expenseCategoryRouter below, mounted at /expense-categories.
 
 router.get("/", required("finance.view"), async (req, res) => {
-  const expenses = store.db.expenses as import("../database/types.js").Expense[];
+  const expenses = store.db.expenses as import("../database/types").Expense[];
   const category = req.query.category as string | undefined;
   let list = expenses;
   if (category) list = list.filter((e) => e.categoryId === category);
@@ -108,7 +108,7 @@ router.delete("/:id", required("finance.record_expense"), async (req, res) => {
 export const expenseCategoryRouter = Router();
 
 expenseCategoryRouter.get("/", required("finance.view"), async (req, res) => {
-  const categories = store.db.expenseCategories as import("../database/types.js").ExpenseCategory[];
+  const categories = store.db.expenseCategories as import("../database/types").ExpenseCategory[];
   const name = req.query.name as string | undefined;
   let list = categories;
   if (name) list = list.filter((c) => c.name.toLowerCase().includes(String(name).toLowerCase()));

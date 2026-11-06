@@ -1,8 +1,8 @@
 import { Router, RequestHandler } from "express";
-import { store } from "../database/store.js";
-import { notificationService } from "../services/notification.service.js";
-import { NotFoundError } from "../utils/errors.js";
-import { rateLimit } from "../middleware/rateLimit.js";
+import { store } from "../database/store";
+import { notificationService } from "../services/notification.service";
+import { NotFoundError } from "../utils/errors";
+import { rateLimit } from "../middleware/rateLimit";
 
 const router = Router();
 

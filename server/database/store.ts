@@ -1,5 +1,5 @@
-﻿import { getDb, resetStore, type DbCache } from "./index.new.js";
-import { pool } from "./db.js";
+﻿import { getDb, resetStore, type DbCache } from "./index.new";
+import { pool } from "./db";
 import type {
   AuditLog,
   BlogCategory,
@@ -60,7 +60,7 @@ import type {
   WebsiteUser,
   WebsiteUserRole,
   WebsiteUserStatus,
-} from "./types.js";
+} from "./types";
 
 function mapNum(value: unknown): number {
   const parsed = typeof value === "number" ? value : Number(value);
@@ -2586,7 +2586,7 @@ export class MemoryStore {
 }
 
 // ---------------------------------------------------------------------------
-// Singleton (routes import { store } from "../database/store.js")
+// Singleton (routes import { store } from "../database/store")
 // ---------------------------------------------------------------------------
 
 export const store = new MemoryStore();
