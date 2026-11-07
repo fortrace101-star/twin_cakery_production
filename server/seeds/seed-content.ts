@@ -6,20 +6,18 @@
  *
  *   tsx --tsconfig tsconfig.json seeds/seed-content.ts
  */
-import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import dotenv from "dotenv";
+import bcrypt from "bcryptjs";
 import { pool } from "../database/db.js";
 
-const requireFromFrontend = createRequire(
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "erp-interface-design", "package.json"),
-);
-const bcrypt = requireFromFrontend("bcryptjs") as typeof import("bcryptjs");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 
 const DEV_PASSWORD = process.env.DEV_PASSWORD || "TwinCakery123!";
 
 async function main() {
-  // content.* permissions (granted to Admin role)
   const perms = ["content.view", "content.create", "content.edit"] as const;
   for (const [i, key] of perms.entries()) {
     const id = `perm-content-${i + 1}`;

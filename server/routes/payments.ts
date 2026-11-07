@@ -3,7 +3,7 @@ import { store } from "../database/store.js";
 import { pool } from "../database/db.js";
 import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
-import { NotFoundError } from "../utils/errors.js";
+import { NotFoundError, ConflictError } from "../utils/errors.js";
 import { makeId } from "../utils/make-id.js";
 import { paginate } from "../utils/paginate.js";
 import { businessService } from "../services/business.service.js";
@@ -114,7 +114,7 @@ router.post("/webhooks/:provider", async (req, res, next) => {
       }
     }
     res.json({ ok: true });
-  } catch (err) {
+  } catch (err: any) {
     if (/connect|ECONN|timeout|database/i.test(err?.message || "")) return res.status(503).json({ error: "Database unavailable" });
     next(err);
   }
@@ -220,7 +220,7 @@ router.post("/:id/callback", required("payments.record"), async (req, res, next)
       } catch {}
       return res.json({ ok: true, payment: { ...payment, status: payment.status }, orderPaymentStatus });
     }
-  } catch (err) {
+  } catch (err: any) {
     if (/connect|ECONN|timeout|database/i.test(err?.message || "")) return res.status(503).json({ error: "Database unavailable" });
     next(err);
   }
@@ -240,7 +240,7 @@ router.post("/:id/reverse", required("payments.reverse"), async (req, res, next)
     if (payment.kind && payment.kind !== "PAYMENT") throw new ConflictError("Only confirmed payments can be reversed");
     if (payment.status && payment.status !== "CONFIRMED") throw new ConflictError("Only confirmed payments can be reversed");
     const existing = await pool.query(`SELECT 1 FROM payments WHERE reverses_payment_id=$1 LIMIT 1`, [id]);
-    if (existing.rowCount > 0) throw new ConflictError("Already reversed");
+    if ((existing.rowCount ?? 0) > 0) throw new ConflictError("Already reversed");
 
     const revId = `pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const now = new Date().toISOString();

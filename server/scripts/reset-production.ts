@@ -3,7 +3,7 @@
 // preserving structure, roles, permissions, and _migrations.
 
 import readline from "node:readline";
-import { createRequire } from "node:module";
+import dotenv from "dotenv";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -13,11 +13,7 @@ import { execSync } from "node:child_process";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const requireFromFrontend = createRequire(
-  path.resolve(__dirname, "..", "..", "erp-interface-design", "package.json"),
-);
-const dotenvModule = requireFromFrontend("dotenv") as { config: (opts?: unknown) => void };
-dotenvModule.config({ path: path.resolve(__dirname, "..", "..", ".env") });
+dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 
 import { pool } from "../database/db.js";
 
@@ -155,18 +151,21 @@ async function main() {
   }
   console.log("");
 
-  const backupDir = path.resolve(__dirname, "..", "..", "backups");
+  const backupDir = path.resolve(__dirname, "..", "backups");
   if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
   const backupPath = path.join(backupDir, `pre-wipe-${ts}.sql`);
-  const dbUrl = process.env.DATABASE_URL || "postgres://postgres:90210@localhost:5432/twin_cakery";
-
-  try {
-    execSync(`pg_dump "${dbUrl}" -f "${backupPath}"`, { stdio: "inherit" });
-    console.log(`Backup created: ${backupPath}`);
-  } catch (err) {
-    console.warn("WARNING: pg_dump failed or not available. Skipping backup.");
-    console.warn(`  ${(err as Error).message}`);
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) {
+    console.warn("WARNING: DATABASE_URL is not set; skipping pg_dump backup.");
+  } else {
+    try {
+      execSync(`pg_dump "${dbUrl}" -f "${backupPath}"`, { stdio: "inherit" });
+      console.log(`Backup created: ${backupPath}`);
+    } catch (err) {
+      console.warn("WARNING: pg_dump failed or not available. Skipping backup.");
+      console.warn(`  ${(err as Error).message}`);
+    }
   }
   console.log("");
 

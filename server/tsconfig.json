@@ -7,10 +7,21 @@
     "strict": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "outDir": "dist-server",
+    "outDir": "dist",
     "rootDir": ".",
-    "sourceMap": true
+    "sourceMap": true,
+    "types": ["node"]
   },
-  "include": ["index.ts", "routes", "services", "middleware", "utils", "database", "seeds", "migrations"],
-  "exclude": ["**/*.legacy.ts", "dist-server", "node_modules"]
+  "include": [
+    "index.ts",
+    "routes",
+    "services",
+    "middleware",
+    "utils",
+    "database",
+    "seeds",
+    "migrations",
+    "scripts"
+  ],
+  "exclude": ["dist", "node_modules", "database/store.legacy.ts", "**/*.legacy.ts"]
 }

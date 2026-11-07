@@ -1,15 +1,11 @@
-import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-
-const requireFromFrontend = createRequire(
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "erp-interface-design", "package.json"),
-);
-const dotenvModule = requireFromFrontend("dotenv") as { config: () => void };
-dotenvModule.config();
-const bcryptModule = requireFromFrontend("bcryptjs") as typeof import("bcryptjs");
-
+import dotenv from "dotenv";
+import bcrypt from "bcryptjs";
 import { pool } from "../database/db.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 
 const DEV_PASSWORD = "TwinCakery123!";
 
@@ -35,9 +31,6 @@ const PERMS = [
   "content.view","content.create","content.edit",
   "quotations.view","quotations.create","quotations.accept","quotations.edit",
   "inquiries.view","inquiries.create","inquiries.edit","sales.analytics",
-  // E7 staff & remuneration (governing doc §21 + payslip.print per plan §6.2).
-  // All 12 land in role-admin via the admin grant loop below — salary stays
-  // Admin-only by default (§18.2); role-production gets staff.view only.
   "staff.view","staff.manage","staff.attendance",
   "remuneration.view","remuneration.create","remuneration.edit",
   "remuneration.approve","remuneration.process","remuneration.record_payment",
@@ -87,7 +80,7 @@ export async function seed(): Promise<void> {
     console.log("[seed] already seeded, skipping (users > 0).");
     return;
   }
-  const passwordHash = await bcryptModule.hash(DEV_PASSWORD, 10);
+  const passwordHash = await bcrypt.hash(DEV_PASSWORD, 10);
 
   await pool.query(
     `INSERT INTO roles (id, name, label, active) VALUES
@@ -125,16 +118,9 @@ export async function seed(): Promise<void> {
     );
     await pool.query(`INSERT INTO user_roles (id, user_id, role_id) VALUES ($1,$2,$3)`, [`ur-${id}`, id, roleId]);
   }
-  // Admin grants for every permission run inside the PERMS loop above (key-
-  // resolved). The old positional loop that lived here duplicated them and
-  // referenced `perm-${i+1}` ids that migrations 012/015/017 can displace on
-  // a fresh DB — an FK violation waiting to happen. Gone.
-  // Non-admin roles need their grants too — without them every required()
-  // route 403s for Production/Sales/CSR users (and a permission-aware nav
-  // would hide the whole workspace). Keys mirror migration 014.
   for (const [roleId, keys] of Object.entries(roleGrants)) {
     for (const key of keys) {
-      const perm = (await pool.query(`SELECT id FROM permissions WHERE key = $1`, [key])).rows[0];
+      const perm = (await pool.query(`SELECT id FROM permissions WHERE key = $1`, [key])).rows[0] as { id: string } | undefined;
       if (!perm) continue;
       await pool.query(
         `INSERT INTO role_permissions (id, role_id, permission_id) VALUES ($1,$2,$3)
@@ -143,7 +129,6 @@ export async function seed(): Promise<void> {
       );
     }
   }
-  // Dummy customers intentionally removed — production seed creates none.
   await pool.query(
     `INSERT INTO catalogue_categories (id, name, code, description, display_order) VALUES
       ('cat-celebration','Celebration cakes','CELEB','Cakes for celebrations',1),
@@ -202,7 +187,6 @@ export async function seed(): Promise<void> {
       ('tx-open-5','inv-eggs',90,'pcs','OPENING_BALANCE','Opening','usr-manager',18,'Opening position'),
       ('tx-open-6','inv-cream',8,'L','OPENING_BALANCE','Opening','usr-manager',650,'Opening position')`,
   );
-  // Dummy/sample orders intentionally removed — production seed creates no orders.
   await pool.query(
     `INSERT INTO expense_categories (id, name) VALUES ('exp-ing','Ingredients'),('exp-pack','Packaging'),('exp-util','Utilities')`,
   );
@@ -220,7 +204,6 @@ export async function seed(): Promise<void> {
     `INSERT INTO notifications (id, event_type_id, title, message, priority, entity_type, entity_id, created_by)
      VALUES ('notif-1','StockShortageDetected','3 ingredients are running low','Review stock before the next batch.','HIGH','inventory','inv-flour','usr-manager')`,
   );
-  // Dummy inquiry/quotation intentionally removed.
   await pool.query(
     `INSERT INTO blog_categories (id, name, slug, description, display_order, active) VALUES
       ('bcat-studio','Studio notes','studio-notes','Behind-the-counter notes from the kitchen',1,TRUE),
@@ -241,7 +224,7 @@ export async function seed(): Promise<void> {
        'Mini cakes are the perfect crowd-pleaser for birthdays, office treats and gifting. Pick a flavour, choose a quantity, and we will box them ready to share.',
        'Twin Cakery','PUBLISHED', now() - interval '20 days')`,
   );
-  const sitePasswordHash = await bcryptModule.hash(DEV_PASSWORD, 10);
+  const sitePasswordHash = await bcrypt.hash(DEV_PASSWORD, 10);
   await pool.query(
     `INSERT INTO website_users (id, name, email, phone, password_hash, role, status) VALUES
       ('wuser-1','Site Admin','admin@twincakery.com','0700 000 100',$1,'SITE_ADMIN','ACTIVE'),
@@ -252,7 +235,8 @@ export async function seed(): Promise<void> {
   console.log("[seed] done: users, customers, catalogue, inventory, 6 orders (UGX), finance, notifications, blog, website users.");
 }
 
-const invokedDirectly = process.argv[1] !== undefined && process.argv[1].endsWith("seed.ts");
+const invokedDirectly =
+  process.argv[1] !== undefined && /seed\.(ts|js)$/.test(process.argv[1]);
 if (invokedDirectly) {
   seed()
     .then(() => pool.end())
