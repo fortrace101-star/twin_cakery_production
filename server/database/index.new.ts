@@ -1,5 +1,5 @@
 import { query, withTransaction, type TxClient } from "./db.js";
-import { logger } from "../utils/logger.cjs";
+import { logger } from "../utils/logger.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

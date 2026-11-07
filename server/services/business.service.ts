@@ -154,6 +154,10 @@ export class BusinessService {
    * and the Customers & CRM module shows a sidebar badge until the follow-up is
    * documented (orders.followUpCompletedAt stamped via PATCH /orders/:id).
    */
+  alertFinance(_event: { type: string; orderId?: string; amount?: number }, _changedBy: string): void {
+    // Finance alert hook (notifications/audit handled by callers where needed).
+  }
+
   requestCustomerFollowUp(order: Order, changedBy: string): void {
     const customer = store.customers().find((c) => c.id === order.customerId);
     const name = customer?.name ?? order.orderNumber;

@@ -12,22 +12,12 @@
 // Requires the API on :4000 (npm run dev in server/). Exit code 0 = PASS.
 // The claim endpoint rate-limits to 5 attempts / 15 min — one run = one attempt.
 
-import { createRequire } from "node:module";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Same dotenv wiring as scripts/code-admin.ts: config comes from the repo root.
-const requireFromFrontend = createRequire(
-  path.resolve(__dirname, "..", "..", "erp-interface-design", "package.json"),
-);
-const dotenv = requireFromFrontend("dotenv");
-dotenv.config({ path: path.resolve(__dirname, "..", "..", ".env") });
-
-const reqPg = createRequire(path.resolve(__dirname, "..", "package.json"));
-const pg = reqPg("pg");
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 
 const API = process.env.API_BASE_URL || "http://localhost:4000/api/v1";

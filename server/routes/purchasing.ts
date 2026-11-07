@@ -84,7 +84,7 @@ router.patch("/suppliers/:id", required("suppliers.edit"), async (req, res) => {
   ];
   const updated = { ...supplier };
   for (const key of allowed) {
-    if (body[key] !== undefined) updated[key] = body[key];
+    if (body[key] !== undefined) (updated as any)[key] = body[key];
   }
   updated.updatedAt = new Date().toISOString();
   // Idempotent duplicate-safe create: if body carries businessName and it
@@ -96,7 +96,7 @@ router.patch("/suppliers/:id", required("suppliers.edit"), async (req, res) => {
     );
     if (match) {
       for (const key of allowed) {
-        if (body[key] !== undefined) match[key] = body[key];
+        if (body[key] !== undefined) (match as any)[key] = body[key];
       }
       match.updatedAt = updated.updatedAt;
       store.persist();
@@ -111,7 +111,7 @@ router.delete("/suppliers/:id", required("suppliers.archive"), async (req, res) 
   const id = String(req.params.id);
   const supplier = store.findSupplier(id);
   if (!supplier) throw new NotFoundError("Supplier not found");
-  const inUse = store.purchaseOrders().some((p) => p.supplierId === id) || store.poItems().some((p) => p.supplierId === id);
+  const inUse = store.purchaseOrders().some((p: any) => p.supplierId === id) || (store.db.poItems ?? []).some((p: any) => p.supplierId === id);
   if (inUse) return res.status(409).json({ error: "Supplier is referenced by existing purchase orders" });
   supplier.active = false;
   supplier.updatedAt = new Date().toISOString();

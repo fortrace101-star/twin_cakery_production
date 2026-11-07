@@ -11,19 +11,13 @@
 //
 // Requires the API on :4000 (npm run dev in server/). Exit code 0 = PASS.
 
-import { createRequire } from "node:module";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Same dotenv wiring as scripts/code-admin.ts: config comes from the repo root.
-const requireFromFrontend = createRequire(
-  path.resolve(__dirname, "..", "..", "erp-interface-design", "package.json"),
-);
-const dotenv = requireFromFrontend("dotenv");
-dotenv.config({ path: path.resolve(__dirname, "..", "..", ".env") });
+undefined
 
 const { default: pg } = await import("pg");
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });

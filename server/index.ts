@@ -1,4 +1,4 @@
-﻿import dotenv from "dotenv";
+import dotenv from "dotenv";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -16,21 +16,17 @@ import { AuthService } from "./services/auth.service.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Resolve .env robustly regardless of the cwd the process is launched from
-// (npm --prefix / VS Code / manual `tsx server/index.ts` all differ).
-// Precedence: explicit DOTENV_PATH > repo-root .env (../../.env from this file)
-// > cwd/.env.
-function resolveEnvPath(): string | undefined {
-  if (process.env.DOTENV_PATH) return process.env.DOTENV_PATH;
-  const rootEnv = path.resolve(__dirname, "..", ".env");
-  if (fs.existsSync(rootEnv)) return rootEnv;
-  return undefined; // fall back to dotenv default (cwd/.env)
+// Load environment variables from server/.env only (or real environment variables).
+// DOTENV_PATH may still be used to point at an explicit file (e.g. local overrides).
+if (process.env.DOTENV_PATH) {
+  dotenv.config({ path: process.env.DOTENV_PATH });
+} else {
+  const serverEnv = path.resolve(__dirname, ".env");
+  if (fs.existsSync(serverEnv)) dotenv.config({ path: serverEnv });
 }
-dotenv.config({ path: resolveEnvPath() });
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
-const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 // Database seeding is handled by `npm run db:seed` (see server/seeds/seed.ts).
 
@@ -179,15 +175,19 @@ app.get("/api/v1/events", (req: Request, res: Response) => {
 app.use("/api/v1", apiRouter);
 
 // â”€â”€ Serve static frontend (when built) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const distDir = path.resolve(__dirname, "..", "erp-interface-design", "dist");
-if (IS_PRODUCTION && fs.existsSync(distDir)) {
-  app.use(express.static(distDir));
+// ── Serve static frontend (optional) ─────────────────────────────
+// Serve a built frontend only when STATIC_DIR is set and the folder exists.
+// Default is API only. Keep SPA fallback and /api,/health exclusions.
+const staticDir = process.env.STATIC_DIR;
+if (staticDir && fs.existsSync(staticDir)) {
+  const resolvedStaticDir = path.resolve(staticDir);
+  app.use(express.static(resolvedStaticDir));
   // SPA fallback (version-proof): Express 5 rejects app.get("*") with a
   // PathError at boot, so use a plain middleware instead of a wildcard route.
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (req.method !== "GET") return next();
     if (req.path.startsWith("/api") || req.path.startsWith("/health")) return next();
-    res.sendFile(path.resolve(distDir, "index.html"));
+    res.sendFile(path.resolve(resolvedStaticDir, "index.html"));
   });
 }
 

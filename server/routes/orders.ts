@@ -1,5 +1,6 @@
 import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
+import { flush } from "../database/index.new.js";
 import { pool } from "../database/db.js";
 import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
@@ -273,7 +274,7 @@ router.patch("/:id", required("deliveries.update"), async (req, res) => {
 
   try {
     store.persist();
-    await store.flush?.();
+    await flush();
   } catch (err: any) {
     const msg = err?.message || "Failed to persist order";
     if (/connect|ECONN|timeout|database/i.test(msg)) return res.status(503).json({ error: "Database unavailable", detail: msg });
@@ -340,7 +341,7 @@ router.post("/:id/confirm", required("orders.confirm"), async (req, res) => {
       (order as any).station = "confirmed";
       (order as any).updatedAt = new Date().toISOString();
     }
-    try { store.persist(); await store.flush?.(); } catch { /* status already in PG */ }
+    try { store.persist(); await flush(); } catch { /* status already in PG */ }
     return res.json({ order: order || { id: orderId, status: "CONFIRMED" }, history, job, previousStatus });
   } catch (err: any) {
     if (err?.name === "NotFoundError" || err instanceof NotFoundError) throw err;
@@ -367,7 +368,7 @@ router.post("/:id/cancel", required("orders.cancel"), async (req, res) => {
     } catch { /* audit best-effort */ }
     const order = resolveOrderRef(orderId);
     if (order) { (order as any).status = "CANCELLED"; (order as any).station = "done"; }
-    try { store.persist(); await store.flush?.(); } catch { /* status already in PG */ }
+    try { store.persist(); await flush(); } catch { /* status already in PG */ }
     res.json({ order: order || { id: orderId, status: "CANCELLED" }, history });
   } catch (err: any) {
     if (err?.name === "NotFoundError" || err instanceof NotFoundError) throw err;

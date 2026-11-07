@@ -1,17 +1,23 @@
-import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-
-const requireFromFrontend = createRequire(
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "erp-interface-design", "package.json"),
-);
-const dotenvModule = requireFromFrontend("dotenv") as { config: (opts?: unknown) => void };
-dotenvModule.config();
 import fs from "node:fs";
-import { pool } from "./db.js";
-
+import dotenv from "dotenv";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Load server/.env BEFORE importing ./db.js (ESM imports are hoisted).
+// Respect a real env-provided DATABASE_URL, but fill it when missing/empty.
+const serverEnvPath = path.resolve(__dirname, "..", ".env");
+if (fs.existsSync(serverEnvPath)) {
+  const loaded = dotenv.config({ path: serverEnvPath, override: false });
+  if (!process.env.DATABASE_URL?.trim() && loaded.parsed?.DATABASE_URL?.trim()) {
+    process.env.DATABASE_URL = loaded.parsed.DATABASE_URL.trim();
+  }
+}
+
+const { pool } = await import("./db.js");
+
+// Source: server/database -> server/migrations. Compiled: dist/database -> dist/migrations.
 const MIGRATIONS_DIR = path.resolve(__dirname, "..", "migrations");
 
 async function ensureMigrationsTable(): Promise<void> {

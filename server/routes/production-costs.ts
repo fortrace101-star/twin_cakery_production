@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import { store } from "../database/store.js";
 import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
@@ -13,7 +13,7 @@ function parseNum(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-const required = (perm: string) => async (req, res, next) => {
+const required = (perm: string) => async (req: Request, res: Response, next: NextFunction) => {
   try {
     const session = await authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     await rbacService.requirePermission(session.userId, perm);
@@ -28,7 +28,7 @@ const required = (perm: string) => async (req, res, next) => {
 // ---- fixed cost categories (admin/management) ----
 
 router.get("/categories", required("production.view"), (_req, res) => {
-  res.json(store.productionFixedCostCategories().filter((c) => c.deletedAt === undefined));
+  res.json(store.productionFixedCostCategories().filter((c: any) => c.deletedAt === undefined));
 });
 
 router.get("/categories/:id", required("production.view"), async (req, res) => {

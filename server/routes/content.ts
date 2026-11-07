@@ -1,20 +1,11 @@
-import { Router, RequestHandler } from "express";
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
+import { Router } from "express";
+import bcrypt from "bcryptjs";
 import { store } from "../database/store.js";
 import { RbacService } from "../services/rbac.service.js";
 import { NotFoundError, ValidationError } from "../utils/errors.js";
 import { extractToken, AuthService } from "../services/auth.service.js";
 
-const rbacService = new RbacService()
-
-// Resolve bcryptjs from the frontend node_modules (reached via the server
-// junction), matching the pattern used by auth.service.ts and seeds/seed.ts.
-const requireFromFrontend = createRequire(
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "erp-interface-design", "package.json"),
-);
-const bcrypt = requireFromFrontend("bcryptjs") as typeof import("bcryptjs");
+const rbacService = new RbacService();
 
 /**
  * ERP "Site Management" content router (E2).

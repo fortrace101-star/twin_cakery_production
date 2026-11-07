@@ -1,51 +1,38 @@
-import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
-import { logger } from "../utils/logger.cjs";
+import dotenv from "dotenv";
+import pg from "pg";
+import { logger } from "../utils/logger.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// server/ lives outside the frontend package, so resolve runtime deps
-// (dotenv, pg) from the frontend's node_modules explicitly.
-const requireFromFrontend = createRequire(
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "erp-interface-design", "package.json"),
-);
-const dotenvModule = requireFromFrontend("dotenv") as { config: (opts?: any) => any };
-dotenvModule.config();
-
-// If the runtime was started from the server folder, also load that .env so
-// DATABASE_URL / APP_BASE_URL can live next to the server code.
-const serverEnvPath = path.resolve(__dirname, ".env");
+// Load environment variables from server/.env only (or real environment variables).
+const serverEnvPath = path.resolve(__dirname, "..", ".env");
 if (fs.existsSync(serverEnvPath)) {
-  dotenvModule.config({ path: serverEnvPath });
+  const loaded = dotenv.config({ path: serverEnvPath, override: false });
+  if (!process.env.DATABASE_URL?.trim() && loaded.parsed?.DATABASE_URL?.trim()) {
+    process.env.DATABASE_URL = loaded.parsed.DATABASE_URL.trim();
+  }
 }
 
-dotenvModule.config({ path: serverEnvPath });
-
-const pgModule = requireFromFrontend("pg") as typeof import("pg");
-const { Pool } = pgModule;
-
-if (!process.env.DATABASE_URL) {
-  logger.failure("db", "DATABASE_URL is not set — copy server/.env.example to server/.env and set it");
+if (!process.env.DATABASE_URL?.trim()) {
+  logger.failure(
+    "db",
+    "DATABASE_URL is not set — set it in server/.env (local) or as an environment variable (production).",
+  );
+  if (process.env.NODE_ENV === "production") {
+    process.exit(1);
+  }
+  throw new Error("DATABASE_URL is required. Set it in server/.env (see server/.env.example).");
 }
 
 const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  throw new Error("DATABASE_URL is required. Set it in server/.env (see server/.env.example).");
-}
-export const pool = new Pool({ connectionString });
+export const pool = new pg.Pool({ connectionString });
 
 pool.on("error", (err) => {
   logger.failure("db", `pool error: ${err.message}`);
 });
-
-// Intentionally unused: request logging lives in server/index.ts as a single
-// line per HTTP request; the pool stays silent.
-
-// SQL text is deliberately never logged: raw statements are noisy and can leak
-// schema/PII into console + log drains. Request logging lives in
-// server/index.ts as a single line per HTTP request; the pool stays silent.
 
 export async function query<T = Record<string, unknown>>(
   text: string,
@@ -81,5 +68,5 @@ export interface TxClient {
 }
 
 export function isDatabaseConfigured(): boolean {
-  return Boolean(process.env.DATABASE_URL || connectionString);
+  return Boolean(process.env.DATABASE_URL);
 }

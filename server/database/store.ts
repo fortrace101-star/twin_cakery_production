@@ -993,7 +993,7 @@ export class MemoryStore {
       "productsSupplied", "paymentTerms", "notes", "active",
     ];
     for (const key of allowed) {
-      if (patch[key] !== undefined) supplier[key] = patch[key];
+      if (patch[key] !== undefined) (supplier as any)[key] = patch[key];
     }
     supplier.updatedAt = new Date().toISOString();
     this.db.persist();
@@ -1237,10 +1237,6 @@ export class MemoryStore {
     this.db.productionFixedCostEntries.splice(index, 1);
     this.db.persist();
     return true;
-  }
-
-  supplierPriceHistory(): SupplierPriceHistory[] {
-    return this.db.supplierPriceHistory;
   }
 
   createPurchaseRequirement(input: Patch): PurchaseRequirement {
