@@ -8,7 +8,7 @@
  * the connection open (and a dead stream is noticed quickly).
  */
 const HEARTBEAT_MS = 3000;
-const clients = new Set();
+const clients = new Map();
 let heartbeat = null;
 let rev = 0;
 /**
@@ -52,12 +52,22 @@ export function resourcesFor(method, url) {
         return [];
     return RESOURCE_MAP[segment] ?? [segment];
 }
-/** Register an open SSE response; starts the heartbeat while anyone listens. */
-export function addSseClient(res) {
-    clients.add(res);
-    if (!heartbeat) {
+/** Register an open SSE response; starts the heartbeat while anyone listens.
+ *  `resources` is optional; omitting it subscribes to the route-prefix hint for
+ *  the request that opened the stream (best-effort).
+ */
+export function addSseClient(res, resources) {
+    const initialResources = resources ?? [];
+    // If nothing was explicitly subscribed, fall back to the route-prefix hint.
+    if (initialResources.length === 0) {
+        const hinted = resourcesFor("GET", res.req?.originalUrl ?? "");
+        for (const h of hinted)
+            initialResources.push(h);
+    }
+    clients.set(res, new Set(initialResources));
+    if (clients.size === 1 && !heartbeat) {
         heartbeat = setInterval(() => {
-            for (const client of clients) {
+            for (const client of clients.keys()) {
                 try {
                     client.write(": hb\n\n");
                 }
@@ -66,9 +76,18 @@ export function addSseClient(res) {
                 }
             }
         }, HEARTBEAT_MS);
-        // Never hold the process open just for heartbeats.
         heartbeat.unref?.();
     }
+}
+/** Add extra resource keys to an already-open SSE client (used for per-view tuning). */
+export function addSseClientResources(res, extra) {
+    const set = clients.get(res);
+    if (!set)
+        return;
+    if (Array.isArray(extra))
+        extra.forEach((k) => set.add(k));
+    else
+        set.add(extra);
 }
 export function removeSseClient(res) {
     clients.delete(res);
@@ -77,14 +96,30 @@ export function removeSseClient(res) {
         heartbeat = null;
     }
 }
-/** Broadcast one change event to every connected client. */
-export function broadcastChange(method, url) {
-    const resources = resourcesFor(method, url);
-    if (resources.length === 0 || clients.size === 0)
+/** Broadcast one change event to every connected client that cares about key.
+ *  - If `key` is supplied, only clients that subscribed to that resource key
+ *    receive the event (default, fine-grained).
+ *  - If `key` is omitted, all connected clients receive the event (legacy
+ *    behaviour used by routes that still publish via the old path).
+ */
+export function broadcastChange(method, url, key) {
+    // Gather every client whose subscribed resources include the affected key.
+    const matching = new Set();
+    const needle = key ?? "";
+    for (const [res, keys] of clients) {
+        if (needle === "") {
+            // Unscoped broadcast: send to everyone (legacy behaviour).
+            matching.add(res);
+        }
+        else if (keys.has(needle)) {
+            matching.add(res);
+        }
+    }
+    if (matching.size === 0)
         return;
     rev += 1;
-    const payload = `data: ${JSON.stringify({ method, path: url.split("?")[0], resources, rev, at: Date.now() })}\n\n`;
-    for (const client of clients) {
+    const payload = `data: ${JSON.stringify({ method, path: url.split("?")[0], resource: key ?? "*", rev, at: Date.now() })}\n\n`;
+    for (const client of matching) {
         try {
             client.write(payload);
         }
@@ -92,5 +127,11 @@ export function broadcastChange(method, url) {
             clients.delete(client);
         }
     }
+}
+export function sseClientCount() {
+    return clients.size;
+}
+export function sseClientFor(res) {
+    return clients.get(res);
 }
 //# sourceMappingURL=live-events.js.map

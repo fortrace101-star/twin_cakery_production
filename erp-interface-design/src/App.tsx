@@ -89,13 +89,13 @@ function GuestPage() {
     if (loading) return;
 
     // Not authed → decide the entry point by whether the workspace already
-    // has registered staff accounts ("history"). A fresh workspace with no
-    // accounts is a first-run visitor, so we land on /signup; otherwise /login.
+    // has registered staff accounts ("history"). A fresh workspace (no users)
+    // must bootstrap the first admin via /claim-admin; otherwise /login.
     if (!settledRef.current) {
       settledRef.current = true;
       void hasExistingUser().then((hasHistory) => {
         if (!user) {
-          navigate(hasHistory ? "/login" : "/signup", { replace: true });
+          navigate(hasHistory ? "/login" : "/claim-admin", { replace: true });
         }
       });
     }

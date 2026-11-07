@@ -3,6 +3,69 @@ import { logger } from "../utils/logger.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+// In-process set of resource keys whose cache rows have been touched since the
+// last flush(). Routes that mutate data mark the relevant keys here; the live
+// layer reads this set when deciding what to broadcast.
+export const resourceDirty = new Set();
+export const RESOURCE_KEYS = {
+    orders: "orders",
+    orderItems: "orderItems",
+    orderStatusHistory: "orderStatusHistory",
+    orderSnapshots: "orderSnapshots",
+    payments: "payments",
+    deliveries: "deliveries",
+    invoices: "invoices",
+    productionJobs: "productionJobs",
+    qualityChecks: "qualityChecks",
+    productionWastage: "productionWastage",
+    productionConsumption: "productionConsumption",
+    productionCosts: "productionCosts",
+    inventoryItems: "inventoryItems",
+    inventoryTransactions: "inventoryTransactions",
+    stockReservations: "stockReservations",
+    suppliers: "suppliers",
+    purchaseOrders: "purchaseOrders",
+    purchaseOrderItems: "purchaseOrderItems",
+    purchaseRequirements: "purchaseRequirements",
+    goodsReceipts: "goodsReceipts",
+    goodsReceiptItems: "goodsReceiptItems",
+    supplierPriceHistory: "supplierPriceHistory",
+    customers: "customers",
+    customerInteractions: "customerInteractions",
+    inquiries: "inquiries",
+    quotations: "quotations",
+    quotationItems: "quotationItems",
+    notifications: "notifications",
+    notificationRecipients: "notificationRecipients",
+    notificationPreferences: "notificationPreferences",
+    notificationTemplates: "notificationTemplates",
+    auditLogs: "auditLogs",
+    users: "users",
+    roles: "roles",
+    permissions: "permissions",
+    userRoles: "userRoles",
+    rolePermissions: "rolePermissions",
+    customerFeedback: "customerFeedback",
+    orderProposals: "orderProposals",
+    orderProposalItems: "orderProposalItems",
+    staff: "staff",
+    staffAttendance: "staffAttendance",
+    salaryProfiles: "salaryProfiles",
+    remunerationPeriods: "remunerationPeriods",
+    remunerationItems: "remunerationItems",
+    staffAdvances: "staffAdvances",
+    remunerationPayments: "remunerationPayments",
+    payslips: "payslips",
+    customerEvents: "customerEvents",
+    customerEventReminders: "customerEventReminders",
+    expenses: "expenses",
+    expenseCategories: "expenseCategories",
+    catalogue: "catalogue",
+    blogCategories: "blogCategories",
+    blogPosts: "blogPosts",
+    websiteUsers: "websiteUsers",
+    followups: "followups",
+};
 // ---------------------------------------------------------------------------
 // helpers (semantics identical to the legacy JSON store)
 // ---------------------------------------------------------------------------
@@ -59,6 +122,34 @@ let saveChain = Promise.resolve();
 let pendingPersistError = null;
 let authoritativeLoad = false; // true only when loaded from Postgres schema/data
 const ALLOW_FILE_SNAPSHOT = process.env.ERP_ALLOW_FILE_SNAPSHOT === "1";
+const maxChangeLogEntries = 1000;
+let _changeLog = [];
+function recordChange(key) {
+    if (_changeLog.length >= maxChangeLogEntries) {
+        _changeLog.shift();
+    }
+    _changeLog.push({ resource: key, at: Date.now() });
+}
+/** Return the recent change log consumed since `last` (or all if omitted).
+ *  The log is snapshotted and truncated on each call so repeated reads of the
+ *  same cursor do not re-emit the same entries. */
+export function consumeChangeLogSince(last) {
+    let entries;
+    if (last === undefined) {
+        entries = _changeLog.slice();
+        _changeLog.length = 0;
+    }
+    else {
+        const cutoff = _changeLog.findIndex((e) => e.at > last);
+        if (cutoff < 0) {
+            entries = [];
+        }
+        else {
+            entries = _changeLog.splice(cutoff);
+        }
+    }
+    return entries;
+}
 /** Await every queued write-back; throw if one failed while waiting. */
 export async function flush() {
     await saveChain;
@@ -145,6 +236,18 @@ export function createCache() {
                 logger.failure("store", `persist failed: ${pendingPersistError.message}`);
             });
             return saveChain;
+        },
+        /** Resource keys touched by mutations in this process since boot.
+         *  Used by the live-events layer to advertise which caches are dirty
+         *  so clients can refresh only the views that matter.
+         */
+        _dirtyKeys: () => Array.from(dirtyKeysSnapshot()),
+        _touchResource: (key) => {
+            resourceDirty.add(key);
+            recordChange(key);
+        },
+        _clearDirtyResource: (key) => {
+            resourceDirty.delete(key);
         },
     };
 }
@@ -684,6 +787,23 @@ export function getDb() {
 export function resetStore() {
     currentDb = createCache();
     loadedTables.clear();
+    resourceDirty.clear();
+    _changeLog.length = 0;
+}
+export function dirtyKeys() {
+    return resourceDirty;
+}
+export function clearDirtyResource(key) {
+    resourceDirty.delete(key);
+}
+export function dirtyKeysSnapshot() {
+    return new Set(resourceDirty);
+}
+export function markResourceDirty(...keys) {
+    for (const k of keys) {
+        resourceDirty.add(k);
+        recordChange(k);
+    }
 }
 export const ready = loadCache();
 //# sourceMappingURL=index.new.js.map

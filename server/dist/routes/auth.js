@@ -121,6 +121,11 @@ router.post("/claim-admin", claimRateLimit, async (req, res) => {
             user.createdAt || now,
             user.updatedAt || now,
         ]);
+        // Ensure the admin role row exists (empty/migrated DB may have no roles seeded;
+        // guarded migrations skipped role-admin grants when the role was absent).
+        await pool.query(`INSERT INTO roles (id, name, label, active, granted_at, created_at, updated_at)
+       VALUES ($1,$2,$3,TRUE,$4,$4,$4)
+       ON CONFLICT (id) DO NOTHING`, ["role-admin", "Admin / Proprietor", "Admin / Proprietor", now]);
         await pool.query(`INSERT INTO user_roles (id, user_id, role_id, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5)
        ON CONFLICT DO NOTHING`, [`ur-${user.id}`, user.id, "role-admin", now, now]);

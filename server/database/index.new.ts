@@ -3,6 +3,77 @@ import { logger } from "../utils/logger.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+// In-process set of resource keys whose cache rows have been touched since the
+// last flush(). Routes that mutate data mark the relevant keys here; the live
+// layer reads this set when deciding what to broadcast.
+export const resourceDirty = new Set<string>();
+
+/** Stable, serializable keys used in live broadcasts and client subscriptions.
+ *  Kept simple (table/entity names) so both server and client can agree on them
+ *  without importing nested DB shapes.
+ */
+export type ResourceKey = string;
+
+export const RESOURCE_KEYS = {
+  orders: "orders" as ResourceKey,
+  orderItems: "orderItems" as ResourceKey,
+  orderStatusHistory: "orderStatusHistory" as ResourceKey,
+  orderSnapshots: "orderSnapshots" as ResourceKey,
+  payments: "payments" as ResourceKey,
+  deliveries: "deliveries" as ResourceKey,
+  invoices: "invoices" as ResourceKey,
+  productionJobs: "productionJobs" as ResourceKey,
+  qualityChecks: "qualityChecks" as ResourceKey,
+  productionWastage: "productionWastage" as ResourceKey,
+  productionConsumption: "productionConsumption" as ResourceKey,
+  productionCosts: "productionCosts" as ResourceKey,
+  inventoryItems: "inventoryItems" as ResourceKey,
+  inventoryTransactions: "inventoryTransactions" as ResourceKey,
+  stockReservations: "stockReservations" as ResourceKey,
+  suppliers: "suppliers" as ResourceKey,
+  purchaseOrders: "purchaseOrders" as ResourceKey,
+  purchaseOrderItems: "purchaseOrderItems" as ResourceKey,
+  purchaseRequirements: "purchaseRequirements" as ResourceKey,
+  goodsReceipts: "goodsReceipts" as ResourceKey,
+  goodsReceiptItems: "goodsReceiptItems" as ResourceKey,
+  supplierPriceHistory: "supplierPriceHistory" as ResourceKey,
+  customers: "customers" as ResourceKey,
+  customerInteractions: "customerInteractions" as ResourceKey,
+  inquiries: "inquiries" as ResourceKey,
+  quotations: "quotations" as ResourceKey,
+  quotationItems: "quotationItems" as ResourceKey,
+  notifications: "notifications" as ResourceKey,
+  notificationRecipients: "notificationRecipients" as ResourceKey,
+  notificationPreferences: "notificationPreferences" as ResourceKey,
+  notificationTemplates: "notificationTemplates" as ResourceKey,
+  auditLogs: "auditLogs" as ResourceKey,
+  users: "users" as ResourceKey,
+  roles: "roles" as ResourceKey,
+  permissions: "permissions" as ResourceKey,
+  userRoles: "userRoles" as ResourceKey,
+  rolePermissions: "rolePermissions" as ResourceKey,
+  customerFeedback: "customerFeedback" as ResourceKey,
+  orderProposals: "orderProposals" as ResourceKey,
+  orderProposalItems: "orderProposalItems" as ResourceKey,
+  staff: "staff" as ResourceKey,
+  staffAttendance: "staffAttendance" as ResourceKey,
+  salaryProfiles: "salaryProfiles" as ResourceKey,
+  remunerationPeriods: "remunerationPeriods" as ResourceKey,
+  remunerationItems: "remunerationItems" as ResourceKey,
+  staffAdvances: "staffAdvances" as ResourceKey,
+  remunerationPayments: "remunerationPayments" as ResourceKey,
+  payslips: "payslips" as ResourceKey,
+  customerEvents: "customerEvents" as ResourceKey,
+  customerEventReminders: "customerEventReminders" as ResourceKey,
+  expenses: "expenses" as ResourceKey,
+  expenseCategories: "expenseCategories" as ResourceKey,
+  catalogue: "catalogue" as ResourceKey,
+  blogCategories: "blogCategories" as ResourceKey,
+  blogPosts: "blogPosts" as ResourceKey,
+  websiteUsers: "websiteUsers" as ResourceKey,
+  followups: "followups" as ResourceKey,
+} as const;
 import type {
   AuditLog,
   BlogCategory,
@@ -194,7 +265,18 @@ export interface DbCache {
   blogPosts: BlogPost[];
   websiteUsers: WebsiteUser[];
   persist: () => Promise<void>;
+  _dirtyKeys: () => string[];
+  _touchResource: (key: string) => void;
+  _clearDirtyResource: (key: string) => void;
 }
+
+export interface DbCacheWithDirtyKeys extends DbCache {
+  _dirtyKeys: () => string[];
+  _touchResource: (key: string) => void;
+  _clearDirtyResource: (key: string) => void;
+}
+
+export type DbCacheForLive = DbCacheWithDirtyKeys;
 
 // Serialises write-backs so concurrent persist() calls cannot interleave.
 // Postgres is mandatory: failures are recorded and flush()/awaited persist()
@@ -203,6 +285,50 @@ let saveChain: Promise<void> = Promise.resolve();
 let pendingPersistError: Error | null = null;
 let authoritativeLoad = false; // true only when loaded from Postgres schema/data
 const ALLOW_FILE_SNAPSHOT = process.env.ERP_ALLOW_FILE_SNAPSHOT === "1";
+
+/** In-process change log that the write-back layer can replay after a crash
+ * boot so clients can be told which logical resources changed even if the
+ * in-memory cache still needs to be re-loaded from Postgres. This is dev-only:
+ * production servers do not replay this log, and the buffer is bounded/rotated
+ * so unbounded growth does not happen (and it is not advertised to clients).
+ *
+ * Each entry is small (resource key + when), never serialized/DTO payloads, so
+ * the overhead is negligible compared with the current full-cache persisted
+ * write-back path.
+ */
+export interface CacheChange {
+  resource: string;
+  at: number;
+}
+
+const maxChangeLogEntries = 1000;
+let _changeLog: CacheChange[] = [];
+
+function recordChange(key: string): void {
+  if (_changeLog.length >= maxChangeLogEntries) {
+    _changeLog.shift();
+  }
+  _changeLog.push({ resource: key, at: Date.now() });
+}
+
+/** Return the recent change log consumed since `last` (or all if omitted).
+ *  The log is snapshotted and truncated on each call so repeated reads of the
+ *  same cursor do not re-emit the same entries. */
+export function consumeChangeLogSince(last?: number): CacheChange[] {
+  let entries: CacheChange[];
+  if (last === undefined) {
+    entries = _changeLog.slice();
+    _changeLog.length = 0;
+  } else {
+    const cutoff = _changeLog.findIndex((e) => e.at > last);
+    if (cutoff < 0) {
+      entries = [];
+    } else {
+      entries = _changeLog.splice(cutoff);
+    }
+  }
+  return entries;
+}
 
 /** Await every queued write-back; throw if one failed while waiting. */
 export async function flush(): Promise<void> {
@@ -286,6 +412,18 @@ export function createCache(): DbCache {
           logger.failure("store", `persist failed: ${pendingPersistError.message}`);
         });
       return saveChain;
+    },
+    /** Resource keys touched by mutations in this process since boot.
+     *  Used by the live-events layer to advertise which caches are dirty
+     *  so clients can refresh only the views that matter.
+     */
+    _dirtyKeys: () => Array.from(dirtyKeysSnapshot()),
+    _touchResource: (key: string) => {
+      resourceDirty.add(key);
+      recordChange(key);
+    },
+    _clearDirtyResource: (key: string) => {
+      resourceDirty.delete(key);
     },
   };
 }
@@ -844,6 +982,25 @@ export function getDb(): DbCache {
 export function resetStore(): void {
   currentDb = createCache();
   loadedTables.clear();
+  resourceDirty.clear();
+  _changeLog.length = 0;
 }
 
+export function dirtyKeys(): ReadonlySet<string> {
+  return resourceDirty;
+}
+
+export function clearDirtyResource(key: string): void {
+  resourceDirty.delete(key);
+}
+
+export function dirtyKeysSnapshot(): ReadonlySet<string> {
+  return new Set(resourceDirty);
+}
+export function markResourceDirty(...keys: string[]): void {
+  for (const k of keys) {
+    resourceDirty.add(k);
+    recordChange(k);
+  }
+}
 export const ready: Promise<void> = loadCache();

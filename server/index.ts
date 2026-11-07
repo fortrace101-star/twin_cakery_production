@@ -8,10 +8,11 @@ import { apiRouter } from "./routes/api.js";
 import { RbacService } from "./services/rbac.service.js";
 import { businessService } from "./services/business.service.js";
 const rbacService = new RbacService(); // singleton used by index.ts itself; route modules declare their own
-import { ready, flush } from "./database/index.new.js";
+import { ready, flush, dirtyKeysSnapshot, clearDirtyResource, resourceDirty, markResourceDirty } from "./database/index.new.js";
 import { logger } from "./utils/logger.js";
-import { addSseClient, removeSseClient, broadcastChange } from "./services/live-events.js";
+import { addSseClient, removeSseClient, broadcastChange, resourcesFor, type ResourceKey } from "./services/live-events.js";
 import { AuthService } from "./services/auth.service.js";
+import { RESOURCE_KEYS as DBResKeys } from "./database/index.new.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,8 +22,19 @@ const __dirname = path.dirname(__filename);
 if (process.env.DOTENV_PATH) {
   dotenv.config({ path: process.env.DOTENV_PATH });
 } else {
-  const serverEnv = path.resolve(__dirname, ".env");
-  if (fs.existsSync(serverEnv)) dotenv.config({ path: serverEnv });
+  // Works from source (server/) and compiled output (server/dist/).
+  for (const candidate of [
+    path.resolve(__dirname, ".env"),
+    path.resolve(__dirname, "..", ".env"),
+    path.resolve(process.cwd(), ".env"),
+  ]) {
+    if (!fs.existsSync(candidate)) continue;
+    const loaded = dotenv.config({ path: candidate, override: false });
+    if (!process.env.DATABASE_URL?.trim() && loaded.parsed?.DATABASE_URL?.trim()) {
+      process.env.DATABASE_URL = loaded.parsed.DATABASE_URL.trim();
+    }
+    if (process.env.DATABASE_URL?.trim()) break;
+  }
 }
 
 const app = express();
@@ -87,22 +99,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // write-back. Hold every JSON response until that write-back has committed so
 // a 2xx means "persisted" (and a failed persist surfaces as a 500 instead of
 // silently diverging from the database).
-app.use((req, res, next) => {
-  const originalJson = res.json.bind(res);
-  res.json = ((body: unknown) => {
-    void flush()
-      .then(() => {
-        if (!res.headersSent) originalJson(body);
-      })
-      .catch((err: unknown) => {
-        logger.failure("server", `DURABILITY GATE FLUSH ERROR: ${String(err)}`);
-        logger.failure("server", "write-back failed, responding 500");
-        if (!res.headersSent) res.status(500).json({ error: "Failed to persist changes" });
-      });
-    return res;
-  }) as typeof res.json;
-  next();
-});
+
 
 // â”€â”€ Durability gate + live publish â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Routes mutate the in-memory cache synchronously and queue a Postgres
@@ -113,9 +110,26 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
   const originalJson = res.json.bind(res);
   res.json = ((body: unknown) => {
+    // Flush the write-back, then publish a resource-level change event based on
+    // what this request actually dirtied in the in-memory cache. Indices that
+    // regenerate on read (e.g. physicalStock) are represented by their source
+    // table key, not by a transient computed key.
     void flush()
       .then(() => {
-        if (res.statusCode < 300 && req.method !== "GET") broadcastChange(req.method, req.url);
+        if (res.statusCode < 300 && req.method !== "GET") {
+          const routeKeys = (req as any).__liveResources as ResourceKey[] | undefined;
+          const merged = routeKeys ? new Set<string>([...dirtyKeysSnapshot(), ...routeKeys]) : Array.from(dirtyKeysSnapshot()) as string[];
+          // DBResKeys is a const object keyed by resource names; index it as any for the lookup below.
+          for (const k of merged) {
+            try {
+              // Prefer the canonical DB resource constant mapping, falling back
+              // to the raw dirty key string when no explicit mapping exists.
+              const mapped = (DBResKeys as Record<string, ResourceKey>)[k] ? [(DBResKeys as Record<string, ResourceKey>)[k]!] : [k];
+              for (const m of mapped) broadcastChange(req.method, req.url, m);
+            } catch {}
+          }
+          for (const k of merged) clearDirtyResource(k);
+        }
         if (!res.headersSent) originalJson(body);
       })
       .catch((err: unknown) => {
@@ -127,6 +141,11 @@ app.use((req, res, next) => {
   }) as typeof res.json;
   next();
 });
+
+
+
+
+
 
 // â”€â”€ Health â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get("/health", (req, res) => {

@@ -13,10 +13,12 @@ INSERT INTO role_permissions (id, role_id, permission_id)
 SELECT 'rp-admin-' || p.id, 'role-admin', p.id
 FROM permissions p
 WHERE p.key = 'production.record_consumption'
+  AND EXISTS (SELECT 1 FROM roles WHERE id = 'role-admin')
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 INSERT INTO role_permissions (id, role_id, permission_id)
 SELECT 'rp-production-' || p.id, 'role-production', p.id
 FROM permissions p
 WHERE p.key = 'production.record_consumption'
+  AND EXISTS (SELECT 1 FROM roles WHERE id = 'role-production')
 ON CONFLICT (role_id, permission_id) DO NOTHING;

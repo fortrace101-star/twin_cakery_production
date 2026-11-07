@@ -112,8 +112,10 @@ router.get("/", required("orders.view"), (req, res) => {
     let list = orders;
     if (customerId)
         list = list.filter((o) => o.customerId === customerId);
-    if (status)
-        list = list.filter((o) => o.status === status);
+    if (status) {
+        const statuses = String(status).split(",").map((s) => s.trim()).filter(Boolean);
+        list = statuses.length > 1 ? list.filter((o) => statuses.includes(o.status)) : list.filter((o) => o.status === status);
+    }
     // §33 — opt-in `?page=&pageSize=` envelope; no params → plain array (unchanged).
     res.json(paginate(list, req.query, {
         sortable: ["createdAt", "requiredBy", "total", "status"],

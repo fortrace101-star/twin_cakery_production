@@ -18,6 +18,7 @@ WHERE p.key IN (
   'deliveries.view','deliveries.create','deliveries.dispatch','deliveries.complete',
   'orders.view','orders.confirm','customers.view','catalogue.view'
 )
+  AND EXISTS (SELECT 1 FROM roles WHERE id = 'role-production')
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 -- Sales Manager: orders/quotes/inquiries + analytics + payments + tracking.
@@ -32,6 +33,7 @@ WHERE p.key IN (
   'sales.analytics','payments.view','payments.record',
   'deliveries.view','catalogue.view'
 )
+  AND EXISTS (SELECT 1 FROM roles WHERE id = 'role-sales')
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 -- CSR: inbound support — customers, inquiries, interactions, feedback.
@@ -42,4 +44,5 @@ WHERE p.key IN (
   'customers.view','customers.create','customers.interact',
   'feedback.view','feedback.create','quotations.view','catalogue.view'
 )
+  AND EXISTS (SELECT 1 FROM roles WHERE id = 'role-csr')
 ON CONFLICT (role_id, permission_id) DO NOTHING;
