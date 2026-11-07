@@ -19,4 +19,5 @@ WHERE p.key IN (
   'finance.reopen_period','finance.post_manual','finance.view_margins','finance.manage_invoices',
   'finance.reconcile','finance.approve_payment'
 )
+  AND EXISTS (SELECT 1 FROM roles WHERE id = 'role-admin')
 ON CONFLICT (role_id, permission_id) DO NOTHING;

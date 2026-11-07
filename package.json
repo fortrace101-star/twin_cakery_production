@@ -14,5 +14,8 @@
     "test": "npm --prefix erp-interface-design run test",
     "lint": "npm --prefix erp-interface-design run lint",
     "format": "npm --prefix erp-interface-design run format"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
   }
 }

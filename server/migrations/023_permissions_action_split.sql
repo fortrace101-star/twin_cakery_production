@@ -45,6 +45,7 @@ WHERE p.key IN (
   'customers.view_all',
   'production.view_all'
 )
+  AND EXISTS (SELECT 1 FROM roles WHERE id = 'role-admin')
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 -- Matching grant for role-production
@@ -53,6 +54,7 @@ SELECT 'rp-023-prod-' || p.id, 'role-production', p.id FROM permissions p
 WHERE p.key IN (
   'deliveries.update', 'inventory.view_costs', 'production.view_all'
 )
+  AND EXISTS (SELECT 1 FROM roles WHERE id = 'role-production')
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 -- Matching grant for role-sales
@@ -61,10 +63,12 @@ SELECT 'rp-023-sales-' || p.id, 'role-sales', p.id FROM permissions p
 WHERE p.key IN (
   'quotations.send', 'analytics.operations', 'analytics.customers'
 )
+  AND EXISTS (SELECT 1 FROM roles WHERE id = 'role-sales')
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 -- Matching grant for role-csr
 INSERT INTO role_permissions (id, role_id, permission_id)
 SELECT 'rp-023-csr-' || p.id, 'role-csr', p.id FROM permissions p
 WHERE p.key IN ('deliveries.update')
+  AND EXISTS (SELECT 1 FROM roles WHERE id = 'role-csr')
 ON CONFLICT (role_id, permission_id) DO NOTHING;

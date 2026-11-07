@@ -8,9 +8,10 @@ import { apiRouter } from "./routes/api.js";
 import { RbacService } from "./services/rbac.service.js";
 import { businessService } from "./services/business.service.js";
 const rbacService = new RbacService(); // singleton used by index.ts itself; route modules declare their own
-import { ready, flush } from "./database/index.new.js";
+import { ready, flush, dirtyKeysSnapshot, clearDirtyResource } from "./database/index.new.js";
 import { logger } from "./utils/logger.js";
 import { addSseClient, removeSseClient, broadcastChange } from "./services/live-events.js";
+import { RESOURCE_KEYS as DBResKeys } from "./database/index.new.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 // Load environment variables from server/.env only (or real environment variables).
@@ -19,9 +20,21 @@ if (process.env.DOTENV_PATH) {
     dotenv.config({ path: process.env.DOTENV_PATH });
 }
 else {
-    const serverEnv = path.resolve(__dirname, ".env");
-    if (fs.existsSync(serverEnv))
-        dotenv.config({ path: serverEnv });
+    // Works from source (server/) and compiled output (server/dist/).
+    for (const candidate of [
+        path.resolve(__dirname, ".env"),
+        path.resolve(__dirname, "..", ".env"),
+        path.resolve(process.cwd(), ".env"),
+    ]) {
+        if (!fs.existsSync(candidate))
+            continue;
+        const loaded = dotenv.config({ path: candidate, override: false });
+        if (!process.env.DATABASE_URL?.trim() && loaded.parsed?.DATABASE_URL?.trim()) {
+            process.env.DATABASE_URL = loaded.parsed.DATABASE_URL.trim();
+        }
+        if (process.env.DATABASE_URL?.trim())
+            break;
+    }
 }
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -78,24 +91,6 @@ app.use((req, res, next) => {
 // write-back. Hold every JSON response until that write-back has committed so
 // a 2xx means "persisted" (and a failed persist surfaces as a 500 instead of
 // silently diverging from the database).
-app.use((req, res, next) => {
-    const originalJson = res.json.bind(res);
-    res.json = ((body) => {
-        void flush()
-            .then(() => {
-            if (!res.headersSent)
-                originalJson(body);
-        })
-            .catch((err) => {
-            logger.failure("server", `DURABILITY GATE FLUSH ERROR: ${String(err)}`);
-            logger.failure("server", "write-back failed, responding 500");
-            if (!res.headersSent)
-                res.status(500).json({ error: "Failed to persist changes" });
-        });
-        return res;
-    });
-    next();
-});
 // â”€â”€ Durability gate + live publish â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Routes mutate the in-memory cache synchronously and queue a Postgres
 // write-back (server/services/live-events.ts). Hold every JSON response until
@@ -105,10 +100,29 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
     const originalJson = res.json.bind(res);
     res.json = ((body) => {
+        // Flush the write-back, then publish a resource-level change event based on
+        // what this request actually dirtied in the in-memory cache. Indices that
+        // regenerate on read (e.g. physicalStock) are represented by their source
+        // table key, not by a transient computed key.
         void flush()
             .then(() => {
-            if (res.statusCode < 300 && req.method !== "GET")
-                broadcastChange(req.method, req.url);
+            if (res.statusCode < 300 && req.method !== "GET") {
+                const routeKeys = req.__liveResources;
+                const merged = routeKeys ? new Set([...dirtyKeysSnapshot(), ...routeKeys]) : Array.from(dirtyKeysSnapshot());
+                // DBResKeys is a const object keyed by resource names; index it as any for the lookup below.
+                for (const k of merged) {
+                    try {
+                        // Prefer the canonical DB resource constant mapping, falling back
+                        // to the raw dirty key string when no explicit mapping exists.
+                        const mapped = DBResKeys[k] ? [DBResKeys[k]] : [k];
+                        for (const m of mapped)
+                            broadcastChange(req.method, req.url, m);
+                    }
+                    catch { }
+                }
+                for (const k of merged)
+                    clearDirtyResource(k);
+            }
             if (!res.headersSent)
                 originalJson(body);
         })

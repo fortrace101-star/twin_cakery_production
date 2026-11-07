@@ -28,24 +28,20 @@ router.get("/jobs", required("production.view"), async (req, res) => {
     // Self-healing board: any pipeline order without a job gets one right here,
     // so an order already reading "Confirmed" / "In production" can never sit on
     // an empty board (backstop for data stranded by pre-fix writes).
-    businessService.reconcileProductionJobs("system");
+    const created = businessService.reconcileProductionJobs("system");
     try {
-        const allJobs = store.productionJobs();
-        for (const job of allJobs) {
-            const st = String(job.status || "").toUpperCase();
-            if (st === "READY_FOR_DELIVERY" || st === "COMPLETED") {
-                try {
-                    businessService.advanceOrderToReadyForDelivery(job, "system");
-                }
-                catch { }
+        // Order advancement is handled at mutation time (start/complete/quality). Avoid
+        // scanning all jobs on every board read/poll to keep response times fast.
+        // Avoid a full DB write-back+flush on every read; persist when reconcile
+        // actually created jobs (it also persists internally), not on each poll.
+        if (created > 0) {
+            try {
+                store.persist();
+                await flush();
             }
-        }
-        try {
-            store.persist();
-            await flush();
-        }
-        catch (err) {
-            return res.status(503).json({ error: "Database unavailable: " + (err?.message || "persist failed") });
+            catch (err) {
+                return res.status(503).json({ error: "Database unavailable: " + (err?.message || "persist failed") });
+            }
         }
     }
     catch { }

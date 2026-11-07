@@ -9,6 +9,7 @@
  *   sample data instead of crashing.
  */
 
+import { useEffect } from "react";
 export const API_BASE = (import.meta.env?.["VITE_API_URL"] as string | undefined) ?? "/api/v1";
 const TOKEN_KEY = "twin_cakery_token";
 
@@ -1008,6 +1009,98 @@ export interface ServerProductionConsumption {
   notes: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/* ── Production board cache (5s tick + SSE live push) ────────────────────── */
+
+/** Client-side polling interval for the production board cache (ms). */
+export const PRODUCTION_BOARD_TICK_MS = 5000;
+
+/** Fetch jobs + affected orders in a single parallel request. */
+export async function pollProductionBoard(): Promise<{ jobs: ServerProductionJob[]; orders: ServerOrder[] }> {
+  const [jobs, orders] = await Promise.all([
+    listProductionJobs(),
+    listOrders(),
+  ]);
+  return { jobs: jobs || [], orders: orders || [] };
+}
+
+interface BoardPollHandle {
+  stop: () => void;
+}
+
+let _boardPollId: ReturnType<typeof setTimeout> | null = null;
+
+/** Start the 5s polling tick for the production board, guarded by an in-flight flag.
+ *  Returns { stop } to tear the interval down. */
+export function startProductionBoardPolling(onRefresh: (jobs: ServerProductionJob[], orders: ServerOrder[]) => void): BoardPollHandle {
+  // Initial tick is short so the first board population lands quickly; then tick every PRODUCTION_BOARD_TICK_MS.
+  const tick = (): void => {
+    if (_boardPollId !== null) return;
+    _boardPollId = setTimeout(async () => {
+      _boardPollId = null;
+      try {
+        const { jobs, orders } = await pollProductionBoard();
+        onRefresh(jobs, orders);
+      } catch {
+        // Poll failure must not freeze the board; the SSE live push still drives updates.
+      }
+    }, 350);
+  };
+
+  const id = setInterval(tick, PRODUCTION_BOARD_TICK_MS);
+  // Ensure an immediate first tick before the loop kicks in.
+  tick();
+
+  return {
+    stop: () => clearInterval(id),
+  };
+}
+
+interface CacheState {
+  jobs: ServerProductionJob[];
+  orders: ServerOrder[];
+}
+
+interface BoardCache {
+  state: CacheState;
+  refresh: (jobs: ServerProductionJob[], orders: ServerOrder[]) => void;
+}
+
+let _boardCache: BoardCache | null = null;
+
+/** Load the production board cache with initial data. */
+export function loadProductionBoardCache(jobs: ServerProductionJob[], orders: ServerOrder[]): BoardCache {
+  const state: CacheState = { jobs: jobs || [], orders: orders || [] };
+  const refresh = (js: ServerProductionJob[], os: ServerOrder[]) => {
+    state.jobs = js || [];
+    state.orders = os || [];
+  };
+  _boardCache = { state, refresh };
+  return _boardCache;
+}
+
+/** Return the shared production board cache, creating it if needed. */
+export function getProductionBoardCache(): BoardCache {
+  if (!_boardCache) {
+    throw new Error('Production board cache not initialised; call loadProductionBoardCache first.');
+  }
+  return _boardCache;
+}
+
+/* ── React hook: mount the production board poll per view ────────────────── */
+
+export function useProductionBoardCache(refreshBoard: (jobs: ServerProductionJob[], orders: ServerOrder[]) => void): void {
+  useEffect(() => {
+    // Initialise the shared cache, then start the polling tick.
+    const { state, refresh } = loadProductionBoardCache([], []);
+    refreshBoard(state.jobs, state.orders);
+    const handle = startProductionBoardPolling(refresh);
+    return () => {
+      handle.stop();
+      _boardCache = null;
+    };
+  }, [refreshBoard]);
 }
 
 /* ── E3: Inventory ledger + purchasing receive ───────────────────────────── */

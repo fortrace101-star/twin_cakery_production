@@ -6,12 +6,21 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 // Load server/.env BEFORE importing ./db.js (ESM imports are hoisted).
 // Respect a real env-provided DATABASE_URL, but fill it when missing/empty.
-const serverEnvPath = path.resolve(__dirname, "..", ".env");
-if (fs.existsSync(serverEnvPath)) {
-    const loaded = dotenv.config({ path: serverEnvPath, override: false });
+// Try multiple locations so it works from source (server/database/*),
+// compiled output (server/dist/database/*), and when cwd is server/.
+for (const candidate of [
+    path.resolve(__dirname, "..", ".env"),
+    path.resolve(__dirname, "../..", ".env"),
+    path.resolve(process.cwd(), ".env"),
+]) {
+    if (!fs.existsSync(candidate))
+        continue;
+    const loaded = dotenv.config({ path: candidate, override: false });
     if (!process.env.DATABASE_URL?.trim() && loaded.parsed?.DATABASE_URL?.trim()) {
         process.env.DATABASE_URL = loaded.parsed.DATABASE_URL.trim();
     }
+    if (process.env.DATABASE_URL?.trim())
+        break;
 }
 const { pool } = await import("./db.js");
 // Source: server/database -> server/migrations. Compiled: dist/database -> dist/migrations.

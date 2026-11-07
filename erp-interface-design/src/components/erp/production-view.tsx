@@ -1,9 +1,24 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLiveRefresh } from "@/lib/live";
 import type { ServerOrder } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { StatusBadge as Status } from "@/components/data-table/StatusBadge";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+
+async function withActionTimeout<T>(promise: Promise<T>, ms = 20000, label = "Action"): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out. The server may still be processing; refresh to check.`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   listOrders,
   listProductionJobs,
@@ -16,9 +31,61 @@ import {
   listInventoryItems,
   recordJobMaterials,
   updateOrderApi,
+  useProductionBoardCache,
 } from "@/lib/api";
 import { useWorkspace } from "@/components/erp/store";
 import { orderStageTone, type StatusTone } from "@/lib/theme-tokens";
+import type { ServerProductionJob } from "@/lib/api";
+
+// Fetch only statuses relevant to production boards instead of the full order history.
+const PRODUCTION_ORDER_STATUSES = [
+  "CONFIRMED",
+  "PRODUCTION_REVIEW",
+  "READY_FOR_PRODUCTION",
+  "IN_PRODUCTION",
+  "AWAITING_COLLECTION",
+  "READY_FOR_DELIVERY",
+];
+// Jobs board also needs orders that left production so it can hide their jobs.
+const JOBS_ORDER_STATUSES = [
+  ...PRODUCTION_ORDER_STATUSES,
+  "IN_TRANSIT",
+  "COMPLETED_DELIVERED",
+  "CANCELLED",
+];
+
+function ProductionCardSkeleton() {
+  return (
+    <div
+      className="order-card"
+      aria-hidden="true"
+      style={{
+        border: "1px solid var(--border)",
+        backgroundColor: "var(--card, transparent)",
+        padding: "12px",
+        marginBottom: "8px",
+        borderRadius: "8px",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "center", marginBottom: "6px", gap: "8px" }}>
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-5 w-16 rounded-full" />
+      </div>
+      <Skeleton className="h-3 w-32 mb-2" />
+      <Skeleton className="h-3 w-full" />
+    </div>
+  );
+}
+
+function ColumnCardSkeletons({ count = 2 }: { count?: number }) {
+  return (
+    <>
+      {Array.from({ length: count }).map((_, i) => (
+        <ProductionCardSkeleton key={i} />
+      ))}
+    </>
+  );
+}
 
 type OrderNotes = Record<string, string>;
 
@@ -95,41 +162,33 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
   const { connected, orders: uiOrders } = useWorkspace();
   const { notes, setNotes, clearNotes } = useNotes();
   const [boardLoading, setBoardLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [orderOrders, setOrderOrders] = useState<ServerOrder[]>([]);
   const [jobs, setJobs] = useState<any[]>([]);
+  const jobsRef = useRef<any[]>([]);
+  const connectedRef = useRef(connected);
+  const ensuringRef = useRef(false);
   const [confirmedDialogOrder, setConfirmedDialogOrder] = useState<ServerOrder | null>(null);
   const [starting, setStarting] = useState(false);
 
-  const refreshBoard = useCallback(async () => {
-    setBoardLoading(true);
-    const [os, js] = await Promise.all([listOrders(), listProductionJobs()]);
-    setOrderOrders(os);
-    setJobs(js || []);
-    setBoardLoading(false);
+  // 5s cached fallback tick: the board re-reads orders + jobs from Postgres
+  // every 5s so the schedule never goes stale; the SSE stream still updates
+  // the board immediately on every server change.
+  const refreshBoard = useCallback((jobs?: ServerProductionJob[], orders?: ServerOrder[]) => {
+    if (orders) {
+      setOrderOrders(orders);
+    }
+    if (jobs) {
+      setJobs(jobs || []);
+      jobsRef.current = jobs || [];
+    }
   }, []);
   useEffect(() => { void refreshBoard(); }, [refreshBoard]);
   useLiveRefresh(refreshBoard);
+  useProductionBoardCache(refreshBoard);
 
-  useEffect(() => {
-    const ensureJobs = async () => {
-      try {
-        let changed = false;
-        for (const order of orderOrders) {
-          const status = String(order.status || "").toUpperCase();
-          if (["CONFIRMED", "PRODUCTION_REVIEW", "READY_FOR_PRODUCTION", "IN_PRODUCTION"].includes(status)) {
-            const hasJob = jobs.some((j: any) => j.orderId === order.id || j.orderId === order.orderNumber);
-            if (!hasJob && connected) {
-              try { await createProductionJob(order.id); changed = true; } catch {}
-            }
-          }
-        }
-        if (changed) await refreshBoard();
-      } catch {}
-    };
-    if (orderOrders.length > 0) {
-      void ensureJobs();
-    }
-  }, [orderOrders]);
+  // Job self-healing is handled server-side by GET /production/jobs (reconcile);
+  // avoid client-side serial create calls on load, which slow reload/actions.
 
   const getStationForOrder = (order: ServerOrder): "confirmed" | "baking" | "decorating" | "ready" | null => {
     const status = String(order.status || "").toUpperCase();
@@ -137,8 +196,7 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
     const job = jobs.find((j: any) => j.orderId === order.id || j.orderId === order.orderNumber);
     const jobStatus = String(job?.status || "").toUpperCase();
     // Orders handed over to fulfilment (In Transit / Delivered / Cancelled)
-    // leave the production board entirely — checked BEFORE the ready branch so
-    // a READY_FOR_DELIVERY job can't keep an in-transit order on display.
+    // leave the production board entirely.
     if (status === "IN_TRANSIT" || status === "COMPLETED_DELIVERED" || status === "CANCELLED") {
       return null;
     }
@@ -148,16 +206,21 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
     if (status === "AWAITING_COLLECTION") {
       return "ready";
     }
+    // Job has finished production and is moving through decoration/quality — show in Decorating,
+    // even if order/job status would otherwise resolve to Ready.
+    if (
+      jobStatus === "READY_FOR_QUALITY" || jobStatus === "QUALITY_CHECK" || jobStatus === "REWORK_REQUIRED" ||
+      jobStatus === "DECORATING" || jobStatus === "READY_FOR_DECORATION" || jobStatus === "IN_DECORATION" ||
+      station === "decorating"
+    ) {
+      return "decorating";
+    }
     if (status === "READY_FOR_DELIVERY" || jobStatus === "READY_FOR_DELIVERY" || jobStatus === "COMPLETED" || station === "done") {
       return "ready";
-    }
-    if (jobStatus === "READY_FOR_QUALITY" || jobStatus === "QUALITY_CHECK" || jobStatus === "REWORK_REQUIRED") {
-      return "decorating";
     }
     if (jobStatus === "IN_PRODUCTION" || status === "IN_PRODUCTION" || station === "baking") {
       return "baking";
     }
-    if (station === "decorating") return "decorating";
     if (station === "confirmed" || status === "CONFIRMED" || status === "PRODUCTION_REVIEW" || status === "READY_FOR_PRODUCTION") {
       return "confirmed";
     }
@@ -190,21 +253,10 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
   };
 
   const renderOrderCard = (order: ServerOrder, station: "confirmed" | "baking" | "decorating" | "ready") => {
-    const job = jobs.find((j: any) => j.orderId === order.id);
     const status = String(order.status || "").toUpperCase().replace(/\s+/g, "_");
     const isAwaitingPickup = status === "AWAITING_COLLECTION" || status === "AWAITING_PICKUP";
-    const isClickable = station === "confirmed";
-    const handleOpen = () => {
-      if (!isClickable) return;
-      if (station === "confirmed") {
-        setConfirmedDialogOrder(order);
-        return;
-      }
-      if (onSelect) {
-        const uiMatch = (uiOrders as any[])?.find((o: any) => o.id === order.orderNumber || o.id === order.id);
-        onSelect?.(uiMatch || { id: order.orderNumber || order.id, customer: order.customerId, product: order.notes || "Order", status: order.status, amount: order.total, payment: order.paymentStatus, delivery: order.deliveryStatus } as any);
-      }
-    };
+    // Schedule cards are display-only.
+    const isClickable = false;
     const badgeValue = station === "confirmed" ? "" : station === "baking" ? "Baking" : station === "decorating" ? "Decorating" : isAwaitingPickup ? "Pick Up" : "Ready";
     const uiMatch = (uiOrders as any[])?.find((o: any) => o.id === order.orderNumber || o.id === order.id);
     const customerDisplay = uiMatch?.customer || order.customerId || "—";
@@ -216,13 +268,13 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
           padding: "12px",
           marginBottom: "8px",
           borderRadius: "8px",
-          cursor: isClickable ? "pointer" : "default",
+          cursor: "default" as const,
           boxShadow: "0 0 0 1px rgba(194,112,58,0.3)",
         }
       : orderCardStyle(station, isClickable);
     return (
-      <div key={order.id} className="order-card" style={cardStyle} onClick={handleOpen}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
+      <div key={order.id} className="order-card" style={cardStyle}>
+        <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
           <strong>{order.orderNumber}</strong>
           {badgeValue ? <Status value={badgeValue} /> : null}
         </div>
@@ -237,9 +289,13 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
     if (!confirmedDialogOrder || !connected) return;
     setStarting(true);
     try {
-      await startProductionForOrder(confirmedDialogOrder.id);
-      setConfirmedDialogOrder(null);
-      await refreshBoard();
+      const res = await withActionTimeout(startProductionForOrder(confirmedDialogOrder.id), 20000, "Start production");
+      if (res) {
+        setConfirmedDialogOrder(null);
+        // Optimistic: the board re-reads the affected orders from listOrders on
+        // the next live-driven / fallback refresh, before the next SSE event.
+        void refreshBoard();
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -250,29 +306,37 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
   const uiMatchConfirmed = confirmedDialogOrder ? ((uiOrders as any[])?.find((o: any) => o.id === confirmedDialogOrder.orderNumber || o.id === confirmedDialogOrder.id)) : null;
   const customerDisplayConfirmed = uiMatchConfirmed?.customer || confirmedDialogOrder?.customerId || "—";
 
+  const showCardSkeletons = boardLoading && !loaded;
   return (
     <div style={{ padding: "16px" }}>
-      {boardLoading && <p>Loading orders…</p>}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "16px" }}>
         <div>
           <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Confirmed</h3>
-          {confirmedOrders.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No orders</p>}
-          {confirmedOrders.map((o) => renderOrderCard(o, "confirmed"))}
+          {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
+            {confirmedOrders.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No orders</p>}
+            {confirmedOrders.map((o) => renderOrderCard(o, "confirmed"))}
+          </>)}
         </div>
         <div>
           <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Baking Station</h3>
-          {bakingOrders.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No orders</p>}
-          {bakingOrders.map((o) => renderOrderCard(o, "baking"))}
+          {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
+            {bakingOrders.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No orders</p>}
+            {bakingOrders.map((o) => renderOrderCard(o, "baking"))}
+          </>)}
         </div>
         <div>
           <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Decorating Station</h3>
-          {decoratingOrders.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No orders</p>}
-          {decoratingOrders.map((o) => renderOrderCard(o, "decorating"))}
+          {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
+            {decoratingOrders.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No orders</p>}
+            {decoratingOrders.map((o) => renderOrderCard(o, "decorating"))}
+          </>)}
         </div>
         <div>
           <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Ready</h3>
-          {readyOrders.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No orders</p>}
-          {readyOrders.map((o) => renderOrderCard(o, "ready"))}
+          {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
+            {readyOrders.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No orders</p>}
+            {readyOrders.map((o) => renderOrderCard(o, "ready"))}
+          </>)}
         </div>
       </div>
       <Dialog open={!!confirmedDialogOrder} onOpenChange={(v) => { if (!v) setConfirmedDialogOrder(null); }}>
@@ -299,6 +363,7 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
 export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => void; onNotice?: (s: string) => void } = {}) {
   const { connected, orders: uiOrders } = useWorkspace();
   const [boardLoading, setBoardLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [jobs, setJobs] = useState<any[]>([]);
   const [serverOrders, setServerOrders] = useState<any[]>([]);
   const [selectedJob, setSelectedJob] = useState<any | null>(null);
@@ -308,15 +373,20 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
   const [materialEntries, setMaterialEntries] = useState<Array<{ itemId: string; quantity: number; notes: string }>>([{ itemId: "", quantity: 0, notes: "" }]);
   const [busyAction, setBusyAction] = useState(false);
 
-  const refreshBoard = useCallback(async () => {
-    setBoardLoading(true);
-    const [js, orders] = await Promise.all([listProductionJobs(), listOrders()]);
-    setJobs(js || []);
-    setServerOrders(orders || []);
-    setBoardLoading(false);
+  // 5s cached fallback tick: the board re-reads jobs + orders from Postgres
+  // every 5s so it never goes stale between mutations. The SSE stream still
+  // drives a synchronous refresh on every server change.
+  const refreshBoard = useCallback((js?: ServerProductionJob[], os?: ServerOrder[]) => {
+    if (js) {
+      setJobs(js || []);
+    }
+    if (os) {
+      setServerOrders(os || []);
+    }
   }, []);
   useEffect(() => { void refreshBoard(); }, [refreshBoard]);
   useLiveRefresh(refreshBoard);
+  useProductionBoardCache(refreshBoard);
 
   const getColumnForJob = (job: any): "queued" | "baking" | "decorating" | "ready" | null => {
     const status = String(job?.status || "").toUpperCase();
@@ -382,8 +452,18 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
     if (!jobId) return;
     setBusyAction(true);
     try {
-      const res = await startProductionJob(jobId);
-      if (res) { await refreshJob(); await refreshBoard(); }
+      const res = await withActionTimeout(startProductionJob(jobId), 20000, "Start production");
+      if (res) {
+        // Optimistic: the job card re-reads the affected job and the board
+        // re-reads orders affected by the job's status transition on the
+        // next live-driven / fallback refresh, before the next SSE event.
+        void refreshJob();
+        void refreshBoard();
+      }
+      else if (onNotice) onNotice("Failed to start production");
+    } catch (e) {
+      console.error(e);
+      if (onNotice) onNotice(e instanceof Error ? e.message : "Failed to start production");
     } finally {
       setBusyAction(false);
     }
@@ -394,8 +474,18 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
     if (!jobId) return;
     setBusyAction(true);
     try {
-      const res = await completeProductionJob(jobId);
-      if (res) { await refreshJob(); await refreshBoard(); }
+      const res = await withActionTimeout(completeProductionJob(jobId), 20000, "Mark complete");
+      if (res) {
+        // Optimistic: the job card re-reads the affected job and the board
+        // re-reads orders affected by the job's status transition on the
+        // next live-driven / fallback refresh, before the next SSE event.
+        void refreshJob();
+        void refreshBoard();
+      }
+      else if (onNotice) onNotice("Failed to mark production complete");
+    } catch (e) {
+      console.error(e);
+      if (onNotice) onNotice(e instanceof Error ? e.message : "Failed to mark production complete");
     } finally {
       setBusyAction(false);
     }
@@ -409,7 +499,14 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
     setBusyAction(true);
     try {
       const res = await recordJobMaterials(jobId, items);
-      if (res) { setMaterialEntries([{ itemId: "", quantity: 0, notes: "" }]); await refreshJob(); await refreshBoard(); }
+      if (res) {
+        // Optimistic: the job card re-reads the affected job and the board
+        // re-reads orders affected by the material entry on the next live-driven
+        // / fallback refresh, before the next SSE event.
+        void refreshJob();
+        void refreshBoard();
+        setMaterialEntries([{ itemId: "", quantity: 0, notes: "" }]);
+      }
     } finally {
       setBusyAction(false);
     }
@@ -421,7 +518,13 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
     setBusyAction(true);
     try {
       const res = await recordQualityCheck(jobId, { result: 'PASS' });
-      if (res) { await refreshJob(); await refreshBoard(); }
+      if (res) {
+        // Optimistic: the job card re-reads the affected job and the board
+        // re-reads orders affected by the quality transition on the next
+        // live-driven / fallback refresh, before the next SSE event.
+        void refreshJob();
+        void refreshBoard();
+      }
     } finally {
       setBusyAction(false);
     }
@@ -433,7 +536,13 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
     setBusyAction(true);
     try {
       const res = await recordQualityCheck(jobId, { result: 'FAIL', reworkRequired: true });
-      if (res) { await refreshJob(); await refreshBoard(); }
+      if (res) {
+        // Optimistic: the job card re-reads the affected job and the board
+        // re-reads orders affected by the quality transition on the next
+        // live-driven / fallback refresh, before the next SSE event.
+        void refreshJob();
+        void refreshBoard();
+      }
     } finally {
       setBusyAction(false);
     }
@@ -452,8 +561,11 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
       const res = await updateOrderApi(orderId, { status: "AWAITING_COLLECTION" });
       if (res) {
         if (onNotice) onNotice("Marked as awaiting pickup");
-        await refreshJob();
-        await refreshBoard();
+        // Optimistic: the job/order card re-reads the affected job and the
+        // board re-reads orders affected by the status transition on the next
+        // live-driven / fallback refresh, before the next SSE event.
+        void refreshJob();
+        void refreshBoard();
       } else {
         if (onNotice) onNotice("Failed to update order status");
       }
@@ -495,7 +607,7 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
     const jobDisplayId = displayId.startsWith('TC-') && !displayId.startsWith('TC-Job') ? displayId.replace('TC-', 'TC-Job-') : displayId;
     return (
       <div key={job.id} className="order-card" style={cardStyle} onClick={handleOpen}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
+        <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
           <strong>{jobDisplayId}</strong>
           {badgeValue ? <Status value={badgeValue} /> : null}
         </div>
@@ -510,29 +622,37 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
   const displayIdSel = orderMatchSel?.orderNumber || orderMatchSel?.id || (selectedJob?.orderId ? `TC-${String(selectedJob.orderId).replace(/^.*-/, '')}` : selectedJob?.id);
   const jobDisplayIdSel = displayIdSel && displayIdSel.startsWith('TC-') && !String(displayIdSel).startsWith('TC-Job') ? String(displayIdSel).replace('TC-', 'TC-Job-') : displayIdSel;
 
+  const showCardSkeletons = boardLoading && !loaded;
   return (
     <div style={{ padding: "16px" }}>
-      {boardLoading && <p>Loading jobs…</p>}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "16px" }}>
         <div>
           <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Queued</h3>
-          {queuedJobs.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No jobs</p>}
-          {queuedJobs.map((j) => renderJobCard(j, "queued"))}
+          {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
+            {queuedJobs.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No jobs</p>}
+            {queuedJobs.map((j) => renderJobCard(j, "queued"))}
+          </>)}
         </div>
         <div>
           <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Baking</h3>
-          {bakingJobs.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No jobs</p>}
-          {bakingJobs.map((j) => renderJobCard(j, "baking"))}
+          {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
+            {bakingJobs.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No jobs</p>}
+            {bakingJobs.map((j) => renderJobCard(j, "baking"))}
+          </>)}
         </div>
         <div>
           <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Decorating</h3>
-          {decoratingJobs.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No jobs</p>}
-          {decoratingJobs.map((j) => renderJobCard(j, "decorating"))}
+          {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
+            {decoratingJobs.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No jobs</p>}
+            {decoratingJobs.map((j) => renderJobCard(j, "decorating"))}
+          </>)}
         </div>
         <div>
           <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Ready</h3>
-          {readyJobs.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No jobs</p>}
-          {readyJobs.map((j) => renderJobCard(j, "ready"))}
+          {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
+            {readyJobs.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No jobs</p>}
+            {readyJobs.map((j) => renderJobCard(j, "ready"))}
+          </>)}
         </div>
       </div>
       <Dialog open={!!selectedJob} onOpenChange={(v) => { if (!v) setSelectedJob(null); }}>
