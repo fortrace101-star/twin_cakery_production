@@ -35,3 +35,4 @@ usercount.json
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars
+.env

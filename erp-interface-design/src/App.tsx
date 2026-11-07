@@ -74,7 +74,7 @@ function NotFoundPage() {
 }
 
 function GuestPage() {
-  const { user, loading } = useWorkspace();
+  const { user, loading, connected, authError } = useWorkspace();
   const navigate = useNavigate();
   const settledRef = useRef(false);
 
@@ -90,7 +90,8 @@ function GuestPage() {
 
     // Not authed → decide the entry point by whether the workspace already
     // has registered staff accounts ("history"). A fresh workspace (no users)
-    // must bootstrap the first admin via /claim-admin; otherwise /login.
+    // must bootstrap the first admin via /claim-admin; otherwise /login. An
+    // authenticated user is never bounced to /claim-admin from "/".
     if (!settledRef.current) {
       settledRef.current = true;
       void hasExistingUser().then((hasHistory) => {
@@ -104,9 +105,35 @@ function GuestPage() {
   // Authenticated → show the real dashboard at the default route.
   if (user) return <DashboardPage />;
 
+  // Not (yet) connected to the API, or the API returned a non-JSON / non-2xx
+  // body (thrown by `request()` as an ApiError). The guest spinner must not
+  // hang: show a visible error state with Retry so a redeploy of the API host
+  // (correct VITE_API_URL / server.env) can be recovered from.
+  if (!connected && !authError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
+        <div className="w-full max-w-sm text-center">
+          <p className="text-sm text-muted-foreground">Connecting to Twin Cakery…</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
-      <p className="text-sm text-muted-foreground">Connecting to Twin Cakery…</p>
+      <div className="w-full max-w-sm rounded-lg border border-destructive/30 bg-red-50 p-4 text-left">
+        <h2 className="text-sm font-semibold text-destructive">Could not reach the Twin Cakery backend</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {authError ?? "The API returned a non-JSON or non-2xx response. Check that the server is running and that VITE_API_URL / FRONTEND_ORIGIN point at this deployment."}
+        </p>
+        <button
+          type="button"
+          className="mt-3 inline-flex items-center justify-center rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground transition-colors hover:bg-destructive/90"
+          onClick={() => window.location.reload()}
+        >
+          Retry
+        </button>
+      </div>
     </div>
   );
 }

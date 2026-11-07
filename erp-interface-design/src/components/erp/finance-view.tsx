@@ -98,7 +98,7 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
   const refreshProductionCosts = useCallback(async () => {
     try {
       const jobs = await listProductionJobs();
-      const costLists = await Promise.all(jobs.map((job) => getProductionCosts(job.id)));
+      const costLists = await Promise.all((jobs ?? []).map((job) => getProductionCosts(job.id)));
       const totalCost = costLists.flat().reduce((sum, cost) => sum + (cost.total || 0), 0);
       setProductionCosts(totalCost);
     } catch {

@@ -366,7 +366,7 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
 
   let rows: GridRow[] = [];
   if (module === 'production') {
-    const jobRows: GridRow[] = jobs.map((job: ServerProductionJob) => {
+    const jobRows: GridRow[] = (jobs ?? []).map((job: ServerProductionJob) => {
       const order = orders.find((o) => o.id === job.orderId);
       const productName = order?.product || job.variantOptions || job.orderId;
       const customerName = order?.customer || job.orderId;

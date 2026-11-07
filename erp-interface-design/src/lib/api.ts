@@ -77,7 +77,7 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
     try {
       payload = JSON.parse(text);
     } catch {
-      payload = null;
+      throw new ApiError("Server returned a non-JSON response", res.status);
     }
   }
   if (!res.ok) {
@@ -104,9 +104,10 @@ export function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /** Non-throwing wrapper: returns `fallback` when the request fails. */
-async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+export async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try {
-    return await fn();
+    const v = await fn();
+    return v ?? fallback;
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") throw err;
     return fallback;

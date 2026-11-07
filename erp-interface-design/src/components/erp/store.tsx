@@ -29,6 +29,7 @@ import {
   type ServerCustomer,
   type ServerProduct,
   type ServerAuditLog,
+  type ServerPayment,
   type ServerUser,
 } from "@/lib/api";
 import { type Order } from "./data";
@@ -138,37 +139,48 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [customers, products, serverOrders, logs, payments] = await Promise.all([
-      listCustomers(),
-      listProducts(),
-      listOrders(),
-      listAudit(100),
-      listPayments(),
-    ]);
-    if (!aliveRef.current) return;
-    serverOrdersRef.current = serverOrders;
-    const customersById = byId(customers as ServerCustomer[]);
-    const productsById = byId(products as ServerProduct[]);
-    // Sum the real payment ledger per server order id so the bracketed
-    // "amount paid" reflects every payment ever recorded (any device, any
-    // session) — not just the ones made in this session. GET /payments
-    // degrades to [] (permission/network), which simply omits the brackets.
-    const paidByOrderId: Record<string, number> = {};
-    for (const p of payments) {
-      if (p.orderId) paidByOrderId[p.orderId] = (paidByOrderId[p.orderId] ?? 0) + (p.amount || 0);
+    try {
+      const [customers, products, serverOrders, logs, payments] = await Promise.all([
+        listCustomers(),
+        listProducts(),
+        listOrders(),
+        listAudit(100),
+        listPayments(),
+      ]);
+      if (!aliveRef.current) return;
+      serverOrdersRef.current = serverOrders;
+      const customersList = Array.isArray(customers) ? (customers as ServerCustomer[]) : [];
+      const productsList = Array.isArray(products) ? (products as ServerProduct[]) : [];
+      const serverOrdersList = Array.isArray(serverOrders) ? (serverOrders as ServerOrder[]) : [];
+      const logsList = Array.isArray(logs) ? (logs as ServerAuditLog[]) : [];
+      const paymentsList = Array.isArray(payments) ? (payments as ServerPayment[]) : [];
+      const customersById = byId(customersList);
+      const productsById = byId(productsList);
+      // Sum the real payment ledger per server order id so the bracketed
+      // "amount paid" reflects every payment ever recorded (any device, any
+      // session) — not just the ones made in this session. GET /payments
+      // degrades to [] (permission/network), which simply omits the brackets.
+      const paidByOrderId: Record<string, number> = {};
+      for (const p of paymentsList) {
+        if (p.orderId) paidByOrderId[p.orderId] = (paidByOrderId[p.orderId] ?? 0) + (p.amount || 0);
+      }
+      if (serverOrdersList.length) {
+        setOrders(
+          serverOrdersList.map((o) =>
+            toUiOrder(o, customersById, productsById, paidByOrderId[o.id]),
+          ),
+        );
+      } else if (user) {
+        // Backend reached but returned no orders — do not wipe the current UI.
+        // (A wipe only makes sense when clearing a signed-in session.)
+      }
+      setAudit(logsList.map(formatAudit));
+      setLoading(false);
+    } catch {
+      // Any API failure (network, non-JSON, non-2xx) must not leave the
+      // spinner up or the UI in a half-updated state.
+      setLoading(false);
     }
-    if (serverOrders.length) {
-      setOrders(
-        (serverOrders as ServerOrder[]).map((o) =>
-          toUiOrder(o, customersById, productsById, paidByOrderId[o.id]),
-        ),
-      );
-    } else if (user) {
-      // Backend reached but returned no orders — do not wipe the current UI.
-      // (A wipe only makes sense when clearing a signed-in session.)
-    }
-    setAudit((logs as ServerAuditLog[]).map(formatAudit));
-    setLoading(false);
   }, []);
 
   useEffect(() => {
