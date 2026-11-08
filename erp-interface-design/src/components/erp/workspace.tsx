@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { modules, money, isActiveOrder, tone, type Order } from "./data";
 import { useWorkspace } from "./store";
+import { useLiveRefresh } from "@/lib/live";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 import { DashboardView } from "./dashboard";
@@ -29,8 +30,9 @@ const subtitles: Record<string,string> = { crm:'Every conversation, every custom
 const SALES_STAGES = ['Pending confirmation','Confirmed','In production','Ready','Awaiting Collection','In Transit','Completed / Delivered'];
 
 export function Workspace({module='dashboard'}: {module?:string}) {
- const { orders, audit, connected, user, signOut, completeFollowUp, permissions }=useWorkspace();
+ const { orders, audit, connected, user, signOut, completeFollowUp, permissions, refresh }=useWorkspace();
  const isMobile = useIsMobile();
+ useLiveRefresh(refresh);
  const { pathname } = useLocation();
  const [navOpen,setNavOpen]=useState(false);
  const [collapsed,setCollapsed]=useState(false);

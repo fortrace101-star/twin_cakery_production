@@ -63,6 +63,7 @@ type DataTableProps<T> = {
   mobileTitle?: (row: T) => string;
   mobileSubtitle?: (row: T) => string;
   openLabel?: string;
+  hideOpenAction?: boolean;
   mobileDetailTop?: (row: T) => ReactNode;
   cardMode?: "auto" | "table";
   tapAction?: "drawer" | "activate";
@@ -103,6 +104,7 @@ export function DataTable<T>({
   mobileTitle,
   mobileSubtitle,
   openLabel,
+  hideOpenAction,
   mobileDetailTop,
   cardMode = "auto",
   tapAction = "drawer",
@@ -214,7 +216,7 @@ export function DataTable<T>({
             </div>
             <DrawerFooter className="dt-drawer-foot">
               {shown && actionCols.map(r => <div className="dt-drawer-action" key={r.col.header || "action"}>{renderCell(r.col, shown, activeIdx)}</div>)}
-              {onRowActivate && shown && tapAction !== "activate" && (
+              {onRowActivate && shown && tapAction !== "activate" && !hideOpenAction && (
                 <Button onClick={() => { const row = shown; pending.current = () => onRowActivate(row); setActiveRow(null); }}>{openLabel ?? "Open"}</Button>
               )}
             </DrawerFooter>

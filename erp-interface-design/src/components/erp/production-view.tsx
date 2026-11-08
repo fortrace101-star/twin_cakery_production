@@ -223,16 +223,19 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
     if (status === "AWAITING_COLLECTION") {
       return "ready";
     }
-    // Job has finished production and is moving through decoration/quality — show in Decorating,
-    // even if order/job status would otherwise resolve to Ready.
+    // Orders reaching Ready for delivery leave the station board for baking and
+    // decoration, and only enter the ready station once delivery/pickup is due.
     if (
-      jobStatus === "READY_FOR_QUALITY" || jobStatus === "QUALITY_CHECK" || jobStatus === "REWORK_REQUIRED" ||
-      jobStatus === "DECORATING" || jobStatus === "READY_FOR_DECORATION" || jobStatus === "IN_DECORATION" ||
-      station === "decorating"
+      jobStatus !== "READY_FOR_DELIVERY" && (
+        jobStatus === "READY_FOR_DECORATION" || jobStatus === "DECORATING" || jobStatus === "IN_DECORATION" ||          jobStatus === "READY_FOR_QUALITY" || jobStatus === "QUALITY_CHECK" || jobStatus === "REWORK_REQUIRED" ||
+        station === "decorating"
+      )
     ) {
       return "decorating";
     }
-    if (status === "READY_FOR_DELIVERY" || jobStatus === "READY_FOR_DELIVERY" || jobStatus === "COMPLETED" || station === "done") {
+    if (
+      status === "READY_FOR_DELIVERY" || status === "READY" || jobStatus === "READY_FOR_DELIVERY" || jobStatus === "READY" || jobStatus === "COMPLETED" || jobStatus === "COMPLETE" || station === "done" || station === "ready"
+    ) {
       return "ready";
     }
     if (jobStatus === "IN_PRODUCTION" || status === "IN_PRODUCTION" || station === "baking") {
@@ -419,7 +422,14 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
 
   const getColumnForJob = (job: any): "queued" | "baking" | "decorating" | "ready" | null => {
     const status = String(job?.status || "").toUpperCase();
-    if (status === "COMPLETED" || status === "READY_FOR_DELIVERY") {
+    // An order marked Ready leaves the decorating column even if its job
+    // row still carries a decorating/quality status.
+    const linkedOrder = serverOrders.find((o: any) => o.id === job?.orderId || o.orderNumber === job?.orderId);
+    const orderStatus = String(linkedOrder?.status || "").toUpperCase();
+    if (orderStatus === "READY_FOR_DELIVERY" || orderStatus === "READY" || orderStatus === "AWAITING_COLLECTION") {
+      return "ready";
+    }
+    if (status === "COMPLETED" || status === "COMPLETE") {
       return "ready";
     }
     if (status === "IN_PRODUCTION") {
@@ -430,6 +440,9 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
     }
     if (status === "PENDING" || status === "SCHEDULED" || status === "READY_FOR_PRODUCTION") {
       return "queued";
+    }
+    if (status === "READY_FOR_DELIVERY" || status === "READY") {
+      return "ready";
     }
     return "queued";
   };

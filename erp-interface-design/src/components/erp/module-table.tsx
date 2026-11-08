@@ -333,7 +333,12 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
 
   const [record,setRecord] = useState<GridRow|null>(null);
   const { density } = useDensity();
-  const { updateOrder } = useWorkspace();
+  const { updateOrder, refresh: refreshStore } = useWorkspace();
+
+const refreshDeliveriesLive = useCallback(() => {
+  if (module === 'delivery') refreshStore();
+}, [module, refreshStore]);
+useLiveRefresh(refreshDeliveriesLive);
 
   const [jobs, setJobs] = useState<ServerProductionJob[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
@@ -423,7 +428,11 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
       return <Status value={r.status}/>
     } },
 
-    { header: '', mobile: 'hide', cell: (r)=><Button variant="ghost" size="icon" aria-label={`View ${r.id}`} onClick={e=>{e.stopPropagation();setRecord(r)}}><ArrowUpRight/></Button> },
+    { header: '', mobile: module === 'delivery' && (tab === 'Upcoming' || tab === 'Dispatch') ? 'action' : 'hide', cell: (r)=> module === 'delivery' && tab === 'Upcoming'
+      ? <Button size="sm" disabled={busyAction} onClick={e=>{e.stopPropagation();void handleSetInTransitFor(r);}}><ArrowRight size={16}/>Set In-Transit</Button>
+      : module === 'delivery' && tab === 'Dispatch'
+        ? <Button size="sm" disabled={busyAction} onClick={e=>{e.stopPropagation();void handleCompleteOrderFor(r);}}><Check size={16}/>Complete</Button>
+        : <Button variant="ghost" size="icon" aria-label={`View ${r.id}`} onClick={e=>{e.stopPropagation();setRecord(r)}}><ArrowUpRight/></Button> },
 
   ];
 
@@ -535,11 +544,10 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
   // Deliveries > Upcoming: move an awaiting-collection order to In Transit —
   // flips the order status (optimistic local write + server PATCH via the
   // workspace store) so the row leaves Upcoming and shows under Dispatch.
-  async function handleSetInTransit() {
-    if (!record) return;
+  async function handleSetInTransitFor(row: GridRow) {
     setBusyAction(true);
     try {
-      updateOrder(record.id, 'In Transit');
+      updateOrder(row.id, 'In Transit');
       onNotice('Order set to In Transit — it now shows under Dispatch');
       setRecord(null);
     } finally {
@@ -547,20 +555,29 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
     }
   }
 
+  async function handleSetInTransit() {
+    if (!record) return;
+    await handleSetInTransitFor(record);
+  }
+
   // Deliveries > Dispatch: complete the order — flips it to Completed /
   // Delivered (local + server via the workspace store, which also settles
   // station/follow-up on the backend) so it leaves Dispatch and shows under
   // the Completed tab.
-  async function handleCompleteOrder() {
-    if (!record) return;
+  async function handleCompleteOrderFor(row: GridRow) {
     setBusyAction(true);
     try {
-      updateOrder(record.id, 'Completed / Delivered');
+      updateOrder(row.id, 'Completed / Delivered');
       onNotice('Order completed — it now shows under Completed');
       setRecord(null);
     } finally {
       setBusyAction(false);
     }
+  }
+
+  async function handleCompleteOrder() {
+    if (!record) return;
+    await handleCompleteOrderFor(record);
   }
 
   // Deliveries modal extras: the open order's location note and the customer's
@@ -572,7 +589,7 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
     : '';
   const showDeliveryExtras = module === 'delivery' && (tab === 'Upcoming' || tab === 'Dispatch') && record;
 
-  return <section className="panel module-table"><div className="panel-heading"><div><h2>{tab}</h2><p>{module==='inventory'?'Stock quantities reflect opening, purchases, adjustments, usage and wastage.':`${rows.length} ${tab.toLowerCase()} in your workspace`}</p></div><Button variant="outline" onClick={()=>onNotice('Sample workspace — live records are not connected')}><Plus/>{module==='purchasing'?'Create purchase order':module==='inventory'?'Record adjustment':'Add record'}</Button></div><div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label={`Search ${tab}`} value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Search ${tab.toLowerCase()}...`}/></label><label className="filter-select"><SlidersHorizontal size={14}/><select aria-label="Filter records" value={filter} onChange={e=>setFilter(e.target.value)}><option>All records</option>{Array.from(new Set(moduleRows(module,tab,orders).map(r=>r.status))).map(s=><option key={s}>{s}</option>)}</select></label></div><DataTable columns={columns} rows={rows} rowKey={(r)=>r.id} rowClassName={(r)=>`order-row-tint tone-${tone(r.status)}`} onRowActivate={(r)=>setRecord(r)} stickyHeader density={density} mobileTitle={(r)=>r.name} mobileSubtitle={(r)=>`${r.id} · ${r.detail}`} openLabel="Open record" empty={<div className="empty-state"><Search/><h3>No matching records</h3><p>Try a different search or filter.</p></div>}/><div className="table-foot"><span>{rows.length} records</span><span>October 2026</span></div><Dialog open={Boolean(record)} onOpenChange={v=>{if(!v)setRecord(null)}}><DialogContent className="max-w-2xl"><DialogTitle>{record?.name}</DialogTitle><DialogDescription>{record?.id} · {tab}</DialogDescription>{module === 'production' ? (<div className="space-y-4">
+  return <section className="panel module-table"><div className="panel-heading"><div><h2>{tab}</h2><p>{module==='inventory'?'Stock quantities reflect opening, purchases, adjustments, usage and wastage.':`${rows.length} ${tab.toLowerCase()} in your workspace`}</p></div><Button variant="outline" onClick={()=>onNotice('Sample workspace — live records are not connected')}><Plus/>{module==='purchasing'?'Create purchase order':module==='inventory'?'Record adjustment':'Add record'}</Button></div><div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label={`Search ${tab}`} value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Search ${tab.toLowerCase()}...`}/></label><label className="filter-select"><SlidersHorizontal size={14}/><select aria-label="Filter records" value={filter} onChange={e=>setFilter(e.target.value)}><option>All records</option>{Array.from(new Set(moduleRows(module,tab,orders).map(r=>r.status))).map(s=><option key={s}>{s}</option>)}</select></label></div><DataTable columns={columns} rows={rows} rowKey={(r)=>r.id} rowClassName={(r)=>`order-row-tint tone-${tone(r.status)}`} onRowActivate={(r)=>setRecord(r)} stickyHeader density={density} mobileTitle={(r)=>r.name} mobileSubtitle={(r)=>`${r.id} · ${r.detail}`} openLabel="Open record" hideOpenAction={module === 'delivery' && (tab === 'Upcoming' || tab === 'Dispatch')} empty={<div className="empty-state"><Search/><h3>No matching records</h3><p>Try a different search or filter.</p></div>}/><div className="table-foot"><span>{rows.length} records</span><span>October 2026</span></div><Dialog open={Boolean(record)} onOpenChange={v=>{if(!v)setRecord(null)}}><DialogContent className="max-w-2xl"><DialogTitle>{record?.name}</DialogTitle><DialogDescription>{record?.id} · {tab}</DialogDescription>{module === 'production' ? (<div className="space-y-4">
   <div className="configuration-list"><p><span>Order/Job</span><strong>{record?.detail}</strong></p><p><span>Due/Info</span><strong>{record?.secondary}</strong></p><p><span>Status</span><Status value={record?.status || productionJob?.status || ''}/></p><p><span>Progress</span><strong>{productionJob?.progress ?? record?.value ?? '—'}</strong></p></div>
   <div className="flex flex-wrap gap-2">
     {(productionJob?.status === 'PENDING' || productionJob?.status === 'SCHEDULED' || productionJob?.status === 'READY_FOR_PRODUCTION') && <Button size="sm" onClick={handleStartJob} disabled={busyAction}>Start Production</Button>}

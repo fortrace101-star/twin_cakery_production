@@ -34,7 +34,25 @@ function stageBadgeItems(counts: Record<string, number>) {
   return items.map(({ stage, tone }) => stageBadgeItem(counts, stage, tone));
 }
 
-export function Sidebar({module,setTab,setSearch,setStatusFilter,setHelp,user,connected,signOut,setLoginOpen,activeOrders=0,followUps=0,permissions=null,orders=[],variant='rail',onNavigate,theme,setTheme}: {module:string;setTab:(v:string)=>void;setSearch:(v:string)=>void;setStatusFilter:(v:string)=>void;setHelp:(v:boolean)=>void;user:ServerUser|null;connected:boolean;signOut:()=>void;setLoginOpen:(v:boolean)=>void;activeOrders?:number;followUps?:number;permissions?:string[]|null;orders?:any[];variant?:'rail'|'drawer';onNavigate?:()=>void;theme?:'light'|'dark';setTheme?:(t:'light'|'dark')=>void}) {
+export function Sidebar({
+  module,
+  setTab,
+  setSearch,
+  setStatusFilter,
+  setHelp,
+  user,
+  connected,
+  signOut,
+  setLoginOpen,
+  activeOrders=0,
+  followUps=0,
+  permissions=null,
+  orders=[],
+  variant='rail',
+  onNavigate,
+  theme,
+  setTheme,
+}: {module:string;setTab:(v:string)=>void;setSearch:(v:string)=>void;setStatusFilter:(v:string)=>void;setHelp:(v:boolean)=>void;user:ServerUser|null;connected:boolean;signOut:()=>void;setLoginOpen:(v:boolean)=>void;activeOrders?:number;followUps?:number;permissions?:string[]|null;orders?:any[];variant?:'rail'|'drawer';onNavigate?:()=>void;theme?:'light'|'dark';setTheme?:(t:'light'|'dark')=>void}) {
   const navRef = useRef<HTMLElement | null>(null);
   const profileRef = useRef<HTMLDivElement | null>(null);
   const [canUp, setCanUp] = useState(false);
