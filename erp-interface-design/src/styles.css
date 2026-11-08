@@ -893,13 +893,24 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
   .sidebar-drawer .sidebar-bottom { margin-top: auto; }
   .sidebar-drawer .profile-menu { position: static; box-shadow: none; border: 1px solid var(--border); margin-top: 8px; }
 
-  /* topbar mobile search */
-  .breadcrumb { flex: 1; min-width: 0; gap: 4px; }
-  .breadcrumb strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
-  .topbar-actions { gap: 4px; margin-left: auto; }
-  .topbar-search.is-open { position: absolute; inset: 0; z-index: 2; width: auto; height: auto; border: 0; border-radius: 0;
+  /* topbar: DS breadcrumb menu sits under the breadcrumb; content area uses full width. */
+  .topbar { justify-content: flex-start; }
+  .topbar .breadcrumb { flex: 1; min-width: 0; gap: 4px; }
+  .topbar .breadcrumb strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+  .topbar .topbar-actions { margin-left: auto; gap: 4px; }
+  .topbar .topbar-search.is-open { position: absolute; inset: 0; z-index: 2; width: auto; height: auto; border: 0; border-radius: 0;
     background: var(--card, var(--background)); padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); display: flex; align-items: center; gap: 8px; }
-  .topbar-search.is-open input { height: var(--topbar-h); flex: 1; }
+  .topbar .topbar-search.is-open input { height: var(--topbar-h); flex: 1; }
+
+  .breadcrumb-menu { margin: 0; padding: 0; background: var(--card); border-top: 1px solid var(--border); }
+  .breadcrumb-menu-title { padding: 10px 16px 6px; font-size: 12px; font-weight: 600; color: var(--foreground); }
+  .breadcrumb-menu-items { list-style: none; margin: 0; padding: 4px 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+  .breadcrumb-menu-items a { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: var(--foreground); text-decoration: none; font-size: 14px; }
+  .breadcrumb-menu-items a:hover { background: var(--muted); }
+  .breadcrumb-menu-items a.active { background: var(--primary); color: var(--primary-foreground); }
+  .breadcrumb-menu-items a svg { width: 18px; height: 18px; color: var(--muted-foreground); }
+  .breadcrumb-menu-items a.active svg { color: currentColor; }
+  .breadcrumb-menu-items a span:last-child { margin-left: auto; }
 
   /* stage tabs / boards (F0.8) */
   .stage-tabs { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px 12px; padding: 0 16px; }
@@ -913,5 +924,14 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
   .board-empty { color: var(--muted-foreground); font-size: 13px; }
 
   /* DataTable cards (F0.7) */
-  .dt-cards { list-style: none; margin: 0; paddin
+  .dt-cards { list-style: none; margin: 0; padding: 0; }
+
+/* DS: mobile breadcrumb = app-level nav trigger. On pressin the breadcrumb, show the
+   full icon-and-word menu under the breadcrumb for one open session. */
+.breadcrumb.is-ds-open > button { visibility: visible !important; }
+
+/* DS: production kanban boards revert to the desktop multi-column rails on PCs. */
+.kanban-board, .station-board { display: grid !important; grid-template-columns: repeat(7, minmax(0, 1fr)) !important; gap: 14px; }
+.kanban-board > [data-stage], .station-board > [data-stage] { display: block !important; width: 100%; }
+.board-col-title { display: block !important; }
 

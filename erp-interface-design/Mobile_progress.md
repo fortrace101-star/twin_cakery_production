@@ -40,6 +40,8 @@
   - All six finance `DataTable`s (payments, order payment status, expenses, profitability lines, invoices, approvals) have mobile roles/props.
   - **D10 (partial)**: Payments and Expenses use desktop inline forms when on desktop/tablet, but trigger mobile form dialogs on phones (`useIsMobile` + `Dialog`) while preserving existing state/handlers.
 - **Reports / analytics / web app**: catalogued top-level + foundation CSS; explicit mobile roles for any remaining tables still pending.
+- **Latest 2026-11-08 pass**: DS breadcrumb menu in `topbar.tsx` (`isMobile && dsOpen`), full icon+word menu under breadcrumb press, mobile content area expanded with topbar justified start, desktop kanban board columns restored through CSS override for ≥768px while mobile vertical board behavior is kept.
+- **Web app table roles**: `web-app.tsx` split into `WebAppDataTable` for the Website users pane and retained `ProductCataloguePane` for catalogue tabs, with D10 view/product/archive actions and updated mobile roles.
 
 ---
 
