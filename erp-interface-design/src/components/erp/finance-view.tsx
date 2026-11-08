@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useLiveRefresh } from "@/lib/live";
 import { Check, Clock3, Pencil, Plus, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useWorkspace } from "./store";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -82,6 +83,9 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
   const [reference, setReference] = useState("");
   const [recording, setRecording] = useState(false);
   const [pasa, setPasa] = useState<{ checkoutRequestID: string; reference: string } | null>(null);
+  const isMobile = useIsMobile();
+  const [payFormOpen, setPayFormOpen] = useState(false);
+  const [expFormOpen, setExpFormOpen] = useState(false);
 
   const refreshPayments = useCallback(async () => {
     const list = await listPayments();
@@ -199,6 +203,7 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
     setExpenseAmount("");
     setExpenseCategory(categories[0]?.id ?? "");
     onNotice("Recording a new expense");
+    setExpFormOpen(true);
   }
 
   function openEdit(expense: ServerExpense) {
@@ -211,6 +216,7 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
     setExpenseDescription(expense.description || "");
     setExpenseCategory(expense.categoryId);
     setExpenseRecordedBy(expense.recordedBy || user?.displayName || user?.username || "admin");
+    setExpFormOpen(true);
   }
 
   async function onSave() {
@@ -231,6 +237,7 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
     setExpenses((p) => (isUpdate ? p.map((x) => (x.id === res.id ? res : x)) : [res, ...p]));
     onNotice(isUpdate ? "Expense updated" : "Expense recorded");
     resetExpenseForm();
+    setExpFormOpen(false);
     void refreshExpenses();
   }
 
@@ -329,13 +336,35 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
               </div>
             </div>
           )}
-          <div className="form-grid">
-            <div className="form-field"><Label htmlFor="pay-order">Order</Label><Input id="pay-order" value={orderId} onChange={(e) => setOrderId(e.target.value)} placeholder="TC-1044" /></div>
-            <div className="form-field"><Label htmlFor="pay-amount">Amount (USh)</Label><Input id="pay-amount" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="50000" /></div>
-            <div className="form-field"><Label htmlFor="pay-method">Method</Label><select id="pay-method" className="input" value={method} onChange={(e) => setMethod(e.target.value as "Cash" | "M-Pesa")}><option>Cash</option><option>M-Pesa</option></select></div>
-            <div className="form-field"><Label htmlFor="pay-ref">Reference (optional)</Label><Input id="pay-ref" value={reference} onChange={(e) => setReference(e.target.value)} /></div>
-          </div>
-          <div className="flex justify-end gap-2"><Button variant="secondary" onClick={onRecordPayment} disabled={recording || !orderId || !amount}>{recording ? "Recording…" : "Record payment"}</Button></div>
+          {isMobile ? (
+            <div className="flex justify-end"><Button variant="secondary" onClick={() => setPayFormOpen(true)}><Plus size={16}/> Record payment</Button></div>
+          ) : (
+            <>
+              <div className="form-grid">
+                <div className="form-field"><Label htmlFor="pay-order">Order</Label><Input id="pay-order" value={orderId} onChange={(e) => setOrderId(e.target.value)} placeholder="TC-1044" /></div>
+                <div className="form-field"><Label htmlFor="pay-amount">Amount (USh)</Label><Input id="pay-amount" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="50000" /></div>
+                <div className="form-field"><Label htmlFor="pay-method">Method</Label><select id="pay-method" className="input" value={method} onChange={(e) => setMethod(e.target.value as "Cash" | "M-Pesa")}><option>Cash</option><option>M-Pesa</option></select></div>
+                <div className="form-field"><Label htmlFor="pay-ref">Reference (optional)</Label><Input id="pay-ref" value={reference} onChange={(e) => setReference(e.target.value)} /></div>
+              </div>
+              <div className="flex justify-end gap-2"><Button variant="secondary" onClick={onRecordPayment} disabled={recording || !orderId || !amount}>{recording ? "Recording…" : "Record payment"}</Button></div>
+            </>
+          )}
+          <Dialog open={payFormOpen} onOpenChange={setPayFormOpen}>
+            <DialogContent className="max-w-lg">
+              <DialogTitle>Record payment</DialogTitle>
+              <DialogDescription>Record a payment against an order.</DialogDescription>
+              <div className="space-y-3">
+                <div className="form-field"><Label htmlFor="m-pay-order">Order</Label><Input id="m-pay-order" value={orderId} onChange={(e) => setOrderId(e.target.value)} placeholder="TC-1044" /></div>
+                <div className="form-field"><Label htmlFor="m-pay-amount">Amount (USh)</Label><Input id="m-pay-amount" type="number" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="50000" /></div>
+                <div className="form-field"><Label htmlFor="m-pay-method">Method</Label><select id="m-pay-method" className="input" value={method} onChange={(e) => setMethod(e.target.value as "Cash" | "M-Pesa")}><option>Cash</option><option>M-Pesa</option></select></div>
+                <div className="form-field"><Label htmlFor="m-pay-ref">Reference (optional)</Label><Input id="m-pay-ref" value={reference} onChange={(e) => setReference(e.target.value)} /></div>
+              </div>
+              <div className="dialog-actions">
+                <Button variant="ghost" onClick={() => setPayFormOpen(false)}>Cancel</Button>
+                <Button variant="secondary" onClick={async () => { await onRecordPayment(); if (method !== "M-Pesa") setPayFormOpen(false); }} disabled={recording || !orderId || !amount}>{recording ? "Recording…" : "Record payment"}</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
           {pasa && (
             <div className="form-note-wrap" style={{ marginTop: 16 }}>
               <div className="panel-heading"><div><h2>M-Pesa — confirm payment</h2><p className="text-muted-foreground text-xs">Staged by Safaricom. Confirm to credit the order.</p></div></div>
@@ -346,12 +375,12 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
           <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search payments" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search payments, orders, references…"/></label><label className="filter-select"><SlidersHorizontal size={14}/><select aria-label="Filter payments by method" value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>{["All methods", "Cash", "M-Pesa", "Card", "Bank transfer", "Cheque"].map((m) => <option key={m}>{m}</option>)}</select></label></div>
           <DataTable
             columns={[
-              { header: "Order", sortKey: "order", cell: (p) => <strong className="product-name">{p.orderId}</strong> },
-              { header: "Amount", align: "right", sortKey: "amount", cell: (p) => <span className="amount-cell">{money(p.amount)}</span> },
-              { header: "Method", sortKey: "method", cell: (p) => p.method },
-              { header: "Reference", sortKey: "reference", cell: (p) => p.reference },
-              { header: "Date", sortKey: "date", cell: (p) => <span className="text-xs text-muted-foreground">{new Date(p.createdAt).toLocaleDateString("en-UG")}</span> },
-              { header: "Received by", cell: (p) => p.receivedBy },
+              { header: "Order", sortKey: "order", mobile: "title", cell: (p) => <strong className="product-name">{p.orderId}</strong> },
+              { header: "Amount", align: "right", sortKey: "amount", mobile: "value", cell: (p) => <span className="amount-cell">{money(p.amount)}</span> },
+              { header: "Method", sortKey: "method", mobile: "meta", cell: (p) => p.method },
+              { header: "Reference", sortKey: "reference", mobile: "drawer", cell: (p) => p.reference || "—" },
+              { header: "Date", sortKey: "date", mobile: "meta", cell: (p) => <span className="text-xs text-muted-foreground">{new Date(p.createdAt).toLocaleDateString("en-UG")}</span> },
+              { header: "Received by", mobile: "drawer", cell: (p) => p.receivedBy },
             ]}
             rows={filteredPayments}
             rowKey={(p) => p.id}
@@ -359,18 +388,19 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
             onSortChange={setPaySort}
             stickyHeader
             density={density}
-            empty={<div className="empty-state"><Search /><h3>No payments yet</h3><p>Record a payment against an order above.</p></div>}
+            mobileTitle={(p) => p.orderId} mobileSubtitle={(p) => `${p.method} · ${new Date(p.createdAt).toLocaleDateString("en-UG")}`} openLabel="View payment"
+            empty={<div className="empty-state"><Search /><h3>No payments yet</h3><p>Record a payment against an order.</p></div>}
           />
           <div className="table-foot"><span>{filteredPayments.length} payment{filteredPayments.length === 1 ? "" : "s"}</span><span>{payments.length} recorded in total</span></div>
 
           <h3 className="text-sm font-semibold" style={{ marginTop: 20 }}>Order payment status</h3>
           <DataTable
             columns={[
-              { header: "Order", sortKey: "order", cell: (o) => <strong className="product-name">#{o.id}</strong> },
-              { header: "Customer", sortKey: "customer", cell: (o) => o.customer },
-              { header: "Product", cell: (o) => o.product },
-              { header: "Total", align: "right", sortKey: "amount", cell: (o) => <span className="amount-cell">{money(o.amount)}</span> },
-              { header: "Payment status", cell: (o) => <Status value={o.payment} /> },
+              { header: "Order", sortKey: "order", mobile: "title", cell: (o) => <strong className="product-name">#{o.id}</strong> },
+              { header: "Customer", sortKey: "customer", mobile: "meta", cell: (o) => o.customer },
+              { header: "Product", mobile: "drawer", cell: (o) => o.product },
+              { header: "Total", align: "right", sortKey: "amount", mobile: "value", cell: (o) => <span className="amount-cell">{money(o.amount)}</span> },
+              { header: "Payment status", mobile: "badge", cell: (o) => <Status value={o.payment} /> },
             ]}
             rows={filteredOutstanding}
             rowKey={(o) => o.id}
@@ -379,6 +409,7 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
             onSortChange={setStatusSort}
             stickyHeader
             density={density}
+            mobileTitle={(o) => `#${o.id}`} mobileSubtitle={(o) => o.customer} openLabel="View order"
             empty={<div className="empty-state"><Check /><h3>All order payments are settled</h3><p>Every order in the workspace is fully paid.</p></div>}
           />
           <div className="table-foot"><span>{filteredOutstanding.length} order{filteredOutstanding.length === 1 ? "" : "s"} awaiting settlement</span></div>
@@ -389,31 +420,57 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
       {activeTab === "Expenses" && (
         <section className="panel module-table">
           <div className="panel-heading"><div><h2>Expenses <span className="inline-count">{expenses.length}</span></h2><p>Record business expenses with categories.</p></div></div>
-          <div className="form-grid">
-            <div className="form-field"><Label htmlFor="exp-amount">Amount (USh)</Label><Input id="exp-amount" type="number" value={expenseAmount} onChange={(e) => setExpenseAmount(e.target.value)} placeholder="25000" /></div>
-            <div className="form-field"><Label htmlFor="exp-category">Category</Label><select id="exp-category" className="input" value={expenseCategory} onChange={(e) => setExpenseCategory(e.target.value)}>{categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-            <div className="form-field"><Label htmlFor="exp-date">Date</Label><Input id="exp-date" type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} /></div>
-            <div className="form-field"><Label htmlFor="exp-method">Payment method</Label><select id="exp-method" className="input" value={expenseMethod} onChange={(e) => setExpenseMethod(e.target.value)}><option>Cash</option><option>M-Pesa</option><option>Card</option><option>Bank transfer</option></select></div>
-            <div className="form-field"><Label htmlFor="exp-ref">Reference</Label><Input id="exp-ref" value={expenseReference} onChange={(e) => setExpenseReference(e.target.value)} /></div>
-            <div className="form-field"><Label htmlFor="exp-desc">Description</Label><Input id="exp-desc" value={expenseDescription} onChange={(e) => setExpenseDescription(e.target.value)} /></div>
-          </div>
-          <div className="flex justify-end gap-2">
-            {editing
-              ? <Button variant="secondary" onClick={onSave} disabled={saving}><Check size={16}/>{saving ? "Saving…" : "Save"}</Button>
-              : <Button variant="secondary" onClick={openCreate}><Plus size={16}/>New expense</Button>}
-          </div>
+          {isMobile ? (
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={openCreate}><Plus size={16}/>New expense</Button>
+            </div>
+          ) : (
+            <>
+              <div className="form-grid">
+                <div className="form-field"><Label htmlFor="exp-amount">Amount (USh)</Label><Input id="exp-amount" type="number" value={expenseAmount} onChange={(e) => setExpenseAmount(e.target.value)} placeholder="25000" /></div>
+                <div className="form-field"><Label htmlFor="exp-category">Category</Label><select id="exp-category" className="input" value={expenseCategory} onChange={(e) => setExpenseCategory(e.target.value)}>{categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                <div className="form-field"><Label htmlFor="exp-date">Date</Label><Input id="exp-date" type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} /></div>
+                <div className="form-field"><Label htmlFor="exp-method">Payment method</Label><select id="exp-method" className="input" value={expenseMethod} onChange={(e) => setExpenseMethod(e.target.value)}><option>Cash</option><option>M-Pesa</option><option>Card</option><option>Bank transfer</option></select></div>
+                <div className="form-field"><Label htmlFor="exp-ref">Reference</Label><Input id="exp-ref" value={expenseReference} onChange={(e) => setExpenseReference(e.target.value)} /></div>
+                <div className="form-field"><Label htmlFor="exp-desc">Description</Label><Input id="exp-desc" value={expenseDescription} onChange={(e) => setExpenseDescription(e.target.value)} /></div>
+              </div>
+              <div className="flex justify-end gap-2">
+                {editing
+                  ? <Button variant="secondary" onClick={onSave} disabled={saving}><Check size={16}/>{saving ? "Saving…" : "Save"}</Button>
+                  : <Button variant="secondary" onClick={openCreate}><Plus size={16}/>New expense</Button>}
+              </div>
+            </>
+          )}
+          <Dialog open={expFormOpen} onOpenChange={(v) => { setExpFormOpen(v); if (!v) { setEditing(null); resetExpenseForm(); } }}>
+            <DialogContent className="max-w-lg">
+              <DialogTitle>{editing ? "Edit expense" : "New expense"}</DialogTitle>
+              <DialogDescription>Record business expenses with categories.</DialogDescription>
+              <div className="space-y-3">
+                <div className="form-field"><Label htmlFor="m-exp-amount">Amount (USh)</Label><Input id="m-exp-amount" type="number" inputMode="numeric" value={expenseAmount} onChange={(e) => setExpenseAmount(e.target.value)} placeholder="25000" /></div>
+                <div className="form-field"><Label htmlFor="m-exp-category">Category</Label><select id="m-exp-category" className="input" value={expenseCategory} onChange={(e) => setExpenseCategory(e.target.value)}>{categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                <div className="form-field"><Label htmlFor="m-exp-date">Date</Label><Input id="m-exp-date" type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} /></div>
+                <div className="form-field"><Label htmlFor="m-exp-method">Payment method</Label><select id="m-exp-method" className="input" value={expenseMethod} onChange={(e) => setExpenseMethod(e.target.value)}><option>Cash</option><option>M-Pesa</option><option>Card</option><option>Bank transfer</option></select></div>
+                <div className="form-field"><Label htmlFor="m-exp-ref">Reference</Label><Input id="m-exp-ref" value={expenseReference} onChange={(e) => setExpenseReference(e.target.value)} /></div>
+                <div className="form-field"><Label htmlFor="m-exp-desc">Description</Label><Input id="m-exp-desc" value={expenseDescription} onChange={(e) => setExpenseDescription(e.target.value)} /></div>
+              </div>
+              <div className="dialog-actions">
+                <Button variant="ghost" onClick={() => { setExpFormOpen(false); setEditing(null); resetExpenseForm(); }}>Cancel</Button>
+                <Button variant="secondary" onClick={onSave} disabled={saving}><Check size={16}/>{saving ? "Saving…" : (editing ? "Save" : "Create expense")}</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
           <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search expenses" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search expenses, categories…"/></label><label className="filter-select"><SlidersHorizontal size={14}/><select aria-label="Filter expenses by category" value={expCategory} onChange={(e) => setExpCategory(e.target.value)}>{["All categories", ...categories.map((c) => c.name)].map((c) => <option key={c}>{c}</option>)}</select></label></div>
           <DataTable
             columns={[
-              { header: "Date", sortKey: "date", cell: (e) => new Date(e.date).toLocaleDateString("en-UG", { year: "numeric", month: "short", day: "numeric" }) },
-              { header: "Category", sortKey: "category", cell: (e) => categories.find((c) => c.id === e.categoryId)?.name || e.categoryId },
-              { header: "Method", sortKey: "method", cell: (e) => e.paymentMethod },
-              { header: "Amount", align: "right", sortKey: "amount", cell: (e) => <span className="amount-cell">{money(e.amount)}</span> },
-              { header: "Recorded by", cell: (e) => e.recordedBy },
-              { header: "", cell: (e) => (
+              { header: "Date", sortKey: "date", mobile: "meta", cell: (e) => new Date(e.date).toLocaleDateString("en-UG", { year: "numeric", month: "short", day: "numeric" }) },
+              { header: "Category", sortKey: "category", mobile: "title", cell: (e) => categories.find((c) => c.id === e.categoryId)?.name || e.categoryId },
+              { header: "Method", sortKey: "method", mobile: "drawer", cell: (e) => e.paymentMethod },
+              { header: "Amount", align: "right", sortKey: "amount", mobile: "value", cell: (e) => <span className="amount-cell">{money(e.amount)}</span> },
+              { header: "Recorded by", mobile: "drawer", cell: (e) => e.recordedBy },
+              { header: "", mobile: "action", cell: (e) => (
                 <div className="flex justify-end gap-1">
-                  <Button variant="ghost" size="icon" title={`Edit expense ${e.id}`} aria-label={`Edit expense ${e.id}`} onClick={() => openEdit(e)}><Pencil size={14}/></Button>
-                  <Button variant="ghost" size="icon" title={`Delete expense ${e.id}`} aria-label={`Delete expense ${e.id}`} onClick={() => onDeleteExpense(e.id)}><Trash2 size={14}/></Button>
+                  <Button variant="ghost" size="sm" title={`Edit expense ${e.id}`} aria-label={`Edit expense ${e.id}`} onClick={() => openEdit(e)}><Pencil size={14}/></Button>
+                  <Button variant="ghost" size="sm" title={`Delete expense ${e.id}`} aria-label={`Delete expense ${e.id}`} onClick={() => onDeleteExpense(e.id)}><Trash2 size={14}/></Button>
                 </div>
               ) },
             ]}
@@ -423,7 +480,8 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
             onSortChange={setExpSort}
             stickyHeader
             density={density}
-            empty={<div className="empty-state"><Plus /><h3>No expenses yet</h3><p>Record an expense above to track direct costs.</p></div>}
+            mobileTitle={(e) => categories.find((c) => c.id === e.categoryId)?.name || e.categoryId} mobileSubtitle={(e) => new Date(e.date).toLocaleDateString("en-UG")} openLabel="View expense"
+            empty={<div className="empty-state"><Plus /><h3>No expenses yet</h3><p>Record an expense to track direct costs.</p></div>}
           />
           <div className="table-foot"><span>{filteredExpenses.length} expense{filteredExpenses.length === 1 ? "" : "s"}</span><span>{expenses.length} recorded in total</span></div>
         </section>
@@ -452,13 +510,14 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
           {reports && (
             <DataTable
               columns={[
-                { header: "Line", cell: (r) => (r.bold ? <strong>{r.label}</strong> : r.label) },
-                { header: "Value (USh)", align: "right", cell: (r) => (r.bold ? <strong>{r.value}</strong> : r.value) },
+                { header: "Line", mobile: "title", cell: (r) => (r.bold ? <strong>{r.label}</strong> : r.label) },
+                { header: "Value (USh)", align: "right", mobile: "value", cell: (r) => (r.bold ? <strong>{r.value}</strong> : r.value) },
               ]}
               rows={reportLines}
               rowKey={(r) => r.label}
               stickyHeader
               density={density}
+              mobileTitle={(r) => r.label} mobileSubtitle={() => "Report line"} openLabel="View line"
             />
           )}
           {reports && <div className="table-foot"><span>Report period: {period}</span></div>}
@@ -470,17 +529,18 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
           <div className="panel-heading"><div><h2>Invoices <span className="inline-count">{invoices.length}</span></h2><p>Issued invoices and credit notes.</p></div></div>
           <DataTable
             columns={[
-              { header: "Invoice #", cell: (i) => <strong className="product-name">{i.invoice_no || i.id}</strong> },
-              { header: "Order", cell: (i) => i.order_id },
-              { header: "Customer", cell: (i) => i.customer_id },
-              { header: "Status", cell: (i) => i.status },
-              { header: "Total", align: "right", cell: (i) => <span className="amount-cell">{money(i.total || 0)}</span> },
-              { header: "Issue date", cell: (i) => i.issue_date || (i.created_at ? new Date(i.created_at).toLocaleDateString("en-UG") : "-") },
+              { header: "Invoice #", mobile: "title", cell: (i) => <strong className="product-name">{i.invoice_no || i.id}</strong> },
+              { header: "Order", mobile: "meta", cell: (i) => i.order_id },
+              { header: "Customer", mobile: "drawer", cell: (i) => i.customer_id },
+              { header: "Status", mobile: "badge", cell: (i) => i.status },
+              { header: "Total", align: "right", mobile: "value", cell: (i) => <span className="amount-cell">{money(i.total || 0)}</span> },
+              { header: "Issue date", mobile: "meta", cell: (i) => i.issue_date || (i.created_at ? new Date(i.created_at).toLocaleDateString("en-UG") : "-") },
             ]}
             rows={invoices}
             rowKey={(i) => i.id}
             stickyHeader
             density={density}
+            mobileTitle={(i) => i.invoice_no || i.id} mobileSubtitle={(i) => String(i.order_id || "")} openLabel="View invoice"
             empty={<div className="empty-state"><Plus /><h3>No invoices yet</h3><p>Invoices are created when orders are confirmed.</p></div>}
           />
         </section>
@@ -491,15 +551,16 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
           <div className="panel-heading"><div><h2>Approvals <span className="inline-count">{approvals.length}</span></h2><p>Pending approvals for reversals, refunds and overrides.</p></div></div>
           <DataTable
             columns={[
-              { header: "Kind", cell: (a) => a.kind },
-              { header: "Requested by", cell: (a) => a.requested_by },
-              { header: "Status", cell: (a) => a.status },
-              { header: "Created", cell: (a) => a.created_at ? new Date(a.created_at).toLocaleString("en-UG") : "-" },
+              { header: "Kind", mobile: "title", cell: (a) => a.kind },
+              { header: "Requested by", mobile: "meta", cell: (a) => a.requested_by },
+              { header: "Status", mobile: "badge", cell: (a) => a.status },
+              { header: "Created", mobile: "meta", cell: (a) => a.created_at ? new Date(a.created_at).toLocaleString("en-UG") : "-" },
             ]}
             rows={approvals}
             rowKey={(a) => a.id}
             stickyHeader
             density={density}
+            mobileTitle={(a) => String(a.kind || "Approval")} mobileSubtitle={(a) => String(a.requested_by || "")} openLabel="View approval"
             empty={<div className="empty-state"><Check /><h3>No pending approvals</h3><p>All approval requests are up to date.</p></div>}
           />
         </section>

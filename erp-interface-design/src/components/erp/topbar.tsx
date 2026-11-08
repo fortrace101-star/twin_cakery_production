@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Bell, CalendarDays, CheckCheck, ChevronRight, CircleAlert, Moon, PanelLeftClose, PanelLeftOpen, Search, ShoppingBag, Sun, Truck, Users } from "lucide-react";
+import { Bell, CalendarDays, CheckCheck, ChevronRight, CircleAlert, Menu, Moon, PanelLeftClose, PanelLeftOpen, Search, ShoppingBag, Sun, Truck, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "./ui";
 import { getUnreadCount, listNotifications, markAllAsRead, markAsRead, type ServerNotification, type ServerUser } from "@/lib/api";
@@ -19,18 +19,17 @@ function notificationIcon(n: ServerNotification) {
   if (/order|quot|inquir|payment/i.test(n.title)) return ShoppingBag;
   return Bell;
 }
-export function Topbar({collapsed,setCollapsed,module,config,search,setSearch,connected,user,setLoginOpen,notification,setNotification,setNotice,theme,setTheme,followUps=[]}: {collapsed:boolean;setCollapsed:(v:boolean)=>void;module:string;config:{label:string}|undefined;search:string;setSearch:(v:string)=>void;connected:boolean;user:ServerUser|null;setLoginOpen:(v:boolean)=>void;notification:boolean;setNotification:(v:boolean)=>void;setNotice:(s:string)=>void;theme:'light'|'dark'|null;setTheme:(t:'light'|'dark')=>void;followUps?:{id:string;customer:string}[]}) {
-  // Live inbox (E4 remainder): real per-user notifications from
-  // GET /notifications + unread badge, loaded when signed in and refreshed
-  // each time the panel opens. Follow-ups (store-derived) stay on top.
+export function Topbar({collapsed,setCollapsed,module,config,search,setSearch,connected,user,setLoginOpen,notification,setNotification,setNotice,theme,setTheme,followUps=[],onMenu,isMobile=false}: {collapsed:boolean;setCollapsed:(v:boolean)=>void;module:string;config:{label:string}|undefined;search:string;setSearch:(v:string)=>void;connected:boolean;user:ServerUser|null;setLoginOpen:(v:boolean)=>void;notification:boolean;setNotification:(v:boolean)=>void;setNotice:(s:string)=>void;theme:'light'|'dark'|null;setTheme:(t:'light'|'dark')=>void;followUps?:{id:string;customer:string}[];onMenu?:()=>void;isMobile?:boolean}) {
   const [notifs, setNotifs] = useState<ServerNotification[]>([]);
   const [unread, setUnread] = useState(0);
+  const [searchOpen, setSearchOpen] = useState(false);
   const load = useCallback(async () => {
     const [rows, count] = await Promise.all([listNotifications(20), getUnreadCount()]);
     setNotifs(rows);
     setUnread(count);
   }, []);
   useEffect(() => { if (connected) void load(); }, [connected, load]);
+  useEffect(() => { if (!isMobile) setSearchOpen(false); }, [isMobile]);
   const togglePanel = () => {
     const next = !notification;
     setNotification(next);
@@ -38,5 +37,29 @@ export function Topbar({collapsed,setCollapsed,module,config,search,setSearch,co
   };
   const badgeCount = unread + followUps.length;
   const todayLabel = new Date().toLocaleDateString("en-UG", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
-  return    <header className="topbar"><div className="breadcrumb"><IconButton icon={collapsed?PanelLeftOpen:PanelLeftClose} label={collapsed?'Expand sidebar':'Collapse sidebar'} onClick={()=>setCollapsed(!collapsed)}/><span>Workspace</span><ChevronRight size={14}/><strong>{module==='dashboard'?'Overview':config?.label}</strong></div><label className="topbar-search"><Search size={15}/><input aria-label="Search workspace" placeholder="Search orders, customers..." value={search} onChange={e=>setSearch(e.target.value)}/></label><div className="topbar-actions">{connected?<span className="sample-tag"><span className="presence-dot"/>Live · {user?.displayName||user?.username}</span>:<Button variant="outline" size="sm" onClick={()=>setLoginOpen(true)}>Sign in</Button>}<span className="today"><CalendarDays size={14}/> {todayLabel}</span><div className="notification-wrap"><Button variant="ghost" size="icon" aria-label={badgeCount>0?`Notifications - ${unread} unread, ${followUps.length} follow-up${followUps.length===1?"":"s"} requested`:"Notifications"} title="Notifications" onClick={togglePanel}><Bell/>{badgeCount>0&&<i className="has-followups"/>}</Button>{notification&&<div className="notification-panel"><div className="panel-heading"><strong>Notifications</strong><IconButton icon={CheckCheck} label="Mark all read" onClick={async()=>{const n=await markAllAsRead(user?.id);setNotice(n>0?`${n} notification${n===1?"":"s"} marked as read`:"All notifications marked as read");void load();}}/></div>{followUps.map(o=><Link key={o.id} to="/workspace/crm" onClick={()=>setNotification(false)} className="notification-followup"><Users/><div><strong>Follow up with {o.customer}</strong><span>{o.id} is Completed / Delivered - document the follow-up in CRM.</span></div></Link>)}{notifs.map(n=>{const Icon=notificationIcon(n);return <Link key={n.id} to={notificationTarget(n)} onClick={()=>{setNotification(false);if(!n.readAt)void markAsRead(n.id);}} className={`notif-item${n.readAt?"":" notif-unread"}`}><Icon/><div><strong>{n.title}</strong><span>{n.message}</span></div></Link>;})}{notifs.length===0&&followUps.length===0&&<p className="notif-empty">You are all caught up.</p>}</div>}</div><Button variant="ghost" size="icon" className="theme-toggle" aria-label={theme==='dark'?'Switch to light mode':'Switch to dark mode'} title={theme==='dark'?'Switch to light mode':'Switch to dark mode'} onClick={()=>setTheme(theme==='dark'?'light':'dark')}>{theme==='dark'?<Sun/>:<Moon/>}</Button></div></header>
+  const showSearch = !isMobile || searchOpen;
+  return <header className="topbar">
+    <div className="breadcrumb">
+      {isMobile
+        ? <IconButton icon={Menu} label="Open navigation" onClick={() => onMenu?.()} />
+        : <IconButton icon={collapsed?PanelLeftOpen:PanelLeftClose} label={collapsed?'Expand sidebar':'Collapse sidebar'} onClick={()=>setCollapsed(!collapsed)}/>}
+      <span>Workspace</span><ChevronRight size={14}/><strong>{module==='dashboard'?'Overview':config?.label}</strong>
+    </div>
+    {isMobile && !searchOpen
+      ? <IconButton icon={Search} label={search ? 'Search (filter active)' : 'Search'} onClick={() => setSearchOpen(true)} />
+      : <label className={'topbar-search' + (isMobile ? ' is-open' : '')}>
+          <Search size={15}/>
+          <input autoFocus={isMobile && searchOpen} aria-label="Search workspace" placeholder="Search orders, customers..." value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') setSearchOpen(false); }}/>
+          {isMobile && <IconButton icon={X} label="Close search" onClick={() => setSearchOpen(false)} />}
+        </label>}
+    <div className="topbar-actions">
+      {connected?<span className="sample-tag"><span className="presence-dot"/>Live · {user?.displayName||user?.username}</span>:(!isMobile && <Button variant="outline" size="sm" onClick={()=>setLoginOpen(true)}>Sign in</Button>)}
+      {!isMobile && <span className="today"><CalendarDays size={14}/> {todayLabel}</span>}
+      <div className="notification-wrap">
+        <Button variant="ghost" size="icon" aria-label={badgeCount>0?`Notifications - ${unread} unread, ${followUps.length} follow-up${followUps.length===1?"":"s"} requested`:"Notifications"} title="Notifications" onClick={togglePanel}><Bell/>{badgeCount>0&&<i className="has-followups"/>}</Button>
+        {notification&&<div className="notification-panel"><div className="panel-heading"><strong>Notifications</strong><IconButton icon={CheckCheck} label="Mark all read" onClick={async()=>{const n=await markAllAsRead(user?.id);setNotice(n>0?`${n} notification${n===1?"":"s"} marked as read`:"All notifications marked as read");void load();}}/></div>{followUps.map(o=><Link key={o.id} to="/workspace/crm" onClick={()=>setNotification(false)} className="notification-followup"><Users/><div><strong>Follow up with {o.customer}</strong><span>{o.id} is Completed / Delivered - document the follow-up in CRM.</span></div></Link>)}{notifs.map(n=>{const Icon=notificationIcon(n);return <Link key={n.id} to={notificationTarget(n)} onClick={()=>{setNotification(false);if(!n.readAt)void markAsRead(n.id);}} className={`notif-item${n.readAt?"":" notif-unread"}`}><Icon/><div><strong>{n.title}</strong><span>{n.message}</span></div></Link>;})}{notifs.length===0&&followUps.length===0&&<p className="notif-empty">You are all caught up.</p>}</div>}
+      </div>
+      {!isMobile && <Button variant="ghost" size="icon" className="theme-toggle" aria-label={theme==='dark'?'Switch to light mode':'Switch to dark mode'} title={theme==='dark'?'Switch to light mode':'Switch to dark mode'} onClick={()=>setTheme(theme==='dark'?'light':'dark')}>{theme==='dark'?<Sun/>:<Moon/>}</Button>}
+    </div>
+  </header>;
 }

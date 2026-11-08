@@ -268,13 +268,14 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
       <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search suppliers" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search suppliers, contacts…"/></label></div>
       <DataTable
         columns={[
-          { header: "Supplier", cell: (s) => <><strong className="product-name">{s.businessName}</strong><small className="cell-sub">{s.address || s.id}</small></> },
-          { header: "Contact", cell: (s) => <>{s.contactPerson || "—"}<small className="cell-sub">{[s.phone, s.email].filter(Boolean).join(" · ")}</small></> },
-          { header: "Supplies", cell: (s) => s.productsSupplied || "—" },
-          { header: "Terms", cell: (s) => s.paymentTerms || "—" },
-          { header: "Status", cell: (s) => <Status value={s.active ? "Active" : "Inactive"}/> },
+          { header: "Supplier", mobile: "title", cell: (s) => <><strong className="product-name">{s.businessName}</strong><small className="cell-sub">{s.address || s.id}</small></> },
+          { header: "Contact", mobile: "meta", cell: (s) => <>{s.contactPerson || "—"}<small className="cell-sub">{[s.phone, s.email].filter(Boolean).join(" · ")}</small></> },
+          { header: "Supplies", mobile: "drawer", cell: (s) => s.productsSupplied || "—" },
+          { header: "Terms", mobile: "drawer", cell: (s) => s.paymentTerms || "—" },
+          { header: "Status", mobile: "badge", cell: (s) => <Status value={s.active ? "Active" : "Inactive"}/> },
         ] as Column<ServerSupplier>[]}
         rows={filteredSuppliers} rowKey={(s) => s.id} stickyHeader density={density}
+        mobileTitle={(s) => s.businessName} mobileSubtitle={(s) => s.contactPerson || s.address || ""}
         empty={<div className="empty-state"><Building2/><h3>No suppliers found</h3><p>Suppliers are configured by the administrator.</p></div>}
       />
       <div className="table-foot"><span>{filteredSuppliers.length} suppliers</span><span>{suppliers.filter(s => s.active).length} active</span></div>
@@ -309,12 +310,12 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
       <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search requirements" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search requirements, items…"/></label></div>
       <DataTable
         columns={[
-          { header: "Item(s)", cell: (r) => <strong className="product-name">{requestedByLabel(r)}</strong> },
-          { header: "Quantity", align: "right", cell: (r) => <span className="amount-cell">{r.quantity} {r.unit}</span> },
-          { header: "Reason", cell: (r) => r.reason || "—" },
-          { header: "Urgency", cell: (r) => <Status value={r.urgency.charAt(0) + r.urgency.slice(1).toLowerCase()}/> },
-          { header: "Status", cell: (r) => <Status value={reqStatusLabel(r.status)}/> },
-          { header: "", cell: (r) => <div style={{ display: "flex", gap: 4 }}>
+          { header: "Item(s)", mobile: "title", cell: (r) => <strong className="product-name">{requestedByLabel(r)}</strong> },
+          { header: "Quantity", align: "right", mobile: "value", cell: (r) => <span className="amount-cell">{r.quantity} {r.unit}</span> },
+          { header: "Reason", mobile: "drawer", cell: (r) => r.reason || "—" },
+          { header: "Urgency", mobile: "badge", cell: (r) => <Status value={r.urgency.charAt(0) + r.urgency.slice(1).toLowerCase()}/> },
+          { header: "Status", mobile: "meta", cell: (r) => <Status value={reqStatusLabel(r.status)}/> },
+          { header: "", mobile: "action", cell: (r) => <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
             {r.status === "OPEN" && <Button variant="outline" size="sm" disabled={busy} onClick={e => { e.stopPropagation(); void acknowledgeReq(r); }}>Acknowledge</Button>}
             {(r.status === "OPEN" || r.status === "ACKNOWLEDGED") && <Button variant="ghost" size="sm" disabled={busy || invItems.length === 0} onClick={e => {
               e.stopPropagation();
@@ -325,6 +326,7 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
           </div> },
         ] as Column<ServerPurchaseRequirement>[]}
         rows={filteredReqs} rowKey={(r) => r.id} stickyHeader density={density}
+        mobileTitle={(r) => requestedByLabel(r)} mobileSubtitle={(r) => r.reason || ""} openLabel="View requirement"
         empty={<div className="empty-state"><Truck/><h3>No purchase requirements</h3><p>Raise one from an Inventory → Alerts shortfall.</p></div>}
       />
       <div className="table-foot"><span>{filteredReqs.length} requirements</span><span>{requirements.filter(r => r.status === "OPEN").length} open</span></div>
@@ -338,15 +340,16 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
       <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search goods receipts" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search receipts, POs…"/></label></div>
       <DataTable
         columns={[
-          { header: "Receipt", cell: (g) => <><strong className="product-name">{orders.find(o => o.id === g.purchaseOrderId)?.poNumber ?? g.purchaseOrderId}</strong><small className="cell-sub">{g.id}</small></> },
-          { header: "Date", cell: (g) => new Date(g.date).toLocaleDateString() },
-          { header: "Received by", cell: (g) => g.receivedBy || "—" },
-          { header: "Lines", align: "right", cell: (g) => <span className="amount-cell">{g.items?.length ?? 0}</span> },
-          { header: "Total", align: "right", cell: (g) => <span className="amount-cell">{money(g.total)}</span> },
-          { header: "Status", cell: (g) => <Status value={poStatusLabel(g.status)}/> },
-          { header: "", cell: (g) => <Button variant="ghost" size="icon" aria-label={`Open receipt ${g.id}`} onClick={e => { e.stopPropagation(); setReceiptDetail(g); }}><ArrowUpRight/></Button> },
+          { header: "Receipt", mobile: "title", cell: (g) => <><strong className="product-name">{orders.find(o => o.id === g.purchaseOrderId)?.poNumber ?? g.purchaseOrderId}</strong><small className="cell-sub">{g.id}</small></> },
+          { header: "Date", mobile: "meta", cell: (g) => new Date(g.date).toLocaleDateString() },
+          { header: "Received by", mobile: "drawer", cell: (g) => g.receivedBy || "—" },
+          { header: "Lines", align: "right", mobile: "drawer", cell: (g) => <span className="amount-cell">{g.items?.length ?? 0}</span> },
+          { header: "Total", align: "right", mobile: "value", cell: (g) => <span className="amount-cell">{money(g.total)}</span> },
+          { header: "Status", mobile: "badge", cell: (g) => <Status value={poStatusLabel(g.status)}/> },
+          { header: "", mobile: "hide", cell: (g) => <Button variant="ghost" size="icon" aria-label={`Open receipt ${g.id}`} onClick={e => { e.stopPropagation(); setReceiptDetail(g); }}><ArrowUpRight/></Button> },
         ] as Column<ServerGoodsReceipt>[]}
         rows={filteredReceipts} rowKey={(g) => g.id} onRowActivate={(g) => setReceiptDetail(g)} stickyHeader density={density}
+        mobileTitle={(g) => orders.find(o => o.id === g.purchaseOrderId)?.poNumber ?? g.purchaseOrderId} mobileSubtitle={(g) => new Date(g.date).toLocaleDateString()} openLabel="Open receipt"
         empty={<div className="empty-state"><PackageCheck/><h3>No goods received yet</h3><p>Receipts are created when a purchase order is received.</p></div>}
       />
       <div className="table-foot"><span>{filteredReceipts.length} receipts</span><span>{receipts.reduce((s, g) => s + (g.items?.length ?? 0), 0)} lines received</span></div>
@@ -372,15 +375,16 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
     <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search purchase orders" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search PO numbers, suppliers…"/></label></div>
     <DataTable
       columns={[
-        { header: "PO / supplier", cell: (p) => <><strong className="product-name">{p.poNumber}</strong><small className="cell-sub">{supplierName(p.supplierId)}</small></> },
-        { header: "Expected", cell: (p) => new Date(p.expectedDate).toLocaleDateString() },
-        { header: "Lines", align: "right", cell: (p) => <span className="amount-cell">{p.items.length}</span> },
-        { header: "Received", align: "right", cell: (p) => <span className="amount-cell">{p.items.filter(i => i.receivedQuantity >= i.quantity).length}/{p.items.length}</span> },
-        { header: "Total", align: "right", cell: (p) => <span className="amount-cell">{money(p.total)}</span> },
-        { header: "Status", cell: (p) => <Status value={poStatusLabel(p.status)}/> },
-        { header: "", cell: (p) => <Button variant="ghost" size="icon" aria-label={`Open ${p.poNumber}`} onClick={e => { e.stopPropagation(); setDetail(p); }}><ArrowUpRight/></Button> },
+        { header: "PO / supplier", mobile: "title", cell: (p) => <><strong className="product-name">{p.poNumber}</strong><small className="cell-sub">{supplierName(p.supplierId)}</small></> },
+        { header: "Expected", mobile: "meta", cell: (p) => new Date(p.expectedDate).toLocaleDateString() },
+        { header: "Lines", align: "right", mobile: "drawer", cell: (p) => <span className="amount-cell">{p.items.length}</span> },
+        { header: "Received", align: "right", mobile: "meta", cell: (p) => <span className="amount-cell">{p.items.filter(i => i.receivedQuantity >= i.quantity).length}/{p.items.length} received</span> },
+        { header: "Total", align: "right", mobile: "value", cell: (p) => <span className="amount-cell">{money(p.total)}</span> },
+        { header: "Status", mobile: "badge", cell: (p) => <Status value={poStatusLabel(p.status)}/> },
+        { header: "", mobile: "hide", cell: (p) => <Button variant="ghost" size="icon" aria-label={`Open ${p.poNumber}`} onClick={e => { e.stopPropagation(); setDetail(p); }}><ArrowUpRight/></Button> },
       ] as Column<ServerPurchaseOrder>[]}
       rows={filtered} rowKey={(p) => p.id} onRowActivate={(p) => setDetail(p)} stickyHeader density={density}
+      mobileTitle={(p) => p.poNumber} mobileSubtitle={(p) => supplierName(p.supplierId)} openLabel="Open PO"
       empty={<div className="empty-state"><Search/><h3>No purchase orders found</h3><p>Purchase orders appear once suppliers are engaged.</p></div>}
     />
     <div className="table-foot"><span>{filtered.length} orders</span><span>{orders.filter(p => p.status === "COMPLETED").length} received</span></div>

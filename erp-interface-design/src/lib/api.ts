@@ -1091,12 +1091,14 @@ export function getProductionBoardCache(): BoardCache {
 
 /* ── React hook: mount the production board poll per view ────────────────── */
 
-export function useProductionBoardCache(refreshBoard: (jobs: ServerProductionJob[], orders: ServerOrder[]) => void): void {
+export function useProductionBoardCache(refreshBoard: (jobs?: ServerProductionJob[], orders?: ServerOrder[]) => void | Promise<void>): void {
   useEffect(() => {
     // Initialise the shared cache, then start the polling tick.
-    const { state, refresh } = loadProductionBoardCache([], []);
-    refreshBoard(state.jobs, state.orders);
-    const handle = startProductionBoardPolling(refresh);
+    const { refresh } = loadProductionBoardCache([], []);
+    const handle = startProductionBoardPolling((jobs, orders) => {
+      refresh(jobs, orders);
+      void refreshBoard(jobs, orders);
+    });
     return () => {
       handle.stop();
       _boardCache = null;

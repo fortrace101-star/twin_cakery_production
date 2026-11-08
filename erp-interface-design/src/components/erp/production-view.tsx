@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLiveRefresh } from "@/lib/live";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { StageTabs } from "./stage-tabs";
 import type { ServerOrder } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { StatusBadge as Status } from "@/components/data-table/StatusBadge";
@@ -170,17 +172,32 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
   const ensuringRef = useRef(false);
   const [confirmedDialogOrder, setConfirmedDialogOrder] = useState<ServerOrder | null>(null);
   const [starting, setStarting] = useState(false);
+  const isMobile = useIsMobile();
+  const [scheduleStage, setScheduleStage] = useState("confirmed");
 
   // 5s cached fallback tick: the board re-reads orders + jobs from Postgres
   // every 5s so the schedule never goes stale; the SSE stream still updates
   // the board immediately on every server change.
-  const refreshBoard = useCallback((jobs?: ServerProductionJob[], orders?: ServerOrder[]) => {
-    if (orders) {
-      setOrderOrders(orders);
-    }
-    if (jobs) {
-      setJobs(jobs || []);
-      jobsRef.current = jobs || [];
+  const refreshBoard = useCallback(async (jobsArg?: ServerProductionJob[], ordersArg?: ServerOrder[]) => {
+    try {
+      let nextJobs = jobsArg;
+      let nextOrders = ordersArg;
+      if (nextJobs === undefined || nextOrders === undefined) {
+        const [fetchedJobs, fetchedOrders] = await Promise.all([
+          listProductionJobs(),
+          listOrders(),
+        ]);
+        if (nextJobs === undefined) nextJobs = fetchedJobs;
+        if (nextOrders === undefined) nextOrders = fetchedOrders;
+      }
+      setOrderOrders(nextOrders || []);
+      setJobs(nextJobs || []);
+      jobsRef.current = nextJobs || [];
+    } catch (e) {
+      console.error("Failed to load production schedule:", e);
+    } finally {
+      setLoaded(true);
+      setBoardLoading(false);
     }
   }, []);
   useEffect(() => { void refreshBoard(); }, [refreshBoard]);
@@ -309,36 +326,29 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
   const showCardSkeletons = boardLoading && !loaded;
   return (
     <div style={{ padding: "16px" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "16px" }}>
-        <div>
-          <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Confirmed</h3>
-          {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
-            {confirmedOrders.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No orders</p>}
-            {confirmedOrders.map((o) => renderOrderCard(o, "confirmed"))}
-          </>)}
-        </div>
-        <div>
-          <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Baking Station</h3>
-          {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
-            {bakingOrders.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No orders</p>}
-            {bakingOrders.map((o) => renderOrderCard(o, "baking"))}
-          </>)}
-        </div>
-        <div>
-          <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Decorating Station</h3>
-          {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
-            {decoratingOrders.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No orders</p>}
-            {decoratingOrders.map((o) => renderOrderCard(o, "decorating"))}
-          </>)}
-        </div>
-        <div>
-          <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Ready</h3>
-          {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
-            {readyOrders.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No orders</p>}
-            {readyOrders.map((o) => renderOrderCard(o, "ready"))}
-          </>)}
-        </div>
-      </div>
+      {(() => {
+        const scheduleStages = [
+          { id: "confirmed", label: "Confirmed", count: confirmedOrders.length, items: confirmedOrders, render: (o: ServerOrder) => renderOrderCard(o, "confirmed") },
+          { id: "baking", label: "Baking Station", count: bakingOrders.length, items: bakingOrders, render: (o: ServerOrder) => renderOrderCard(o, "baking") },
+          { id: "decorating", label: "Decorating Station", count: decoratingOrders.length, items: decoratingOrders, render: (o: ServerOrder) => renderOrderCard(o, "decorating") },
+          { id: "ready", label: "Ready", count: readyOrders.length, items: readyOrders, render: (o: ServerOrder) => renderOrderCard(o, "ready") },
+        ];
+        const activeSchedule = scheduleStages.some(st => st.id === scheduleStage && st.count > 0) ? scheduleStage : (scheduleStages.find(st => st.count > 0)?.id || "confirmed");
+        return (<>
+          {isMobile && <StageTabs stages={scheduleStages.map(st => ({id:st.id,label:st.label,count:st.count}))} active={activeSchedule} onChange={setScheduleStage} />}
+          <div className="station-board">
+            {scheduleStages.map(st => (
+              <div key={st.id} data-stage={st.id} className={!isMobile || activeSchedule===st.id ? "is-active" : ""}>
+                <h3 className="board-col-title">{st.label}</h3>
+                {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
+                  {st.items.length === 0 && <p className="board-empty">No orders</p>}
+                  {st.items.map(st.render)}
+                </>)}
+              </div>
+            ))}
+          </div>
+        </>);
+      })()}
       <Dialog open={!!confirmedDialogOrder} onOpenChange={(v) => { if (!v) setConfirmedDialogOrder(null); }}>
         <DialogContent className="order-detail-dialog">
           <DialogTitle>{confirmedDialogOrder?.orderNumber}</DialogTitle>
@@ -372,16 +382,31 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
   const [consumption, setConsumption] = useState<any[]>([]);
   const [materialEntries, setMaterialEntries] = useState<Array<{ itemId: string; quantity: number; notes: string }>>([{ itemId: "", quantity: 0, notes: "" }]);
   const [busyAction, setBusyAction] = useState(false);
+  const isMobile = useIsMobile();
+  const [jobsStage, setJobsStage] = useState("queued");
 
   // 5s cached fallback tick: the board re-reads jobs + orders from Postgres
   // every 5s so it never goes stale between mutations. The SSE stream still
   // drives a synchronous refresh on every server change.
-  const refreshBoard = useCallback((js?: ServerProductionJob[], os?: ServerOrder[]) => {
-    if (js) {
-      setJobs(js || []);
-    }
-    if (os) {
-      setServerOrders(os || []);
+  const refreshBoard = useCallback(async (js?: ServerProductionJob[], os?: ServerOrder[]) => {
+    try {
+      let nextJobs = js;
+      let nextOrders = os;
+      if (nextJobs === undefined || nextOrders === undefined) {
+        const [fetchedJobs, fetchedOrders] = await Promise.all([
+          listProductionJobs(),
+          listOrders(),
+        ]);
+        if (nextJobs === undefined) nextJobs = fetchedJobs;
+        if (nextOrders === undefined) nextOrders = fetchedOrders;
+      }
+      setJobs(nextJobs || []);
+      setServerOrders(nextOrders || []);
+    } catch (e) {
+      console.error("Failed to load jobs board:", e);
+    } finally {
+      setLoaded(true);
+      setBoardLoading(false);
     }
   }, []);
   useEffect(() => { void refreshBoard(); }, [refreshBoard]);
@@ -625,36 +650,29 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
   const showCardSkeletons = boardLoading && !loaded;
   return (
     <div style={{ padding: "16px" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "16px" }}>
-        <div>
-          <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Queued</h3>
-          {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
-            {queuedJobs.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No jobs</p>}
-            {queuedJobs.map((j) => renderJobCard(j, "queued"))}
-          </>)}
-        </div>
-        <div>
-          <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Baking</h3>
-          {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
-            {bakingJobs.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No jobs</p>}
-            {bakingJobs.map((j) => renderJobCard(j, "baking"))}
-          </>)}
-        </div>
-        <div>
-          <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Decorating</h3>
-          {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
-            {decoratingJobs.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No jobs</p>}
-            {decoratingJobs.map((j) => renderJobCard(j, "decorating"))}
-          </>)}
-        </div>
-        <div>
-          <h3 style={{ marginBottom: "12px", fontSize: "16px", fontWeight: 600 }}>Ready</h3>
-          {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
-            {readyJobs.length === 0 && <p style={{ color: "var(--muted-foreground)", fontSize: "13px" }}>No jobs</p>}
-            {readyJobs.map((j) => renderJobCard(j, "ready"))}
-          </>)}
-        </div>
-      </div>
+      {(() => {
+        const jobStages = [
+          { id: "queued", label: "Queued", count: queuedJobs.length, items: queuedJobs, render: (j: any) => renderJobCard(j, "queued") },
+          { id: "baking", label: "Baking", count: bakingJobs.length, items: bakingJobs, render: (j: any) => renderJobCard(j, "baking") },
+          { id: "decorating", label: "Decorating", count: decoratingJobs.length, items: decoratingJobs, render: (j: any) => renderJobCard(j, "decorating") },
+          { id: "ready", label: "Ready", count: readyJobs.length, items: readyJobs, render: (j: any) => renderJobCard(j, "ready") },
+        ];
+        const activeJobs = jobStages.some(st => st.id === jobsStage && st.count > 0) ? jobsStage : (jobStages.find(st => st.count > 0)?.id || "queued");
+        return (<>
+          {isMobile && <StageTabs stages={jobStages.map(st => ({id:st.id,label:st.label,count:st.count}))} active={activeJobs} onChange={setJobsStage} />}
+          <div className="station-board">
+            {jobStages.map(st => (
+              <div key={st.id} data-stage={st.id} className={!isMobile || activeJobs===st.id ? "is-active" : ""}>
+                <h3 className="board-col-title">{st.label}</h3>
+                {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
+                  {st.items.length === 0 && <p className="board-empty">No jobs</p>}
+                  {st.items.map(st.render)}
+                </>)}
+              </div>
+            ))}
+          </div>
+        </>);
+      })()}
       <Dialog open={!!selectedJob} onOpenChange={(v) => { if (!v) setSelectedJob(null); }}>
         <DialogContent className="max-w-2xl">
           <DialogTitle>{jobDisplayIdSel}</DialogTitle>

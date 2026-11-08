@@ -226,14 +226,14 @@ function CustomerOrders({ name, connected }: { name: string; connected: boolean 
   const customer = ctx.customer!;
 
   const columns: Column<ServerCustomerOrder>[] = [
-    { header: "Order", cell: (o) => {
+    { header: "Order", mobile: "title", cell: (o) => {
       const ord = o as ServerCustomerOrder & { snapshot?: { snapshotName?: string | null } };
       return (<><strong className="product-name">{ord.orderNumber || ord.id}</strong>{ord.snapshot && <small className="cell-sub">{ord.snapshot.snapshotName || ''}</small>}</>);
     } },
-    { header: "Date", cell: (o) => <small className="text-muted-foreground">{o.requiredAt ? new Date(o.requiredAt).toLocaleDateString() : '—'}</small> },
-    { header: "Amount", align: "right", cell: (o) => <span className="amount-cell">{money(o.total)}</span> },
-    { header: "Status", cell: (o) => <Status value={orderStatusLabel(o.status)} /> },
-    { header: "", cell: () => <Button variant="ghost" size="icon" title="View order"><ArrowUpRight size={14} /></Button> },
+    { header: "Date", mobile: "meta", cell: (o) => <small className="text-muted-foreground">{o.requiredAt ? new Date(o.requiredAt).toLocaleDateString() : '—'}</small> },
+    { header: "Amount", align: "right", mobile: "value", cell: (o) => <span className="amount-cell">{money(o.total)}</span> },
+    { header: "Status", mobile: "badge", cell: (o) => <Status value={orderStatusLabel(o.status)} /> },
+    { header: "", mobile: "hide", cell: () => <Button variant="ghost" size="icon" title="View order"><ArrowUpRight size={14} /></Button> },
   ];
 
   return (
@@ -252,6 +252,7 @@ function CustomerOrders({ name, connected }: { name: string; connected: boolean 
             rowKey={(o) => o.id}
             stickyHeader
             density={density}
+            mobileTitle={(o) => (o as any).orderNumber || o.id} mobileSubtitle={(o) => o.requiredAt ? new Date(o.requiredAt).toLocaleDateString() : ""} openLabel="View order"
             empty={<Empty icon={<Clock3 />} title="No orders yet" body="This customer hasn't placed any orders yet." />}
           />
           <div className="table-foot"><span>{orderList.length} orders</span></div>
@@ -372,12 +373,12 @@ function CustomerFeedback({ name, connected }: { name: string; connected: boolea
   const [showRecordDialog, setShowRecordDialog] = useState(false);
 
   const columns: Column<ServerCustomerFeedback>[] = [
-    { header: "Rating", cell: (f) => <StarRating rating={f.rating} readonly /> },
-    { header: "Type", cell: (f: ServerCustomerFeedback) => <small className="text-muted-foreground">{feedbackTypeLabel(f.type)}</small> },
-    { header: "Date", cell: (f: ServerCustomerFeedback) => <small className="text-muted-foreground">{new Date(f.createdAt).toLocaleDateString()}</small> },
-    { header: "Comment", cell: (f) => <span className="text-sm">{f.comment || '—'}</span> },
-    { header: "Resolution", cell: (f) => <span className="text-sm">{f.resolution || '—'}</span> },
-    { header: "Order", cell: (f) => <small className="text-muted-foreground">{f.orderId || '—'}</small> },
+    { header: "Rating", mobile: "badge", cell: (f) => <StarRating rating={f.rating} readonly /> },
+    { header: "Type", mobile: "meta", cell: (f: ServerCustomerFeedback) => <small className="text-muted-foreground">{feedbackTypeLabel(f.type)}</small> },
+    { header: "Date", mobile: "meta", cell: (f: ServerCustomerFeedback) => <small className="text-muted-foreground">{new Date(f.createdAt).toLocaleDateString()}</small> },
+    { header: "Comment", mobile: "title", cell: (f) => <span className="text-sm">{f.comment || 'No comment'}</span> },
+    { header: "Resolution", mobile: "drawer", cell: (f) => <span className="text-sm">{f.resolution || '—'}</span> },
+    { header: "Order", mobile: "drawer", cell: (f) => <small className="text-muted-foreground">{f.orderId || '—'}</small> },
   ];
 
   return (
@@ -396,6 +397,7 @@ function CustomerFeedback({ name, connected }: { name: string; connected: boolea
             rowKey={(f) => f.id}
             stickyHeader
             density={density}
+            mobileTitle={(f) => f.comment?.slice(0, 60) || "Feedback"} mobileSubtitle={(f) => new Date(f.createdAt).toLocaleDateString()} openLabel="View feedback"
             empty={<Empty icon={<MessageSquare />} title="No feedback recorded" body="Record feedback from a completed order." />}
           />
           <div className="table-foot"><span>{feedbackList.length} feedback entries</span></div>

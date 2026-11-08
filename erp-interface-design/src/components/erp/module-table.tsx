@@ -78,26 +78,27 @@ export function OrderTable({orders,onSelect,compact=false}: {orders:Order[];onSe
 
   const columns: Column<Order>[] = [
 
-    { header:'Progress', width:'28px', cell:(o)=><OrderProgressStepper status={o.status}/> },
+    { header:'Progress', width:'28px', mobile:'hide', cell:(o)=><OrderProgressStepper status={o.status}/> },
 
-    { header:'Order / customer', cell:(o,i)=><div className="customer-cell"><span className={`customer-avatar avatar-${i%4}`}>{o.initials}</span><div><strong>{o.customer}</strong><small>#{o.id}</small></div></div> },
+    { header:'Order / customer', mobile:'title', cell:(o,i)=><div className="customer-cell"><span className={`customer-avatar avatar-${i%4}`}>{o.initials}</span><div><strong>{o.customer}</strong><small>#{o.id}</small></div></div> },
 
-    { header:'Product', cell:(o)=><><strong className="product-name">{o.product}</strong><small className="cell-sub">{o.options.split(' · ').slice(0,2).join(' · ')}</small></> },
+    { header:'Product', mobile:'meta', cell:(o)=><><strong className="product-name">{o.product}</strong><small className="cell-sub">{o.options.split(' · ').slice(0,2).join(' · ')}</small></> },
 
   ];
 
-  if(!compact) columns.push({ header:'Due date', cell:(o)=><><strong className="product-name">{o.date}</strong><small className="cell-sub">{o.time}</small></> });
+  if(!compact) columns.push({ header:'Due date', mobile:'meta', cell:(o)=><><strong className="product-name">{o.date}</strong><small className="cell-sub">{o.time}</small></> });
 
   // Orders with any payment show the amount collected so far under the total.
-  columns.push({ header:'Amount', align:'right', sortKey:'amount', cell:(o)=><span className="amount-cell">{money(o.amount)}{(o.paidAmount??0)>0&&<small className="paid-bracket" title="Amount paid so far">({money(o.paidAmount??0)} paid)</small>}</span> });
+  columns.push({ header:'Amount', align:'right', sortKey:'amount', mobile:'value', cell:(o)=><span className="amount-cell">{money(o.amount)}{(o.paidAmount??0)>0&&<small className="paid-bracket" title="Amount paid so far">({money(o.paidAmount??0)} paid)</small>}</span> });
 
-  columns.push({ header:'Order status', cell:(o)=><Status value={o.status}/> });
+  columns.push({ header:'Order status', mobile:'badge', cell:(o)=><Status value={o.status}/> });
 
-  if(!compact){ columns.push({ header:'Payment', cell:(o)=><Status value={o.payment}/> }); columns.push({ header:'Delivery', cell:(o)=><Status value={o.delivery}/> }); }
+  if(!compact){ columns.push({ header:'Payment', mobile:'badge', cell:(o)=><Status value={o.payment}/> }); columns.push({ header:'Delivery', mobile:'drawer', cell:(o)=><Status value={o.delivery}/> }); }
 
-  columns.push({ header:'', cell:(o)=><Button variant="ghost" size="icon" title={`Open order ${o.id}`} aria-label={`Open order ${o.id}`} onClick={e=>{e.stopPropagation();onSelect(o)}}><MoreHorizontal/></Button> });
+  columns.push({ header:'', mobile:'hide', cell:(o)=><Button variant="ghost" size="icon" title={`Open order ${o.id}`} aria-label={`Open order ${o.id}`} onClick={e=>{e.stopPropagation();onSelect(o)}}><MoreHorizontal/></Button> });
 
-  return <DataTable columns={columns} rows={sorted} rowKey={(o)=>o.id} rowClassName={(o)=>orderRowTone(o)} sort={sort} onSortChange={setSort} onRowActivate={onSelect} stickyHeader density={density} empty={<div className="empty-state"><Search/><h3>No orders found</h3><p>Try a different customer, product, or status.</p></div>}/>;
+  return <DataTable columns={columns} rows={sorted} rowKey={(o)=>o.id} rowClassName={(o)=>orderRowTone(o)} sort={sort} onSortChange={setSort} onRowActivate={onSelect} stickyHeader density={density} mobileTitle={(o)=>o.customer} mobileSubtitle={(o)=>`#${o.id}`} openLabel="Open order" empty={<div className="empty-state"><Search/><h3>No orders found</h3><p>Try a different customer, product, or status.</p></div>}/>;
+
 
 }
 
@@ -407,13 +408,13 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
 
   const columns: Column<GridRow>[] = [
 
-    { header: headings[0] ?? 'Record', cell: (r)=><><strong className="product-name">{r.name}</strong><small className="cell-sub">{r.id} · {r.detail}</small></> },
+    { header: headings[0] ?? 'Record', mobile: 'title', cell: (r)=><><strong className="product-name">{r.name}</strong><small className="cell-sub">{r.id} · {r.detail}</small></> },
 
-    { header: headings[1] ?? 'Date', cell: (r)=>r.secondary },
+    { header: headings[1] ?? 'Date', mobile: 'meta', cell: (r)=>r.secondary },
 
-    { header: headings[2] ?? 'Value', align: 'right', cell: (r)=><span className="amount-cell">{r.value}</span> },
+    { header: headings[2] ?? 'Value', align: 'right', mobile: 'value', cell: (r)=><span className="amount-cell">{r.value}</span> },
 
-    { header: 'Status', cell: (r)=>{
+    { header: 'Status', mobile: 'badge', cell: (r)=>{
       const status = String(r.status || '');
       if (module === 'production') {
         if (status === 'Baking') return <Status value={r.status} tone="orange" />;
@@ -422,7 +423,7 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
       return <Status value={r.status}/>
     } },
 
-    { header: '', cell: (r)=><Button variant="ghost" size="icon" aria-label={`View ${r.id}`} onClick={e=>{e.stopPropagation();setRecord(r)}}><ArrowUpRight/></Button> },
+    { header: '', mobile: 'hide', cell: (r)=><Button variant="ghost" size="icon" aria-label={`View ${r.id}`} onClick={e=>{e.stopPropagation();setRecord(r)}}><ArrowUpRight/></Button> },
 
   ];
 
@@ -571,7 +572,7 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
     : '';
   const showDeliveryExtras = module === 'delivery' && (tab === 'Upcoming' || tab === 'Dispatch') && record;
 
-  return <section className="panel module-table"><div className="panel-heading"><div><h2>{tab}</h2><p>{module==='inventory'?'Stock quantities reflect opening, purchases, adjustments, usage and wastage.':`${rows.length} ${tab.toLowerCase()} in your workspace`}</p></div><Button variant="outline" onClick={()=>onNotice('Sample workspace — live records are not connected')}><Plus/>{module==='purchasing'?'Create purchase order':module==='inventory'?'Record adjustment':'Add record'}</Button></div><div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label={`Search ${tab}`} value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Search ${tab.toLowerCase()}...`}/></label><label className="filter-select"><SlidersHorizontal size={14}/><select aria-label="Filter records" value={filter} onChange={e=>setFilter(e.target.value)}><option>All records</option>{Array.from(new Set(moduleRows(module,tab,orders).map(r=>r.status))).map(s=><option key={s}>{s}</option>)}</select></label></div><DataTable columns={columns} rows={rows} rowKey={(r)=>r.id} rowClassName={(r)=>`order-row-tint tone-${tone(r.status)}`} onRowActivate={(r)=>setRecord(r)} stickyHeader density={density} empty={<div className="empty-state"><Search/><h3>No matching records</h3><p>Try a different search or filter.</p></div>}/><div className="table-foot"><span>{rows.length} records</span><span>October 2026</span></div><Dialog open={Boolean(record)} onOpenChange={v=>{if(!v)setRecord(null)}}><DialogContent className="max-w-2xl"><DialogTitle>{record?.name}</DialogTitle><DialogDescription>{record?.id} · {tab}</DialogDescription>{module === 'production' ? (<div className="space-y-4">
+  return <section className="panel module-table"><div className="panel-heading"><div><h2>{tab}</h2><p>{module==='inventory'?'Stock quantities reflect opening, purchases, adjustments, usage and wastage.':`${rows.length} ${tab.toLowerCase()} in your workspace`}</p></div><Button variant="outline" onClick={()=>onNotice('Sample workspace — live records are not connected')}><Plus/>{module==='purchasing'?'Create purchase order':module==='inventory'?'Record adjustment':'Add record'}</Button></div><div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label={`Search ${tab}`} value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Search ${tab.toLowerCase()}...`}/></label><label className="filter-select"><SlidersHorizontal size={14}/><select aria-label="Filter records" value={filter} onChange={e=>setFilter(e.target.value)}><option>All records</option>{Array.from(new Set(moduleRows(module,tab,orders).map(r=>r.status))).map(s=><option key={s}>{s}</option>)}</select></label></div><DataTable columns={columns} rows={rows} rowKey={(r)=>r.id} rowClassName={(r)=>`order-row-tint tone-${tone(r.status)}`} onRowActivate={(r)=>setRecord(r)} stickyHeader density={density} mobileTitle={(r)=>r.name} mobileSubtitle={(r)=>`${r.id} · ${r.detail}`} openLabel="Open record" empty={<div className="empty-state"><Search/><h3>No matching records</h3><p>Try a different search or filter.</p></div>}/><div className="table-foot"><span>{rows.length} records</span><span>October 2026</span></div><Dialog open={Boolean(record)} onOpenChange={v=>{if(!v)setRecord(null)}}><DialogContent className="max-w-2xl"><DialogTitle>{record?.name}</DialogTitle><DialogDescription>{record?.id} · {tab}</DialogDescription>{module === 'production' ? (<div className="space-y-4">
   <div className="configuration-list"><p><span>Order/Job</span><strong>{record?.detail}</strong></p><p><span>Due/Info</span><strong>{record?.secondary}</strong></p><p><span>Status</span><Status value={record?.status || productionJob?.status || ''}/></p><p><span>Progress</span><strong>{productionJob?.progress ?? record?.value ?? '—'}</strong></p></div>
   <div className="flex flex-wrap gap-2">
     {(productionJob?.status === 'PENDING' || productionJob?.status === 'SCHEDULED' || productionJob?.status === 'READY_FOR_PRODUCTION') && <Button size="sm" onClick={handleStartJob} disabled={busyAction}>Start Production</Button>}

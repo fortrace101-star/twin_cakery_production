@@ -184,12 +184,12 @@ function TeamTab(props: {
   };
 
   const columns: Column<ServerStaff>[] = [
-    { header: "Team member", cell: (s) => <><strong className="product-name">{s.name}</strong><small className="cell-sub">{s.staffNumber} · {s.jobTitle || "—"}</small></> },
-    { header: "Contact", cell: (s) => <><span>{s.phone || "—"}</span><small className="cell-sub">{s.email}</small></> },
-    { header: "Status", cell: (s) => <Status value={s.employmentStatus.replace("_", " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())} /> },
-    { header: "Started", cell: (s) => fmtDate(s.startDate) },
-    { header: "Schedule", cell: (s) => <span className="cell-sub">{s.schedule || "—"}</span> },
-    { header: "", cell: (s) => <Button variant="outline" size="sm" disabled={busy} onClick={(e) => { e.stopPropagation(); void openRow(s); }}>{can("staff.manage") ? "Manage" : "View"}</Button> },
+    { header: "Team member", mobile: "title", cell: (s) => <><strong className="product-name">{s.name}</strong><small className="cell-sub">{s.staffNumber} · {s.jobTitle || "—"}</small></> },
+    { header: "Contact", mobile: "meta", cell: (s) => <><span>{s.phone || "—"}</span><small className="cell-sub">{s.email}</small></> },
+    { header: "Status", mobile: "badge", cell: (s) => <Status value={s.employmentStatus.replace("_", " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())} /> },
+    { header: "Started", mobile: "drawer", cell: (s) => fmtDate(s.startDate) },
+    { header: "Schedule", mobile: "drawer", cell: (s) => <span className="cell-sub">{s.schedule || "—"}</span> },
+    { header: "", mobile: "action", cell: (s) => <Button variant="outline" size="sm" disabled={busy} onClick={(e) => { e.stopPropagation(); void openRow(s); }}>{can("staff.manage") ? "Manage" : "View"}</Button> },
   ];
 
   return (
@@ -210,7 +210,7 @@ function TeamTab(props: {
       </div>
       <DataTable
         columns={columns} rows={rows} rowKey={(s) => s.id} onRowActivate={(s) => void openRow(s)}
-        stickyHeader density={density}
+        stickyHeader density={density} mobileTitle={(s) => s.name} mobileSubtitle={(s) => `${s.staffNumber} · ${s.jobTitle || "—"}`} openLabel="View member"
         empty={<div className="empty-state"><Search /><h3>No team members found</h3><p>Add your first team member to start tracking attendance and payroll.</p></div>}
       />
       <div className="table-foot"><span>{rows.length} team members</span><span>{rows.filter((r) => r.employmentStatus === "ACTIVE").length} active</span></div>
@@ -318,11 +318,11 @@ function AttendanceTab(props: {
   const present = filtered.filter((r) => r.status === "PRESENT" || r.status === "LATE" || r.status === "HALF_DAY").length;
 
   const columns: Column<ServerAttendance>[] = [
-    { header: "Date", cell: (r) => fmtDate(r.date) },
-    { header: "Team member", cell: (r) => <strong className="product-name">{r.staffName || nameOf(r.staffId) || "—"}</strong> },
-    { header: "Status", cell: (r) => <Status value={r.status.replace("_", " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())} /> },
-    { header: "Hours", align: "right", cell: (r) => <span className="amount-cell">{r.hours}</span> },
-    { header: "Notes", cell: (r) => <span className="cell-sub">{r.notes || "—"}</span> },
+    { header: "Date", mobile: "meta", cell: (r) => fmtDate(r.date) },
+    { header: "Team member", mobile: "title", cell: (r) => <strong className="product-name">{r.staffName || nameOf(r.staffId) || "—"}</strong> },
+    { header: "Status", mobile: "badge", cell: (r) => <Status value={r.status.replace("_", " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())} /> },
+    { header: "Hours", align: "right", mobile: "value", cell: (r) => <span className="amount-cell">{r.hours} h</span> },
+    { header: "Notes", mobile: "drawer", cell: (r) => <span className="cell-sub">{r.notes || "—"}</span> },
   ];
 
   return (
@@ -348,6 +348,7 @@ function AttendanceTab(props: {
       </div>
       <DataTable
         columns={columns} rows={filtered} rowKey={(r) => r.id} stickyHeader density={density}
+        mobileTitle={(r) => r.staffName || nameOf(r.staffId) || "—"} mobileSubtitle={(r) => fmtDate(r.date)} openLabel="View attendance"
         empty={<div className="empty-state"><Search /><h3>No attendance in this range</h3><p>Pick a wider date range or record a day for your team.</p></div>}
       />
       <div className="table-foot"><span>{filtered.length} records</span><span>{present} present</span></div>
@@ -491,12 +492,12 @@ function SalaryTab(props: {
   ];
 
   const periodColumns: Column<ServerPeriod>[] = [
-    { header: "Period", cell: (p) => <><strong className="product-name">{p.label || `${fmtDate(p.startDate)} → ${fmtDate(p.endDate)}`}</strong><small className="cell-sub">{fmtDate(p.startDate)} – {fmtDate(p.endDate)} · {p.periodType}</small></> },
-    { header: "Status", cell: (p) => <Status value={p.status.replace("_", " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())} /> },
-    { header: "Total", align: "right", cell: (p) => <span className="amount-cell">{money(p.totalAmount)}</span> },
-    { header: "Paid", align: "right", cell: (p) => <span className="amount-cell">{money(p.paidAmount)}</span> },
-    { header: "Payment date", cell: (p) => fmtDate(p.intendedPaymentDate) },
-    { header: "", cell: (p) => <Button variant="outline" size="sm" disabled={busy} onClick={(e) => { e.stopPropagation(); void openPeriod(p.id); }}>Open</Button> },
+    { header: "Period", mobile: "title", cell: (p) => <><strong className="product-name">{p.label || `${fmtDate(p.startDate)} → ${fmtDate(p.endDate)}`}</strong><small className="cell-sub">{fmtDate(p.startDate)} – {fmtDate(p.endDate)} · {p.periodType}</small></> },
+    { header: "Status", mobile: "badge", cell: (p) => <Status value={p.status.replace("_", " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())} /> },
+    { header: "Total", align: "right", mobile: "value", cell: (p) => <span className="amount-cell">{money(p.totalAmount)}</span> },
+    { header: "Paid", align: "right", mobile: "meta", cell: (p) => <span className="amount-cell">{money(p.paidAmount)} paid</span> },
+    { header: "Payment date", mobile: "drawer", cell: (p) => fmtDate(p.intendedPaymentDate) },
+    { header: "", mobile: "action", cell: (p) => <Button variant="outline" size="sm" disabled={busy} onClick={(e) => { e.stopPropagation(); void openPeriod(p.id); }}>Open</Button> },
   ];
 
   return (
@@ -514,7 +515,7 @@ function SalaryTab(props: {
       </div>
       <DataTable
         columns={periodColumns} rows={periods} rowKey={(p) => p.id} onRowActivate={(p) => void openPeriod(p.id)}
-        stickyHeader density={density}
+        stickyHeader density={density} mobileTitle={(p) => p.label || "Salary period"} mobileSubtitle={(p) => `${fmtDate(p.startDate)} – ${fmtDate(p.endDate)}`} openLabel="Open period"
         empty={<div className="empty-state"><Search /><h3>No salary periods yet</h3><p>Create an OPEN period, calculate salaries from the profiles, then approve and pay.</p></div>}
       />
       <div className="table-foot"><span>{periods.length} periods</span><span>{periods.filter((p) => p.status === "CLOSED").length} closed</span></div>
@@ -737,12 +738,12 @@ function AdvancesTab(props: {
   const filtered = q ? rows.filter((a) => `${a.staffName ?? ""} ${a.reason}`.toLowerCase().includes(q)) : rows;
 
   const columns: Column<ServerAdvance>[] = [
-    { header: "Team member", cell: (a) => <><strong className="product-name">{a.staffName || a.staffId}</strong><small className="cell-sub">{fmtDate(a.advanceDate)} · {a.reason || "no reason"}</small></> },
-    { header: "Original", align: "right", cell: (a) => <span className="amount-cell">{money(a.amount)}</span> },
-    { header: "Repaid", align: "right", cell: (a) => <span className="amount-cell">{money(a.repaidAmount)}</span> },
-    { header: "Outstanding", align: "right", cell: (a) => <span className="amount-cell">{money(a.outstanding)}</span> },
-    { header: "Status", cell: (a) => <Status value={a.status.toLowerCase().replace(/^\w/, (c) => c.toUpperCase())} /> },
-    { header: "", cell: (a) => can("remuneration.record_payment") && a.outstanding > 0 ? <Button variant="outline" size="sm" disabled={busy} onClick={(e) => { e.stopPropagation(); if (!guard()) return; setRepay({ amount: "", date: new Date().toISOString().slice(0, 10), method: "CASH" }); setRepaying(a); }}>Record repayment</Button> : null },
+    { header: "Team member", mobile: "title", cell: (a) => <><strong className="product-name">{a.staffName || a.staffId}</strong><small className="cell-sub">{fmtDate(a.advanceDate)} · {a.reason || "no reason"}</small></> },
+    { header: "Original", align: "right", mobile: "drawer", cell: (a) => <span className="amount-cell">{money(a.amount)}</span> },
+    { header: "Repaid", align: "right", mobile: "drawer", cell: (a) => <span className="amount-cell">{money(a.repaidAmount)}</span> },
+    { header: "Outstanding", align: "right", mobile: "value", cell: (a) => <span className="amount-cell">{money(a.outstanding)}</span> },
+    { header: "Status", mobile: "badge", cell: (a) => <Status value={a.status.toLowerCase().replace(/^\w/, (c) => c.toUpperCase())} /> },
+    { header: "", mobile: "action", cell: (a) => can("remuneration.record_payment") && a.outstanding > 0 ? <Button variant="outline" size="sm" disabled={busy} onClick={(e) => { e.stopPropagation(); if (!guard()) return; setRepay({ amount: "", date: new Date().toISOString().slice(0, 10), method: "CASH" }); setRepaying(a); }}>Record repayment</Button> : null },
   ];
 
   const outstandingTotal = Math.round(rows.reduce((n, a) => n + a.outstanding, 0) * 100) / 100;
@@ -759,6 +760,7 @@ function AdvancesTab(props: {
       </div>
       <DataTable
         columns={columns} rows={filtered} rowKey={(a) => a.id} stickyHeader density={density}
+        mobileTitle={(a) => a.staffName || a.staffId} mobileSubtitle={(a) => fmtDate(a.advanceDate)} openLabel="View advance"
         empty={<div className="empty-state"><Search /><h3>No advances recorded</h3><p>Record a salary advance here; recoveries are appended against the original amount.</p></div>}
       />
       <div className="table-foot"><span>{filtered.length} advances</span><span>{rows.filter((a) => a.status === "SETTLED").length} settled</span></div>
@@ -857,13 +859,13 @@ function PayslipsTab(props: {
   };
 
   const columns: Column<ServerPayslip>[] = [
-    { header: "Team member", cell: (s) => <><strong className="product-name">{s.staffName || s.staffId}</strong><small className="cell-sub">{s.periodLabel}</small></> },
-    { header: "Basic", align: "right", cell: (s) => <span className="amount-cell">{money(s.basicSalary)}</span> },
-    { header: "Allowances", align: "right", cell: (s) => <span className="amount-cell">{money(s.allowances)}</span> },
-    { header: "Deductions", align: "right", cell: (s) => <span className="amount-cell">{money(s.deductions)}</span> },
-    { header: "Net", align: "right", cell: (s) => <span className="amount-cell"><strong>{money(s.netAmount)}</strong></span> },
-    { header: "Issued", cell: (s) => fmtDate(s.issuedAt) },
-    { header: "", cell: (s) => <Button variant="outline" size="sm" disabled={busy} onClick={(e) => { e.stopPropagation(); void openSlip(s); }}>Open</Button> },
+    { header: "Team member", mobile: "title", cell: (s) => <><strong className="product-name">{s.staffName || s.staffId}</strong><small className="cell-sub">{s.periodLabel}</small></> },
+    { header: "Basic", align: "right", mobile: "drawer", cell: (s) => <span className="amount-cell">{money(s.basicSalary)}</span> },
+    { header: "Allowances", align: "right", mobile: "drawer", cell: (s) => <span className="amount-cell">{money(s.allowances)}</span> },
+    { header: "Deductions", align: "right", mobile: "drawer", cell: (s) => <span className="amount-cell">{money(s.deductions)}</span> },
+    { header: "Net", align: "right", mobile: "value", cell: (s) => <span className="amount-cell"><strong>{money(s.netAmount)}</strong></span> },
+    { header: "Issued", mobile: "meta", cell: (s) => fmtDate(s.issuedAt) },
+    { header: "", mobile: "action", cell: (s) => <Button variant="outline" size="sm" disabled={busy} onClick={(e) => { e.stopPropagation(); void openSlip(s); }}>Open</Button> },
   ];
 
   return (
