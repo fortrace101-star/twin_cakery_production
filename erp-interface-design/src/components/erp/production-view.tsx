@@ -337,15 +337,19 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
         return (<>
           {isMobile && <StageTabs stages={scheduleStages.map(st => ({id:st.id,label:st.label,count:st.count}))} active={activeSchedule} onChange={setScheduleStage} />}
           <div className="station-board">
-            {scheduleStages.map(st => (
-              <div key={st.id} data-stage={st.id} className={!isMobile || activeSchedule===st.id ? "is-active" : ""}>
-                <h3 className="board-col-title">{st.label}</h3>
-                {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
-                  {st.items.length === 0 && <p className="board-empty">No orders</p>}
-                  {st.items.map(st.render)}
-                </>)}
-              </div>
-            ))}
+            {scheduleStages.map(st => {
+              const items = showCardSkeletons ? [] : (st.items.length === 0 ? [] : st.items);
+              const empty = showCardSkeletons ? false : (st.items.length === 0);
+              return (
+                <div key={st.id} data-stage={st.id} data-station-section data-station-section-active={!isMobile || activeSchedule===st.id ? true : undefined}>
+                  <h3 className="board-col-title">{st.label} <span className="inline-count">{st.count}</span></h3>
+                  {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
+                    {empty && <p className="board-empty">No orders</p>}
+                    {items.map(st.render)}
+                  </>)}
+                </div>
+              );
+            })}
           </div>
         </>);
       })()}
@@ -661,15 +665,19 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
         return (<>
           {isMobile && <StageTabs stages={jobStages.map(st => ({id:st.id,label:st.label,count:st.count}))} active={activeJobs} onChange={setJobsStage} />}
           <div className="station-board">
-            {jobStages.map(st => (
-              <div key={st.id} data-stage={st.id} className={!isMobile || activeJobs===st.id ? "is-active" : ""}>
-                <h3 className="board-col-title">{st.label}</h3>
-                {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
-                  {st.items.length === 0 && <p className="board-empty">No jobs</p>}
-                  {st.items.map(st.render)}
-                </>)}
-              </div>
-            ))}
+            {jobStages.map(st => {
+              const items = showCardSkeletons ? [] : (st.items.length === 0 ? [] : st.items);
+              const empty = showCardSkeletons ? false : (st.items.length === 0);
+              return (
+                <div key={st.id} data-stage={st.id} data-station-section data-station-section-active={!isMobile || activeJobs===st.id ? true : undefined}>
+                  <h3 className="board-col-title">{st.label} <span className="inline-count">{st.count}</span></h3>
+                  {showCardSkeletons ? <ColumnCardSkeletons count={2} /> : (<>
+                    {empty && <p className="board-empty">No jobs</p>}
+                    {items.map(st.render)}
+                  </>)}
+                </div>
+              );
+            })}
           </div>
         </>);
       })()}

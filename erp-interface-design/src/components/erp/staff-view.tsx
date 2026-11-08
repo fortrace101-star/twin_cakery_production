@@ -220,7 +220,7 @@ function TeamTab(props: {
           <DialogTitle>{editing ? editing.name : "Add team member"}</DialogTitle>
           <DialogDescription>{editing ? `${editing.staffNumber} · ${editing.jobTitle || "no job title"}` : "New team member — identity only; payroll figures go in the salary profile below."}</DialogDescription>
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div><Label htmlFor="st-name">Full name</Label><Input id="st-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
               <div><Label htmlFor="st-job">Job title</Label><Input id="st-job" value={form.jobTitle} onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} /></div>
               <div><Label htmlFor="st-phone">Phone</Label><Input id="st-phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
@@ -239,7 +239,7 @@ function TeamTab(props: {
           {editing && can("remuneration.view") && (
             <div className="configuration-list">
               <p><span>Salary profile</span><strong>{profile === null ? "No profile yet" : `${money(profile.basicSalary)} basic`}</strong></p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div><Label htmlFor="pf-basic">Basic salary (UGX)</Label><Input id="pf-basic" inputMode="numeric" value={payForm.basicSalary} onChange={(e) => setPayForm({ ...payForm, basicSalary: e.target.value })} /></div>
                 <div><Label htmlFor="pf-allow">Allowances (UGX)</Label><Input id="pf-allow" inputMode="numeric" value={payForm.allowanceAmount} onChange={(e) => setPayForm({ ...payForm, allowanceAmount: e.target.value })} /></div>
                 <div><Label htmlFor="pf-deduct">Deductions (UGX)</Label><Input id="pf-deduct" inputMode="numeric" value={payForm.deductionAmount} onChange={(e) => setPayForm({ ...payForm, deductionAmount: e.target.value })} /></div>
@@ -364,7 +364,7 @@ function AttendanceTab(props: {
                 {staff.filter((s) => s.employmentStatus !== "TERMINATED").map((s) => <option key={s.id} value={s.id}>{s.name} · {s.staffNumber}</option>)}
               </select>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div><Label htmlFor="at-date">Date</Label><Input id="at-date" type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>
               <div><Label htmlFor="at-status">Status</Label>
                 <select id="at-status" className="filter-select" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as AttendanceStatus })}>
@@ -605,7 +605,7 @@ function SalaryTab(props: {
           <DialogDescription>Opens an OPEN period — calculate, review, approve, pay, then close.</DialogDescription>
           <div className="space-y-3">
             <div><Label htmlFor="np-label">Label</Label><Input id="np-label" placeholder="e.g. October 2026 · 1st half" value={npForm.label} onChange={(e) => setNpForm({ ...npForm, label: e.target.value })} /></div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div><Label htmlFor="np-type">Type</Label>
                 <select id="np-type" className="filter-select" value={npForm.periodType} onChange={(e) => setNpForm({ ...npForm, periodType: e.target.value as PeriodType })}>
                   {(["weekly", "biweekly", "monthly", "quarterly", "custom"] as PeriodType[]).map((f) => <option key={f} value={f}>{f}</option>)}
@@ -634,7 +634,7 @@ function SalaryTab(props: {
                 {(selected?.items ?? []).map((i) => <option key={i.staffId} value={i.staffId}>{i.staffName || i.staffId} · net {money(i.netAmount)}</option>)}
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div><Label htmlFor="rp-amount">Amount (UGX)</Label><Input id="rp-amount" inputMode="numeric" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} /></div>
               <div><Label htmlFor="rp-date">Payment date</Label><Input id="rp-date" type="date" value={payForm.paymentDate} onChange={(e) => setPayForm({ ...payForm, paymentDate: e.target.value })} /></div>
               <div><Label htmlFor="rp-method">Method</Label>
@@ -776,7 +776,7 @@ function AdvancesTab(props: {
                 {staff.filter((s) => s.employmentStatus !== "TERMINATED").map((s) => <option key={s.id} value={s.id}>{s.name} · {s.staffNumber}</option>)}
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div><Label htmlFor="av-amount">Amount (UGX)</Label><Input id="av-amount" inputMode="numeric" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>
               <div><Label htmlFor="av-date">Date</Label><Input id="av-date" type="date" value={form.advanceDate} onChange={(e) => setForm({ ...form, advanceDate: e.target.value })} /></div>
             </div>
@@ -793,7 +793,7 @@ function AdvancesTab(props: {
         <DialogContent>
           <DialogTitle>Record repayment</DialogTitle>
           <DialogDescription>{repaying ? `${repaying.staffName || repaying.staffId} · outstanding ${money(repaying.outstanding)} of ${money(repaying.amount)}` : ""}</DialogDescription>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div><Label htmlFor="rp2-amount">Amount (UGX)</Label><Input id="rp2-amount" inputMode="numeric" value={repay.amount} onChange={(e) => setRepay({ ...repay, amount: e.target.value })} /></div>
             <div><Label htmlFor="rp2-date">Date</Label><Input id="rp2-date" type="date" value={repay.date} onChange={(e) => setRepay({ ...repay, date: e.target.value })} /></div>
             <div><Label htmlFor="rp2-method">Method</Label>

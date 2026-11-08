@@ -19,7 +19,34 @@ export function RevenueChart({period,values,labels,expenseValues}: {period:strin
   const xLabels=live&&labels?.length?labels:(period==='This week'?['Mon','Tue','Wed','Thu','Fri','Sat','Sun']:['01 Oct','05 Oct','10 Oct','15 Oct','20 Oct','25 Oct','30 Oct']);
   const scale=(v:number)=>live?(v/max*100):(v/115*100);
   const yTicks=live?[max,Math.round(max*.75),Math.round(max*.5),Math.round(max*.25),0].map(v=>v>=1000?`${Math.round(v/1000)}k`:String(v)):['100k','75k','50k','25k','0'];
-  return <div className="revenue-chart"><div className="chart-y">{yTicks.map((t,i)=><span key={i}>{t}</span>)}</div><div className="plot"><div className="chart-grid"><i/><i/><i/><i/><i/></div><div className="chart-bars">{rev.map((v,i)=><div className="bar-pair" key={i} title={`Revenue: ${money(live?v:v*1000)} · Expenses: ${money(live?(exp[i]??0):v*380)}`}><div className="revenue-bar" data-height={v} style={{height:`${scale(v)}%`}}/><div className="expense-bar" style={{height:`${scale(exp[i]??0)}%`}}/></div>)}</div><div className="chart-x">{xLabels.map(x=><span key={x}>{x}</span>)}</div></div></div>
+  // M13: tap readout for touch (title tooltips are unreliable on mobile).
+  const [activeBar, setActiveBar] = useState<number | null>(null);
+  const readout = activeBar !== null ? (() => {
+    const v = rev[activeBar] ?? 0;
+    const e = exp[activeBar] ?? 0;
+    const label = xLabels[activeBar] ?? `#${activeBar + 1}`;
+    return { label, revenue: money(live ? v : v * 1000), expenses: money(live ? e : e * 380) };
+  })() : null;
+  return <div className="revenue-chart">
+    {readout && <div className="chart-tap-readout" role="status" aria-live="polite"><strong>{readout.label}</strong><span>Revenue: {readout.revenue}</span><span>Expenses: {readout.expenses}</span><button type="button" className="chart-tap-readout-close" aria-label="Close chart readout" onClick={() => setActiveBar(null)}>×</button></div>}
+    <div className="chart-y">{yTicks.map((t,i)=><span key={i}>{t}</span>)}</div>
+    <div className="plot">
+      <div className="chart-grid"><i/><i/><i/><i/><i/></div>
+      <div className="chart-bars" onClick={() => setActiveBar(null)}>
+        {rev.map((v,i)=><div
+          className={`bar-pair${activeBar === i ? ' bar-pair-active' : ''}`}
+          key={i}
+          role="button"
+          tabIndex={0}
+          aria-label={`${xLabels[i] ?? ''}: Revenue ${money(live?v:v*1000)}, Expenses ${money(live?(exp[i]??0):(exp[i]??0)*380)}`}
+          title={`Revenue: ${money(live?v:v*1000)} · Expenses: ${money(live?(exp[i]??0):v*380)}`}
+          onClick={(e) => { e.stopPropagation(); setActiveBar(a => a === i ? null : i); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveBar(a => a === i ? null : i); } }}
+        ><div className="revenue-bar" data-height={v} style={{height:`${scale(v)}%`}}/><div className="expense-bar" style={{height:`${scale(exp[i]??0)}%`}}/></div>)}
+      </div>
+      <div className="chart-x">{xLabels.map((x,i)=><span key={`${x}-${i}`}>{x}</span>)}</div>
+    </div>
+  </div>
 }
 export function ActivityFeed({audit=[]}: {audit?:string[]}) {
   // Live path: real audit-log lines from the workspace store; the demo feed

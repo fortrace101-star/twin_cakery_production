@@ -66,17 +66,17 @@ function CreatePoDialog(props: {
       <div className="erp-form">
         <div className="form-row"><Label htmlFor="po-expected">Expected date</Label><Input id="po-expected" type="date" value={form.expectedDate} onChange={e => setForm({ ...form, expectedDate: e.target.value })}/></div>
         <h3 className="text-sm font-semibold">Lines</h3>
-        {form.lines.map((l, idx) => <div key={idx} className="form-row" style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          <select aria-label={`Item ${idx + 1}`} className="input" style={{flex:2,minWidth:160}} value={l.productId} onChange={e => {
+        {form.lines.map((l, idx) => <div key={idx} className="po-line-row">
+          <select aria-label={`Item ${idx + 1}`} className="input po-line-item" value={l.productId} onChange={e => {
             const it = items.find(i => i.id === e.target.value);
             setLine(idx, { productId: e.target.value, unit: it?.unit ?? l.unit });
           }}>
             <option value="">Select item…</option>
             {items.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
           </select>
-          <Input aria-label={`Quantity ${idx + 1}`} type="number" min="0" placeholder="Qty" style={{flex:1,minWidth:80}} value={l.quantity || ''} onChange={e => setLine(idx, { quantity: e.target.value })}/>
-          <Input aria-label={`Unit price ${idx + 1}`} type="number" min="0" placeholder={`Price / ${l.unit}`} style={{flex:1,minWidth:100}} value={l.unitPrice || ''} onChange={e => setLine(idx, { unitPrice: e.target.value })}/>
-          <Button variant="ghost" size="icon" aria-label={`Remove line ${idx + 1}`} disabled={form.lines.length === 1} onClick={() => setForm({ ...form, lines: form.lines.filter((_, i) => i !== idx) })}><Trash2/></Button>
+          <Input aria-label={`Quantity ${idx + 1}`} type="number" min="0" placeholder="Qty" className="po-line-qty" value={l.quantity || ''} onChange={e => setLine(idx, { quantity: e.target.value })}/>
+          <Input aria-label={`Unit price ${idx + 1}`} type="number" min="0" placeholder={`Price / ${l.unit}`} className="po-line-price" value={l.unitPrice || ''} onChange={e => setLine(idx, { unitPrice: e.target.value })}/>
+          <Button variant="ghost" size="icon" className="po-line-remove" aria-label={`Remove line ${idx + 1}`} disabled={form.lines.length === 1} onClick={() => setForm({ ...form, lines: form.lines.filter((_, i) => i !== idx) })}><Trash2/></Button>
         </div>)}
         <Button variant="outline" size="sm" onClick={() => setForm({ ...form, lines: [...form.lines, { productId: "", quantity: "", unit: "unit", unitPrice: "", newItem: false, newName: "", newSku: "", newCategory: "" }] })}><Plus/> Add line</Button>
         <div className="form-row"><Label htmlFor="po-notes">Notes</Label><Input id="po-notes" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Optional"/></div>
@@ -403,8 +403,8 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
             {extraReceiveItems.map((ex, idx) => {
               const productId = ((ex as any).productId as string | undefined) ?? "";
               return (
-                <div key={idx} className="form-row" style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:8}}>
-                  <select className="input" style={{flex:2,minWidth:160}} value={productId || ""} onChange={e => {
+                <div key={idx} className="po-line-row">
+                  <select className="input po-line-item" value={productId || ""} onChange={e => {
                     const next = [...extraReceiveItems];
                     if (e.target.value === "__new__") {
                       next[idx] = { productId: "__new__", quantity: next[idx]?.quantity ?? '', unit: next[idx]?.unit ?? 'unit', unitPrice: next[idx]?.unitPrice ?? '' };
@@ -419,17 +419,18 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
                     {invItems.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
                     <option value="__new__">+ Add new item</option>
                   </select>
-                  {productId === "__new__" && <>
-                  <Input placeholder="Item name" style={{flex:2,minWidth:120}} value={(ex as any).newName || ''} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).newName = e.target.value; setExtraReceiveItems(next); }}/>
-                  <Input placeholder="SKU" style={{flex:1,minWidth:80}} value={(ex as any).newSku || ''} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).newSku = e.target.value; setExtraReceiveItems(next); }}/>
-                  <Input placeholder="Unit" style={{flex:1,minWidth:60}} value={(ex as any).unit || 'unit'} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).unit = e.target.value; setExtraReceiveItems(next); }}/>
-                  </>}
-                  <Input placeholder="Qty" style={{flex:1,minWidth:80}} value={ex.quantity || ''} onChange={e => { const next=[...extraReceiveItems]; next[idx]={ productId: ((next[idx] as any).productId ?? ''), quantity: e.target.value, unit: next[idx]?.unit ?? 'unit', unitPrice: next[idx]?.unitPrice ?? '' }; setExtraReceiveItems(next); }}/>
-                  <Input placeholder="Unit price" style={{flex:1,minWidth:100}} value={ex.unitPrice || ''} onChange={e => { const next=[...extraReceiveItems]; next[idx]={ productId: ((next[idx] as any).productId ?? ''), quantity: next[idx]?.quantity ?? '', unit: next[idx]?.unit ?? 'unit', unitPrice: e.target.value }; setExtraReceiveItems(next); }}/>
-                  <Button variant="ghost" size="icon" onClick={() => setExtraReceiveItems(extraReceiveItems.filter((_,i)=>i!==idx))}><Trash2/></Button>
+                  {productId === "__new__" && <div className="po-line-new-fields">
+                  <Input placeholder="Item name" className="po-line-new-name" value={(ex as any).newName || ''} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).newName = e.target.value; setExtraReceiveItems(next); }}/>
+                  <Input placeholder="SKU" className="po-line-new-sku" value={(ex as any).newSku || ''} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).newSku = e.target.value; setExtraReceiveItems(next); }}/>
+                  <Input placeholder="Unit" className="po-line-new-unit" value={(ex as any).unit || 'unit'} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).unit = e.target.value; setExtraReceiveItems(next); }}/>
+                  </div>}
+                  <Input placeholder="Qty" className="po-line-qty" value={ex.quantity || ''} onChange={e => { const next=[...extraReceiveItems]; next[idx]={ productId: ((next[idx] as any).productId ?? ''), quantity: e.target.value, unit: next[idx]?.unit ?? 'unit', unitPrice: next[idx]?.unitPrice ?? '' }; setExtraReceiveItems(next); }}/>
+                  <Input placeholder="Unit price" className="po-line-price" value={ex.unitPrice || ''} onChange={e => { const next=[...extraReceiveItems]; next[idx]={ productId: ((next[idx] as any).productId ?? ''), quantity: next[idx]?.quantity ?? '', unit: next[idx]?.unit ?? 'unit', unitPrice: e.target.value }; setExtraReceiveItems(next); }}/>
+                  <Button variant="ghost" size="icon" className="po-line-remove" onClick={() => setExtraReceiveItems(extraReceiveItems.filter((_,i)=>i!==idx))}><Trash2/></Button>
                 </div>
               );
-            })}              <Button variant="outline" size="sm" onClick={() => setExtraReceiveItems([...extraReceiveItems, { productId: invItems[0]?.id ?? "", quantity: "", unit: invItems[0]?.unit ?? "unit", unitPrice: "" }])}><Plus/> Add extra item</Button>
+            })}
+          <Button variant="outline" size="sm" onClick={() => setExtraReceiveItems([...extraReceiveItems, { productId: invItems[0]?.id ?? "", quantity: "", unit: invItems[0]?.unit ?? "unit", unitPrice: "" }])}><Plus/> Add extra item</Button>
           </div>
           <div className="dialog-actions">
             <Button disabled={busy} onClick={async () => {

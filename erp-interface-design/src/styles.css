@@ -609,6 +609,16 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .erp-form input:focus,.erp-form select:focus,.erp-form textarea:focus {border-color:var(--ring);}
 .erp-form textarea {resize:vertical;min-height:70px;}
 .form-row {display:grid;grid-template-columns:1fr 1fr;gap:15px;}
+/* R6: purchasing line-item rows (responsive; stacks on mobile via mobile layer) */
+.po-line-row {display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;}
+.po-line-item {flex:2 1 160px;min-width:0;}
+.po-line-qty {flex:1 1 80px;min-width:0;}
+.po-line-price {flex:1 1 100px;min-width:0;}
+.po-line-remove {flex:0 0 auto;}
+.po-line-new-fields {display:contents;}
+.po-line-new-name {flex:2 1 120px;min-width:0;}
+.po-line-new-sku {flex:1 1 80px;min-width:0;}
+.po-line-new-unit {flex:1 1 60px;min-width:0;}
 .form-note {display:flex;align-items:center;gap:7px;padding:10px;background:var(--green-soft);border-radius:5px;color:var(--green-ink);font-size:11px;}
 .form-note svg {flex-shrink:0;}
 /* Outstanding balance on the order dialog: money the customer still owes reads
@@ -797,6 +807,7 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .board-col-title{margin-bottom:12px;font-size:13px;font-weight:600;}
 .station-board .board-col-title{font-size:16px;}
 .order-card{border:1px solid var(--border);padding:12px;margin-bottom:8px;border-radius:8px;cursor:pointer;}
+  .order-card .order-card{font-size:inherit;color:inherit;text-decoration:none;}
 
 /* ===== MOBILE LAYER (<768px). Must stay last in the file. Nothing here applies at 768px and up. ===== */
 @media (max-width: 767.98px) {
@@ -807,7 +818,33 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
   /* shell */
   .main-shell, .sidebar-collapsed .main-shell { margin-left: 0; width: 100%; }
   .topbar { position: sticky; top: 0; z-index: 20; height: var(--topbar-h); gap: 8px;
-    padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); }
+    padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+    background: color-mix(in srgb, var(--card) 96%, transparent); }
+  .topbar .breadcrumb { flex: 1; min-width: 0; gap: 4px; }
+  .topbar .breadcrumb strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+  .topbar .topbar-actions { margin-left: auto; gap: 4px; }
+  .topbar .topbar-search.is-open { position: absolute; inset: 0; z-index: 2; width: auto; height: auto; border: 0; border-radius: 0;
+    background: var(--card, var(--background)); padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); display: flex; align-items: center; gap: 8px; }
+  .topbar .topbar-search.is-open input { height: var(--topbar-h); flex: 1; }
+  .topbar .breadcrumb { position: relative; padding-top: 1px; padding-bottom: 1px; }
+  .topbar .breadcrumb.is-ds-open { z-index: 5; position: relative; padding-top: 1px; padding-bottom: 1px; }
+  .topbar .breadcrumb.is-ds-open > button { visibility: visible !important; }
+  .topbar .icon-button[data-icon="Menu"][data-label="Open workspace menu"] { display: flex !important; flex-shrink: 0; background: color-mix(in srgb, var(--card) 90%, transparent); border: 1px solid var(--border); padding: 0 4px; min-width: 44px; height: var(--topbar-h); align-items: center; justify-content: center; transition: background-color .12s ease, border-color .12s ease; }
+  .topbar .icon-button[data-icon="Menu"][data-label="Open workspace menu"]:hover { background: color-mix(in srgb, var(--muted) 90%, transparent); }
+  .topbar .icon-button[data-icon="Menu"][data-label="Open workspace menu"]:active { background: color-mix(in srgb, var(--muted) 95%, transparent); }
+  .topbar .topbar-actions .icon-button { border: 1px solid transparent; }
+  .topbar .topbar-actions .icon-button:focus-visible { border-color: var(--ring); outline: none; }
+  .topbar .topbar-actions .icon-button[aria-expanded="true"] { background: color-mix(in srgb, var(--primary) 16%, transparent); border-color: color-mix(in srgb, var(--primary) 40%, transparent); }
+  .topbar .breadcrumb .icon-button { align-items: center; justify-content: center; min-width: unset; height: 36px; padding: 0 4px; box-sizing: border-box; -webkit-tap-highlight-color: transparent; cursor: pointer; touch-action: manipulation; user-select: none; -webkit-touch-callout: none; pointer-events: auto; z-index: 5; position: sticky; top: 0; left: 4px; align-self: center; margin: auto 0; display: inline-flex; flex-shrink: 0; will-change: auto; isolation: isolate; contain: strict; containment: layout style; pointer-events: auto; touch-action: manipulation; contain-intrinsic-size: 44px 36px; contain-intrinsic-width: 44px; contain-intrinsic-height: 36px; contain-intrinsic-size: 44px 36px; will-change: auto; will-change: auto; transition: background-color .12s ease, border-color .12s ease, transform .12s ease; }
+  .topbar .breadcrumb.is-ds-open > .icon-button { min-width: 44px; height: var(--topbar-h); align-items: center; position: relative; width: unset; box-sizing: border-box; padding: 0 4px; display: flex; border-radius: 8px; border: 1px solid var(--border); background: color-mix(in srgb, var(--card) 90%, transparent); transition: background-color .12s ease, border-color .12s ease, transform .12s ease; transform: translateY(0); }
+  .topbar .breadcrumb.is-ds-open > .icon-button:hover { background: color-mix(in srgb, var(--muted) 90%, transparent); }
+  .topbar .breadcrumb.is-ds-open > .icon-button:active { background: color-mix(in srgb, var(--muted) 95%, transparent); }
+  .topbar .breadcrumb.is-ds-open > .icon-button:focus-visible { outline: none; border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 30%, transparent); }
+  .topbar .breadcrumb .icon-button:focus-visible { outline: none; border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 30%, transparent); }
+  .topbar .breadcrumb .icon-button:hover { background: color-mix(in srgb, var(--muted) 90%, transparent); }
+  .topbar .breadcrumb .icon-button:active { background: color-mix(in srgb, var(--muted) 95%, transparent); transform: scale(0.97); transition-duration: .04s; will-change: transform; padding: 0 4px; }
+
+  .breadcrumb-menu { margin: 0; padding: 0; background: var(--card); border-top: 1px solid var(--border); display: none; }
   .content { padding: 16px max(16px, env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
   .page-heading { flex-direction: column; align-items: stretch; gap: 12px; margin-bottom: 16px; }
   h1 { font-size: 20px; }
@@ -889,18 +926,22 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
   .sidebar-drawer .brand { padding-bottom: 16px; display: flex; }
   .sidebar-drawer .brand div, .sidebar-drawer .nav-item span, .sidebar-drawer .nav-count, .sidebar-drawer .nav-group > p,
   .sidebar-drawer .profile div, .sidebar-drawer .team-presence, .sidebar-drawer .workspace-switch { display: revert; }
-  .sidebar-drawer .nav-group { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; }
-  .sidebar-drawer .sidebar-bottom { margin-top: auto; }
+  .sidebar-drawer .nav-group { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; padding-bottom: 10px; }
+  .sidebar-drawer .sidebar-bottom { margin-top: 0; padding-bottom: 12px; }
   .sidebar-drawer .profile-menu { position: static; box-shadow: none; border: 1px solid var(--border); margin-top: 8px; }
 
   /* topbar: DS breadcrumb menu sits under the breadcrumb; content area uses full width. */
-  .topbar { justify-content: flex-start; }
-  .topbar .breadcrumb { flex: 1; min-width: 0; gap: 4px; }
+  .topbar { justify-content: flex-start; gap: 8px; padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); }
+  .topbar .breadcrumb { flex: 1 1 auto; min-width: 0; gap: 4px; }
   .topbar .breadcrumb strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
   .topbar .topbar-actions { margin-left: auto; gap: 4px; }
+  .topbar .topbar-actions> :last-child { margin-left: auto; }
   .topbar .topbar-search.is-open { position: absolute; inset: 0; z-index: 2; width: auto; height: auto; border: 0; border-radius: 0;
     background: var(--card, var(--background)); padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); display: flex; align-items: center; gap: 8px; }
   .topbar .topbar-search.is-open input { height: var(--topbar-h); flex: 1; }
+  .topbar .icon-button[data-icon="Menu"][data-label="Open workspace menu"] { display: flex !important; flex-shrink: 0; background: color-mix(in srgb, var(--card) 88%, transparent); border: 1px solid var(--border); }
+  .topbar .breadcrumb.is-ds-open { gap: 4px; }
+  .topbar .breadcrumb.is-ds-open > button { visibility: visible !important; }
 
   .breadcrumb-menu { margin: 0; padding: 0; background: var(--card); border-top: 1px solid var(--border); }
   .breadcrumb-menu-title { padding: 10px 16px 6px; font-size: 12px; font-weight: 600; color: var(--foreground); }
@@ -923,15 +964,80 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
   .board-col-title { display: none; }
   .board-empty { color: var(--muted-foreground); font-size: 13px; }
 
+  /* Duplicate mobile drawer menu removed: on mobile the main nav is the Sidebar Sheet.
+     The Topbar DS breadcrumb menu is kept only as a fallback path and is hidden on
+     screens where the Sidebar Sheet is the primary nav. */
+  @media (max-width: 767.98px) {
+    [data-nav-drawer]+.main-shell .breadcrumb-menu { display: none !important; }
+    .topbar .breadcrumb-menu { display: none !important; }
+    .topbar .icon-button[data-icon="Menu"][data-label="Open workspace menu"] { display: flex !important; flex-shrink: 0; background: color-mix(in srgb, var(--card) 90%, transparent); border: 1px solid var(--border); }
+  .topbar .breadcrumb { padding-top: 1px; padding-bottom: 1px; }
+  .topbar .breadcrumb.is-ds-open { padding-top: 1px; padding-bottom: 1px; }
+    .topbar .breadcrumb { position: relative; }
+  }
+
   /* DataTable cards (F0.7) */
   .dt-cards { list-style: none; margin: 0; padding: 0; }
+}
+
 
 /* DS: mobile breadcrumb = app-level nav trigger. On pressin the breadcrumb, show the
    full icon-and-word menu under the breadcrumb for one open session. */
 .breadcrumb.is-ds-open > button { visibility: visible !important; }
 
 /* DS: production kanban boards revert to the desktop multi-column rails on PCs. */
-.kanban-board, .station-board { display: grid !important; grid-template-columns: repeat(7, minmax(0, 1fr)) !important; gap: 14px; }
-.kanban-board > [data-stage], .station-board > [data-stage] { display: block !important; width: 100%; }
-.board-col-title { display: block !important; }
+.kanban-board { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 14px; }
+.station-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.kanban-board > [data-stage], .station-board > [data-stage] { display: block; width: 100%; min-width: 0; }
+.board-col-title { display: block !important;} /* R3/R6 mobile overrides (appended) */
 
+/* Mobile order/job card containers: rectangle entries per board */
+
+  .kanban-board .order-card,.station-board .order-card {
+    flex: 1 1 auto; width: 100%; min-width: 0; box-sizing: border-box;
+    display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
+    border: 1px solid var(--border); background: var(--card); border-radius: 6px;
+    padding: 12px 14px; margin: 0 0 10px; cursor: pointer;
+  }
+  .order-card .order-card { border-radius: 6px; padding: 12px 14px; margin: 0 0 10px; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; border: 1px solid var(--border); background: var(--card); cursor: pointer; text-decoration: none; font-size: inherit; color: inherit; min-height: 0; }
+  .station-board .order-card .order-card { background: transparent; border-color: var(--border); padding: 12px 14px; margin-bottom: 10px; }
+  .kanban-board .order-card .order-card { background: var(--card); }
+  .order-card .order-card strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; font-weight: 600; }
+  .order-card .order-card div { font-size: 12px; white-space: normal; }
+  .station-board .order-card,.kanban-board .order-card,.order-card .order-card { border-radius: 6px; }
+  .station-board .order-card { border-radius: 8px; }
+  .station-board .board-col-title { font-size: 15px !important; margin: 0 0 10px !important; padding-bottom: 6px !important; border-bottom: 1px solid var(--border); }
+  .station-board .board-empty { font-size: 13px !important; margin: 0 0 10px !important; color: var(--muted-foreground); }
+  .station-board .station { display: flex; flex-direction: column; min-height: 0; width: 100%; }
+  .station-board .station > * { min-width: 0; width: 100%; }
+  .station-board .station .board-col-title { margin-bottom: 10px !important; }
+  .station-board .station .board-empty { margin: 0 0 10px !important; }
+  .station-board .station .order-card { margin-bottom: 10px; }
+  .station-board .station:last-child .order-card { margin-bottom: 0; }
+  .kanban-board .order-card { border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+  .kanban-board .station .order-card { display: block; width: 100%; border-radius: 8px; padding: 12px; margin-bottom: 8px; border: 1px solid var(--border); background: var(--card); cursor: pointer; text-decoration: none; font-size: inherit; color: inherit; }
+  .kanban-board .order-card .order-card { border-radius: 10px; border-color: var(--border); background: var(--card); margin-bottom: 10px; padding: 12px 14px; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; text-decoration: none; font-size: inherit; color: inherit; min-height: 0; cursor: pointer; }
+  .kanban-board .order-card .order-card strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; font-weight: 600; }
+  .kanban-board .order-card .order-card div { font-size: 12px; white-space: normal; overflow-wrap: anywhere; word-break: normal; }
+
+@media (max-width: 767.98px) {
+  .crm-body { grid-template-columns: 1fr; padding: 0 12px 16px; }
+  .crm-list button { min-height: 44px; }
+  .po-line-row { align-items: stretch; }
+  .po-line-item, .po-line-qty, .po-line-price, .po-line-new-name, .po-line-new-sku, .po-line-new-unit { flex: 1 1 100%; width: 100%; min-width: 0; }
+  .po-line-new-fields { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+  .po-line-remove { align-self: flex-end; min-height: 44px; min-width: 44px; }
+}
+
+/* M13: chart tap readout (touch/mobile) */
+.revenue-chart { position: relative; }
+.chart-tap-readout { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin: 0 0 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); font-size: 12px; }
+.chart-tap-readout strong { margin-right: 4px; }
+.chart-tap-readout-close { margin-left: auto; min-width: 32px; min-height: 32px; border: 1px solid var(--border); border-radius: 6px; background: transparent; cursor: pointer; font-size: 18px; line-height: 1; }
+.bar-pair { cursor: pointer; border-radius: 4px; }
+.bar-pair:focus-visible { outline: 2px solid var(--ring, #2563eb); outline-offset: 1px; }
+.bar-pair-active .revenue-bar, .bar-pair-active .expense-bar { filter: brightness(1.08); }
+@media (max-width: 767.98px) {
+  .chart-tap-readout { font-size: 13px; }
+  .chart-tap-readout-close { min-width: 44px; min-height: 44px; }
+}

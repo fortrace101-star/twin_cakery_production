@@ -21,7 +21,8 @@ import { OrderProposalsView } from "./OrderProposalsView";
 import { NewOrderDialog, OrderDialog, SignInDialog } from "./dialogs";
 import { IconButton } from "./ui";
 import { StageTabs } from "./stage-tabs";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useIsMobile } from "@/hooks/use-mobile"; import { Toaster } from "@/components/ui/toast";
+
 
 const subtitles: Record<string,string> = { crm:'Every conversation, every customer, in one place.',sales:'Keep every order moving from inquiry to celebration.',catalogue:'Your creations, recipes, and configurable product options.',production:'A clear view of what’s baking and what’s coming next.',inventory:'Stay stocked, reduce waste, and keep production moving.',purchasing:'From purchase requirements to goods received.',delivery:'The final mile, made a little sweeter.',finance:'Payments, costs, and a healthy bottom line.',analytics:'A closer look at how your bakery is growing.',administration:'Your business, team, and workspace preferences.',staff:'Your team, their time, and payroll — handled with care.' };
 
@@ -46,7 +47,8 @@ export function Workspace({module='dashboard'}: {module?:string}) {
  const [theme,setTheme]=useState<'light'|'dark'>(() => (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
  const [salesLayout, setSalesLayout] = useState<'table'|'kanban'>('table');
  const [kanbanStage, setKanbanStage] = useState<string>(SALES_STAGES[0] ?? 'Pending confirmation');
- useEffect(()=>{document.documentElement.classList.toggle('dark',theme==='dark');},[theme]);
+ useEffect(() => { document.documentElement.classList.toggle('dark',theme==='dark'); },[theme]);
+
  useEffect(()=>{ setNavOpen(false); }, [pathname]);
  const config=modules.find(m=>m.id===module);
  const activeTab=tab || config?.tabs[0] || '';
@@ -94,7 +96,7 @@ export function Workspace({module='dashboard'}: {module?:string}) {
  return <div className={`workspace ${collapsed?'sidebar-collapsed':''}`}>
   {isMobile ? (
     <Sheet open={navOpen} onOpenChange={setNavOpen}>
-      <SheetContent side='left' className='p-0 max-md:w-[min(86vw,320px)] max-md:[&>button]:h-11 max-md:[&>button]:w-11 max-md:[&>button]:grid max-md:[&>button]:place-items-center'>
+      <SheetContent side='left' className='p-0 max-md:w-[min(86vw,320px)] max-md:[&>button]:h-11 max-md:[&>button]:w-11 max-md:[&>button]:grid max-md:[&>button]:place-items-center' data-nav-drawer>
         <SheetTitle className='sr-only'>Main navigation</SheetTitle>
         <Sidebar {...sidebarProps} variant='drawer' onNavigate={() => setNavOpen(false)} />
       </SheetContent>
@@ -103,7 +105,7 @@ export function Workspace({module='dashboard'}: {module?:string}) {
     <Sidebar {...sidebarProps} />
   )}
   <div className="main-shell">
-   <Topbar collapsed={collapsed} setCollapsed={setCollapsed} module={module} config={config} search={search} setSearch={setSearch} connected={connected} user={user} setLoginOpen={setLoginOpen} notification={notification} setNotification={setNotification} setNotice={setNotice} theme={theme} setTheme={setTheme} followUps={followUps} onMenu={() => setNavOpen(true)} isMobile={isMobile}/>
+   <Topbar collapsed={collapsed} setCollapsed={setCollapsed} module={module} config={config} search={search} setSearch={setSearch} connected={connected} user={user} setLoginOpen={setLoginOpen} notification={notification} setNotification={setNotification} setNotice={setNotice} theme={theme} setTheme={setTheme} followUps={followUps} onMenu={() => setNavOpen(true)} menuOpen={navOpen} isMobile={isMobile}/>
    <main className="content">
     <div className="page-heading"><div><div className="eyebrow">{module==='dashboard'?'YOUR BAKERY AT A GLANCE':'TWIN CAKERY BAKERY'}</div><h1>{module==='dashboard'?`Good morning, ${user?.displayName || user?.username || 'Alex'}`:config?.label}<span className="heading-dot">.</span></h1><p>{module==='dashboard'?'Here’s what’s happening at Twin Cakery Bakery today.':subtitles[module]}</p></div><div className="heading-actions"><Button variant="outline" onClick={exportData}><Download/>Export</Button>{module !== 'inventory' && <Button onClick={()=>setNewOrder(true)}><Plus/>New order</Button>}</div></div>
     {module==='dashboard'?<>
@@ -119,5 +121,6 @@ export function Workspace({module='dashboard'}: {module?:string}) {
   <SignInDialog open={loginOpen} onOpenChange={setLoginOpen}/>
   <Dialog open={help} onOpenChange={setHelp}><DialogContent><DialogTitle>Twin Cakery Bakery</DialogTitle><DialogDescription>{connected?'Live workspace · connected to your ERP':'Interface preview · live ERP'}</DialogDescription><p className="text-sm text-muted-foreground">{connected?'You are connected to the live Twin Cakery ERP. Orders, status changes, and the audit log are saved to your database.':'Sign in to connect to the live ERP. Until then the workspace stays empty; new orders and status changes require a signed-in session.'}</p><div className="space-y-3">{audit.slice(0,4).map((a,i)=><p className="audit-entry" key={i}><Check size={15}/>{a}</p>)}</div></DialogContent></Dialog>
   {notice&&<div className="toast" role="status"><Check size={16}/>{notice}<IconButton icon={X} label="Dismiss message" onClick={()=>setNotice('')}/></div>}
+  <Toaster/>
  </div>;
 }

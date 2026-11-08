@@ -2,13 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import { useLiveRefresh } from "@/lib/live";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, NativeSelect } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { CalendarDays, Check, Search, MessageSquare, Printer, Mail, Phone, Plus, Loader2, ArrowUpRight, UserPlus, Edit } from "lucide-react";
+import { CalendarDays, Check, Search, MessageSquare, Printer, Mail, Phone, Plus, Loader2, ArrowUpRight, UserPlus, Edit, X } from "lucide-react";
 import { StatusBadge as Status } from "@/components/data-table/StatusBadge";
 import { DataTable, type Column } from "@/components/data-table/DataTable";
 import { useDensity } from "@/lib/density";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { formatOccasionDate, groupOccasions, initialOccasions, type GridRow, type Occasion, type OccasionPeriod } from "./data";
 import { listCustomers, listCustomerEvents, findCustomerByName, listCustomerFeedback, listCustomerOrders, createCustomerFeedback, printCustomerOrders, listEventReminders, orderStatusLabel, type ServerCustomer, type ServerCustomerEvent, type ServerCustomerFeedback, type ServerCustomerOrder, type ServerEventReminder } from "@/lib/api";
 import { useAsync, Loading, Empty, StarRating, feedbackTypeLabel } from "./crm-panels";
@@ -632,21 +634,59 @@ export function CrmView({
   followUps?: { id: string; customer: string }[] | undefined;
   onCompleteFollowUp?: ((id: string) => void) | undefined;
 }) {
+  const isMobile = useIsMobile();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<'Overview' | 'Orders' | 'Feedback' | 'Occasions'>('Overview');
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 
-  const handleActiveIdChange = useCallback((id: string | null) => {
+  const handleActiveIdChange = useCallback((id: string | null, openMobile = false) => {
     setActiveId(id);
     if (id === null || !contacts.some((c) => c.id === id)) {
       setDetailTab('Overview');
+      setMobileDetailOpen(false);
+    } else if (openMobile) {
+      setDetailTab('Overview');
+      setMobileDetailOpen(true);
     }
   }, [contacts]);
+
+  // Keep mobile drawer in sync if viewport changes or selection is cleared.
+  useEffect(() => {
+    if (!isMobile) setMobileDetailOpen(false);
+  }, [isMobile]);
 
   if (tab === "Occasions") return <OccasionsView connected={connected} />;
   useLiveRefresh(() => {});
 
-  const active = contacts.find((c) => c.id === activeId) ?? contacts[0] ?? null;
+  // Desktop keeps current behavior (auto-select first). Mobile is drawer-first: list only until a contact is chosen.
+  const active = isMobile
+    ? (contacts.find((c) => c.id === activeId) ?? null)
+    : (contacts.find((c) => c.id === activeId) ?? contacts[0] ?? null);
+  const activeContactName = active?.name ?? '';
 
+  const closeMobileDetail = useCallback(() => {
+    if (!isMobile) return;
+    setMobileDetailOpen(false);
+    setActiveId(null);
+    setDetailTab('Overview');
+  }, [isMobile]);
+
+  const detailContent = active ? (
+    <>
+      <div className="crm-profile-header sticky">
+        <CustomerProfileHeader
+          name={active.name}
+          id={active.id}
+          status={active.status}
+          detail={active.detail}
+          onPrint={() => {}}
+        />
+        <CustomerMetricsSnapshot name={active.name} connected={connected} />
+      </div>
+      <CustomerDetailsTabs detailTab={detailTab} setDetailTab={setDetailTab} />
+      <CustomerTabContent detailTab={detailTab} name={active.name} connected={connected} />
+    </>
+  ) : null;
   return (
     <section className="panel crm-view">
       <div className="panel-heading">
@@ -682,7 +722,7 @@ export function CrmView({
                   type="button"
                   className={active?.id === c.id ? "selected" : ""}
                   aria-current={active?.id === c.id ? "true" : undefined}
-                  onClick={() => handleActiveIdChange(c.id)}
+                  onClick={() => handleActiveIdChange(c.id, isMobile)}
                 >
                   <span className="customer-avatar avatar-0">
                     {c.name
@@ -705,23 +745,23 @@ export function CrmView({
               </li>
             ))}
           </ul>
-          {active && (
-            <div className="crm-detail">
-              <div className="crm-profile-header sticky">
-                <CustomerProfileHeader
-                  name={active.name}
-                  id={active.id}
-                  status={active.status}
-                  detail={active.detail}
-                  onPrint={() => {}}
-                />
-                <CustomerMetricsSnapshot name={active.name} connected={connected} />
-              </div>
-              <CustomerDetailsTabs detailTab={detailTab} setDetailTab={setDetailTab} />
-              <CustomerTabContent detailTab={detailTab} name={active.name} connected={connected} />
-            </div>
+          {/* R3: desktop keeps side-by-side master/detail; mobile is drawer-first (list → detail sheet). */}
+          {!isMobile && active && detailContent && (
+            <div className="crm-detail">{detailContent}</div>
           )}
         </div>
+      )}
+      {/* Mobile: customer detail sheet with a working close button that returns to the contact list */}
+      {isMobile && active && (
+        <Sheet open={mobileDetailOpen} onOpenChange={(v) => { if (!v) closeMobileDetail(); }}>
+          <SheetContent side="right" className="w-[min(100vw,720px)] max-w-none overflow-y-auto p-4 sm:max-w-lg">
+            <SheetTitle className="sr-only">{activeContactName}</SheetTitle>
+            <div className="absolute top-3 right-3 z-10">
+              <button type="button" aria-label="Close customer details" onClick={closeMobileDetail}><X size={20}/></button>
+            </div>
+            {detailContent}
+          </SheetContent>
+        </Sheet>
       )}
     </section>
   );

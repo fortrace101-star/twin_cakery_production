@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import { Link } from "react-router-dom";
 import { Bell, BarChart3, BookMarked, CalendarDays, Check, CheckCheck, ChefHat, ChevronRight, CircleAlert, Cylinder, Globe, Menu, Moon, PanelLeftClose, PanelLeftOpen, Search, Scale, ShoppingBag, ShoppingCart, Sun, Truck, Users, Wallet, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,13 +19,15 @@ function notificationIcon(n: ServerNotification) {
   if (/order|quot|inquir|payment/i.test(n.title)) return ShoppingBag;
   return Bell;
 }
-export function Topbar({collapsed,setCollapsed,module,config,search,setSearch,connected,user,setLoginOpen,notification,setNotification,setNotice,theme,setTheme,followUps=[],onMenu,isMobile=false}: {collapsed:boolean;setCollapsed:(v:boolean)=>void;module:string;config:{label:string}|undefined;search:string;setSearch:(v:string)=>void;connected:boolean;user:ServerUser|null;setLoginOpen:(v:boolean)=>void;notification:boolean;setNotification:(v:boolean)=>void;setNotice:(s:string)=>void;theme:'light'|'dark'|null;setTheme:(t:'light'|'dark')=>void;followUps?:{id:string;customer:string}[];onMenu?:()=>void;isMobile?:boolean}) {
+export function Topbar({collapsed,setCollapsed,module,config,search,setSearch,connected,user,setLoginOpen,notification,setNotification,setNotice,theme,setTheme,followUps=[],onMenu,menuOpen,isMobile=false}: {collapsed:boolean;setCollapsed:(v:boolean)=>void;module:string;config:{label:string}|undefined;search:string;setSearch:(v:string)=>void;connected:boolean;user:ServerUser|null;setLoginOpen:(v:boolean)=>void;notification:boolean;setNotification:(v:boolean)=>void;setNotice:(s:string)=>void;theme:'light'|'dark'|null;setTheme:(t:'light'|'dark')=>void;followUps?:{id:string;customer:string}[];onMenu?:()=>void;menuOpen?:boolean;isMobile?:boolean}) {
   const [dsOpen, setDsOpen] = useState(false);
+  const dsRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => { if (!isMobile) setDsOpen(false); }, [isMobile]);
+  useEffect(() => { if (typeof menuOpen === 'boolean') setDsOpen(menuOpen); }, [menuOpen]);
   const breadcrumbMenu = isMobile && dsOpen;
-  const menuItem = (icon: any, label: string, active?: boolean, href?: string) => (
-    <a key={label} className={`nav-item${active?' active':''}`} href={href ?? (active ? '#' : '#')} style={href ? undefined : { cursor: 'pointer' }} onClick={() => { if (!href) onMenu?.(); }}>
-      {icon}
+  const menuItem = (Icon: ComponentType<{ size?: number }>, label: string, active?: boolean, href?: string) => (
+    <a key={label} className={`nav-item${active?' active':''}`} href={href ?? '#'} style={href ? undefined : { cursor: 'pointer' }} onClick={() => { if (!href) { onMenu?.(); } setDsOpen(false); }}>
+      <Icon size={16} />
       <span>{label}</span>
       {active && <span className='nav-count'> now</span>}
     </a>
@@ -73,7 +75,7 @@ export function Topbar({collapsed,setCollapsed,module,config,search,setSearch,co
         {breadcrumbMenu
           ? <div className="breadcrumb-menu-wrap">{dsMenu}</div>
           : isMobile
-            ? <IconButton icon={Menu} label="Open workspace menu" onClick={() => { setDsOpen(true); onMenu?.(); }}/>
+            ? <IconButton icon={Menu} label="Open workspace menu" onClick={() => { setDsOpen(true); onMenu?.(); }} className="menu-stack"/>
             : <IconButton icon={collapsed?PanelLeftOpen:PanelLeftClose} label={collapsed?'Expand sidebar':'Collapse sidebar'} onClick={()=>setCollapsed(!collapsed)}/>}
         <span>Workspace</span><ChevronRight size={14}/><strong>{module==='dashboard'?'Overview':config?.label}</strong>
       </div>
