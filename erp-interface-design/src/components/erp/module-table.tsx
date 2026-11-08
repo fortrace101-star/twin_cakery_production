@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { money, moduleRows, tone, type GridRow, type Order } from "./data";
+import { money, moduleRows, orderOutstandingAmount, tone, type GridRow, type Order } from "./data";
 import { ORDER_STAGE_PIPELINE, orderStageIndex } from "@/lib/theme-tokens";
 import { StatusBadge as Status } from "../data-table/StatusBadge";
 import { DataTable, type Column, type SortState } from "../data-table/DataTable";
@@ -21,9 +21,12 @@ import {
   listProductionJobs, startProductionJob, completeProductionJob, recordQualityCheck, recordProductionWastage, getProductionCosts, getProductionConsumption, recordJobMaterials,
   listInventoryItems, getInventoryLedger,
   listCustomers,
+  listDeliveries,
+  completeDelivery,
   listRbacUsers, listRbacRoles, listRbacPermissions, getRolePermissionKeys, grantRolePermission, revokeRolePermission,
   type ServerProductionJob, type ServerProductionCost, type ServerProductionConsumption, type ServerInventoryItem, type ServerInventoryTransaction,
   type ServerCustomer,
+  type ServerDelivery,
   type ServerRbacUser, type ServerRole, type ServerPermission,
 } from "@/lib/api";
 export function orderRowTone(o: Order): string {
@@ -343,6 +346,12 @@ useLiveRefresh(refreshDeliveriesLive);
   const [jobs, setJobs] = useState<ServerProductionJob[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [customers, setCustomers] = useState<ServerCustomer[]>([]);
+  const [deliveries, setDeliveries] = useState<ServerDelivery[]>([]);
+  const [settleMode, setSettleMode] = useState<'collect'|'no_collection'>('collect');
+  const [collectAmount, setCollectAmount] = useState('');
+  const [collectMethod, setCollectMethod] = useState('Cash');
+  const [collectRef, setCollectRef] = useState('');
+  const [noCollectionReason, setNoCollectionReason] = useState('');
 
   // Deliveries modal: the Upcoming/Dispatch record dialog shows the order's
   // location note + the customer's contact details, so we need the CRM list.
@@ -350,6 +359,7 @@ useLiveRefresh(refreshDeliveriesLive);
     if (module !== 'delivery') return;
     let alive = true;
     void listCustomers().then((list) => { if (alive) setCustomers(list || []); }).catch(() => { if (alive) setCustomers([]); });
+    void listDeliveries().then((list) => { if (alive) setDeliveries(list || []); }).catch(() => { if (alive) setDeliveries([]); });
     return () => { alive = false; };
   }, [module]);
 
@@ -564,20 +574,47 @@ useLiveRefresh(refreshDeliveriesLive);
   // Delivered (local + server via the workspace store, which also settles
   // station/follow-up on the backend) so it leaves Dispatch and shows under
   // the Completed tab.
-  async function handleCompleteOrderFor(row: GridRow) {
+  // Deliveries > Dispatch: complete with settlement (DEL-01/04 UI). Uses
+  // POST /deliveries/:id/complete when a delivery record is resolved; requires
+  // collected amount/method or a no-collection reason per server contract.
+  async function handleCompleteOrder() {
+    if (!record) return;
+    const order = orders.find((o) => o.id === record.id) ?? null;
+    const balance = order ? Math.max(0, order.amount - (order.paidAmount ?? 0)) : 0;
+    if (settleMode === 'collect') {
+      const amt = Number(collectAmount);
+      if (!Number.isFinite(amt) || amt < 0) { onNotice('Enter a valid collected amount.'); return; }
+      if (collectMethod !== 'Cash' && !String(collectRef).trim()) { onNotice('Reference is required for non-cash payments.'); return; }
+    } else {
+      if (!String(noCollectionReason).trim()) { onNotice('Please provide a reason for no collection.'); return; }
+    }
+    const delivery = deliveries.find((d) => d.orderId === record.id || d.orderId === order?.id)
+      ?? deliveries.find((d: any) => (d as any).orderNumber === record.id);
     setBusyAction(true);
     try {
-      updateOrder(row.id, 'Completed / Delivered');
-      onNotice('Order completed — it now shows under Completed');
+      if (delivery?.id) {
+        const body = settleMode === 'collect'
+          ? { collected: { amount: Math.round(Number(collectAmount) || 0), method: collectMethod, ...(collectRef.trim() ? { reference: collectRef.trim() } : {}) } }
+          : { noCollection: { reason: noCollectionReason.trim() } };
+        const res = await completeDelivery(delivery.id, body as any);
+        if (!res) { onNotice('Could not complete delivery. Check settlement details and try again.'); return; }
+        await refreshStore();
+        const collectedMsg = settleMode === 'collect' && Number(collectAmount) > 0 ? ` Collected ${money(Math.round(Number(collectAmount) || 0))} (${collectMethod}).` : settleMode === 'no_collection' ? ' No collection recorded.' : '';
+        onNotice(`Delivery completed.${collectedMsg}`);
+        void listDeliveries().then((list) => setDeliveries(list || [])).catch(() => {});
+      } else {
+        updateOrder(record.id, 'Completed / Delivered');
+        onNotice(balance > 0 ? 'Order marked completed. No delivery record found to settle — record payment separately if needed.' : 'Order completed.');
+      }
       setRecord(null);
     } finally {
       setBusyAction(false);
     }
   }
 
-  async function handleCompleteOrder() {
-    if (!record) return;
-    await handleCompleteOrderFor(record);
+  async function handleCompleteOrderFor(row: GridRow) {
+    // Open the record dialog so settlement can be confirmed before completing.
+    setRecord(row);
   }
 
   // Deliveries modal extras: the open order's location note and the customer's
@@ -617,7 +654,28 @@ useLiveRefresh(refreshDeliveriesLive);
       </div>
     </div>
   </div>
-</div>) : (<div className="configuration-list"><p><span>Details</span><strong>{record?.detail}</strong></p><p><span>{headings[1]}</span><strong>{record?.secondary}</strong></p><p><span>{headings[2]}</span><strong>{record?.value}</strong></p>{record&&<p><span>Status</span><Status value={record.status}/></p>}</div>)}{module==='inventory'&&<><h3 className="text-sm font-semibold">Stock ledger</h3><div className="configuration-list"><p><span>Opening stock</span><strong>20 kg</strong></p><p><span>Purchase receipt</span><strong>+10 kg</strong></p><p><span>Production consumption</span><strong>−21 kg</strong></p><p><span>Recorded wastage</span><strong>−1 kg</strong></p></div><p className="text-xs text-muted-foreground">Illustrative transaction breakdown for all-purpose flour.</p></>}{module==='sales'&&<Button onClick={()=>{const o=orders.find(o=>o.customer===record?.name);if(o){setRecord(null);onSelect(o)}}}>Open related order<ArrowRight/></Button>}{showDeliveryExtras&&<div className="configuration-list"><p><span>Location note</span><strong>{deliveryOrder?.locationNote||'—'}</strong></p><p><span>Customer contact</span><strong>{deliveryContact||'—'}</strong></p></div>}{module==='delivery'&&tab==='Upcoming'&&record&&<div className="dialog-actions"><Button onClick={handleSetInTransit} disabled={busyAction}><ArrowRight size={16}/>Set In-Transit</Button></div>}{module==='delivery'&&tab==='Dispatch'&&record&&<div className="dialog-actions"><Button onClick={handleCompleteOrder} disabled={busyAction}><Check size={16}/>Complete</Button></div>}</DialogContent></Dialog></section>
+</div>) : (<div className="configuration-list"><p><span>Details</span><strong>{record?.detail}</strong></p><p><span>{headings[1]}</span><strong>{record?.secondary}</strong></p><p><span>{headings[2]}</span><strong>{record?.value}</strong></p>{record&&<p><span>Status</span><Status value={record.status}/></p>}</div>)}{module==='inventory'&&<><h3 className="text-sm font-semibold">Stock ledger</h3><div className="configuration-list"><p><span>Opening stock</span><strong>20 kg</strong></p><p><span>Purchase receipt</span><strong>+10 kg</strong></p><p><span>Production consumption</span><strong>−21 kg</strong></p><p><span>Recorded wastage</span><strong>−1 kg</strong></p></div><p className="text-xs text-muted-foreground">Illustrative transaction breakdown for all-purpose flour.</p></>}{module==='sales'&&<Button onClick={()=>{const o=orders.find(o=>o.customer===record?.name);if(o){setRecord(null);onSelect(o)}}}>Open related order<ArrowRight/></Button>}{showDeliveryExtras&&<div className="configuration-list"><p><span>Location note</span><strong>{deliveryOrder?.locationNote||'—'}</strong></p><p><span>Customer contact</span><strong>{deliveryContact||'—'}</strong></p>{tab==='Dispatch'&&deliveryOrder&&<p><span>Order total / paid</span><strong>{money(deliveryOrder.amount)} / {money(deliveryOrder.paidAmount ?? 0)}</strong></p>}</div>}{module==='delivery'&&tab==='Upcoming'&&record&&<div className="dialog-actions"><Button onClick={handleSetInTransit} disabled={busyAction}><ArrowRight size={16}/>Set In-Transit</Button></div>}{module==='delivery'&&tab==='Dispatch'&&record&&(()=>{
+  const order = orders.find((o)=>o.id===record.id) ?? null;
+  const balance = order ? Math.max(0, order.amount - (order.paidAmount ?? 0)) : 0;
+  const needsRef = collectMethod !== 'Cash';
+  const canComplete = settleMode === 'collect'
+    ? (Number.isFinite(Number(collectAmount)) && Number(collectAmount) >= 0 && (!needsRef || collectRef.trim().length > 0))
+    : noCollectionReason.trim().length > 0;
+  return <div className="space-y-3">
+    <div className="configuration-list"><p><span>Balance due</span><strong>{money(balance)}</strong></p>{balance > 0 && <p><span>Collect on completion</span><strong>{money(balance)}</strong></p>}</div>
+    <div className="space-y-2">
+      <label className="flex items-center gap-2 text-sm"><input type="radio" name="settleMode" checked={settleMode==='collect'} onChange={()=>setSettleMode('collect')} /> Collected payment</label>
+      {settleMode==='collect' && <div className="grid gap-2 pl-5">
+        <label className="text-sm">Amount collected (UGX)<Input type="number" min={0} step={1} value={collectAmount} onChange={e=>setCollectAmount(e.target.value)} /></label>
+        <label className="text-sm">Method <select className="input w-full" value={collectMethod} onChange={e=>setCollectMethod(e.target.value)}><option value="Cash">Cash</option><option value="MTN MoMo">MTN MoMo</option><option value="Airtel Money">Airtel Money</option><option value="Bank">Bank transfer</option><option value="Card">Card</option></select></label>
+        {needsRef && <label className="text-sm">Reference<Input value={collectRef} onChange={e=>setCollectRef(e.target.value)} placeholder="Required for non-cash" /></label>}
+      </div>}
+      <label className="flex items-center gap-2 text-sm"><input type="radio" name="settleMode" checked={settleMode==='no_collection'} onChange={()=>setSettleMode('no_collection')} /> No collection (reason required)</label>
+      {settleMode==='no_collection' && <label className="text-sm pl-5">Reason<Input value={noCollectionReason} onChange={e=>setNoCollectionReason(e.target.value)} placeholder="e.g. Already paid / refused / reschedule" /></label>}
+    </div>
+    <div className="dialog-actions"><Button onClick={handleCompleteOrder} disabled={busyAction || !canComplete}><Check size={16}/>Complete delivery</Button></div>
+  </div>;
+})()}</DialogContent></Dialog></section>
 }
 
 export function Administration({tab,audit,onNotice,connected=false}: {tab:string;audit:string[];onNotice:(s:string)=>void;connected?:boolean}){

@@ -114,10 +114,8 @@ export function Sidebar({
 
    <hr className="sidebar-divider"/>
    <div className="sidebar-bottom">
-    {variant !== 'drawer' && <div className="profile-wrap" ref={profileRef}><button type="button" className={`profile ${menuOpen?'profile-open':''}`} aria-expanded={menuOpen} onClick={()=>setMenuOpen(v=>!v)}><span className="profile-avatar">{initialsOf(user?.displayName || user?.username)}</span><div><strong>{displayName}</strong><small>{subtitle}</small></div><ChevronDown size={14}/></button></div>}
     <Button variant="ghost" asChild className={`nav-item ${module==='administration'?'nav-active':''}`} title="Settings"><Link to="/workspace/administration" onClick={()=>{setTab('');setSearch('');setStatusFilter('All statuses');onNavigate?.();}}><Settings/><span>Settings</span></Link></Button>
-    {variant === 'drawer' && (connected ? <Button variant="ghost" className="nav-item" title="Sign out" onClick={()=>{onNavigate?.();signOut();}}><LogOut/><span>Sign out</span></Button> : <Button variant="ghost" className="nav-item" title="Sign in" onClick={()=>{onNavigate?.();setLoginOpen(true);}}><LogOut/><span>Sign in</span></Button>)}
-    {variant !== 'drawer' && <div className="profile-menu" role="menu" aria-label="Account"><div className="profile-menu-head"><strong>{displayName}</strong><small>{connected && user ? (user.email || subtitle) : 'Interface preview'}</small></div>{connected ? <button type="button" className="profile-menu-item" role="menuitem" onClick={()=>{setMenuOpen(false);onNavigate?.();signOut();}}><LogOut size={15}/>Sign out</button> : <button type="button" className="profile-menu-item" role="menuitem" onClick={()=>{setMenuOpen(false);onNavigate?.();setLoginOpen(true);}}><LogOut size={15}/>Sign in</button>}</div>}
+    {connected ? <Button variant="ghost" className="nav-item" title="Sign out" onClick={()=>{onNavigate?.();signOut();}}><LogOut/><span>Sign out</span></Button> : <Button variant="ghost" className="nav-item" title="Sign in" onClick={()=>{onNavigate?.();setLoginOpen(true);}}><LogOut/><span>Sign in</span></Button>}
    </div>
 
   </aside>

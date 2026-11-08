@@ -119,6 +119,17 @@ function GuestPage() {
     );
   }
 
+  // Connected but unauthenticated: effect redirects to /login or /claim-admin.
+  if (connected && !authError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
+        <div className="w-full max-w-sm text-center">
+          <p className="text-sm text-muted-foreground">Redirecting…</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
       <div className="w-full max-w-sm rounded-lg border border-destructive/30 bg-red-50 p-4 text-left">

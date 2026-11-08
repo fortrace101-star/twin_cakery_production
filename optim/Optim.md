@@ -300,7 +300,7 @@ The module's UI work, drafted at execution time.
 
 | Date | Step | Change | Reason / evidence |
 |---|---|---|---|
-| | | _none yet_ | |
+| 2026-11-09 | DEL-00, UI-DEL-01/02 (rendered path) | Reconciled: deliveries UI renders via `erp-interface-design/src/components/erp/module-table.tsx` (workspace), not only `deliveries-view.tsx`. `api.completeDelivery` lacked the server-required settlement body; server `POST /deliveries/:id/complete` now expects `collected` or `noCollection` (422 otherwise). Implemented settlement confirmation in ModuleTable Dispatch (balance due shown, collect amount/method/reference or no-collection reason required, confirm disabled until valid), uses `completeDelivery(deliveryId, body)` when a delivery record resolves, falls back to order status update with notice if not. `tsc --noEmit` + `npm run build` pass; no runtime/E2E or server tests run. | Code reality differs from older DEL-01/02 narrative; UI wired to current server contract in rendered path. |
 
 ---
 

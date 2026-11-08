@@ -964,11 +964,15 @@ export interface ServerDeliveryCompletion {
   order: ServerOrder | null;
 }
 
-/** POST /deliveries/:id/complete — mark a delivery delivered. The server also
- * settles the order's outstanding Cash-on-Delivery balance (spec §14) so the
- * returned `order.paymentStatus` reads "PAID" once the balance is covered. */
-export function completeDelivery(id: string): Promise<ServerDeliveryCompletion | null> {
-  return safe(() => request<ServerDeliveryCompletion>(`/deliveries/${id}/complete`, { method: "POST" }), null);
+export type DeliveryCompleteBody =
+  | { collected: { amount: number; method: string; reference?: string } }
+  | { noCollection: { reason: string } };
+
+/** POST /deliveries/:id/complete — mark a delivery delivered with settlement.
+ * Body must provide either `collected` (amount/method/reference) or
+ * `noCollection` (reason), matching the server contract. */
+export function completeDelivery(id: string, body: DeliveryCompleteBody): Promise<ServerDeliveryCompletion | null> {
+  return safe(() => request<ServerDeliveryCompletion>(`/deliveries/${id}/complete`, { method: "POST", body }), null);
 }
 
 export interface ServerMaterialInput {
