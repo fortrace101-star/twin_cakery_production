@@ -41,9 +41,10 @@ export function Workspace({module='dashboard'}: {module?:string}) {
  const [selected,setSelected]=useState<Order|null>(null);
  const [notification,setNotification]=useState(false);
  const [help,setHelp]=useState(false);
- const [period,setPeriod]=useState('This month');
+ const [period,setPeriod]=useState('Today');
  const [statusFilter,setStatusFilter]=useState('All statuses');
  const [notice,setNotice]=useState('');
+ useEffect(()=>{ if(!notice) return; const t=setTimeout(()=>setNotice(''), 3500); return ()=>clearTimeout(t); },[notice]);
  const [theme,setTheme]=useState<'light'|'dark'>(() => (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
  const [salesLayout, setSalesLayout] = useState<'table'|'kanban'>('table');
  const [kanbanStage, setKanbanStage] = useState<string>(SALES_STAGES[0] ?? 'Pending confirmation');
@@ -107,7 +108,7 @@ export function Workspace({module='dashboard'}: {module?:string}) {
   <div className="main-shell">
    <Topbar collapsed={collapsed} setCollapsed={setCollapsed} module={module} config={config} search={search} setSearch={setSearch} connected={connected} user={user} setLoginOpen={setLoginOpen} notification={notification} setNotification={setNotification} setNotice={setNotice} theme={theme} setTheme={setTheme} followUps={followUps} onMenu={() => setNavOpen(true)} menuOpen={navOpen} isMobile={isMobile}/>
    <main className="content">
-    <div className="page-heading"><div><div className="eyebrow">{module==='dashboard'?'YOUR BAKERY AT A GLANCE':'TWIN CAKERY BAKERY'}</div><h1>{module==='dashboard'?`Good morning, ${user?.displayName || user?.username || 'Alex'}`:config?.label}<span className="heading-dot">.</span></h1><p>{module==='dashboard'?'Here’s what’s happening at Twin Cakery Bakery today.':subtitles[module]}</p></div><div className="heading-actions"><Button variant="outline" onClick={exportData}><Download/>Export</Button>{module !== 'inventory' && <Button onClick={()=>setNewOrder(true)}><Plus/>New order</Button>}</div></div>
+    <div className="page-heading"><div><div className="eyebrow">{module==='dashboard'?'YOUR BAKERY AT A GLANCE':'TWIN CAKERY BAKERY'}</div><h1>{module==='dashboard'?(()=>{const h=new Date().getHours();const g=h<12?'Good morning':h<18?'Good afternoon':'Good evening';return `${g}, ${user?.displayName || user?.username || 'Alex'}`;})():config?.label}<span className="heading-dot">.</span></h1><p>{module==='dashboard'?'Here’s what’s happening at Twin Cakery Bakery today.':subtitles[module]}</p></div><div className="heading-actions"><Button variant="outline" onClick={exportData}><Download/>Export</Button>{module !== 'inventory' && <Button onClick={()=>setNewOrder(true)}><Plus/>New order</Button>}</div></div>
     {module==='dashboard'?<>
      <DashboardView period={period} setPeriod={setPeriod} orders={orders} filtered={filtered} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} onSelect={setSelected} onHelp={()=>setHelp(true)} audit={audit}/>
     </>:<>

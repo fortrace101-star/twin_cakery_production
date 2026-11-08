@@ -82,8 +82,6 @@ export function Sidebar({module,setTab,setSearch,setStatusFilter,setHelp,user,co
 
    <Link to="/" className="brand"><img src={logo} alt="Twin Cakery" width="48" height="48"/><div><strong>Twin Cakery<span className="brand-dot">.</span></strong><span>Taste the secret</span></div></Link>
 
-   <div className="workspace-switch"><span className="workspace-avatar">TC</span><div><strong>Business workspace</strong><small>Proprietor</small></div><ChevronDown size={14}/></div>
-
    <div className="sidebar-nav-area">
     <nav aria-label="Main navigation" ref={navRef} onScroll={updateArrows}>
 
@@ -94,9 +92,10 @@ export function Sidebar({module,setTab,setSearch,setStatusFilter,setHelp,user,co
     </nav>
     {canUp && <button type="button" className="scroll-arrow scroll-up" aria-label="Scroll navigation up" title="Scroll up" onClick={()=>scrollBy(-180)}><ChevronUp size={16}/></button>}
     {canDown && <button type="button" className="scroll-arrow scroll-down" aria-label="Scroll navigation down" title="Scroll down" onClick={()=>scrollBy(180)}><ChevronDown size={16}/></button>}
-   </div>
+       </div>
 
-   <div className="sidebar-bottom"><Button variant="ghost" asChild className={`nav-item ${module==='administration'?'nav-active':''}`} title="Settings"><Link to="/workspace/administration" onClick={()=>{setTab('');setSearch('');setStatusFilter('All statuses');onNavigate?.();}}><Settings/><span>Settings</span></Link></Button><div className="team-presence"><span className="presence-dot"/><span>Let’s bake something great.</span></div><div className="profile-wrap" ref={profileRef}><button type="button" className={`profile ${menuOpen?'profile-open':''}`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={()=>setMenuOpen(v=>!v)}><span className="profile-avatar">{initialsOf(user?.displayName || user?.username)}</span><div><strong>{displayName}</strong><small>{subtitle}</small></div><ChevronDown size={14}/></button>{menuOpen&&<div className="profile-menu" role="menu"><div className="profile-menu-head"><strong>{displayName}</strong><small>{connected && user ? (user.email || subtitle) : 'Interface preview'}</small></div>{connected ? <button type="button" className="profile-menu-item" role="menuitem" onClick={()=>{setMenuOpen(false);onNavigate?.();signOut();}}><LogOut size={15}/>Sign out</button> : <button type="button" className="profile-menu-item" role="menuitem" onClick={()=>{setMenuOpen(false);onNavigate?.();setLoginOpen(true);}}><LogOut size={15}/>Sign in</button>}</div>}</div></div>
+   <hr className="sidebar-divider"/>
+   <div className="sidebar-bottom"><div className="profile-wrap" ref={profileRef}><button type="button" className={`profile ${menuOpen?'profile-open':''}`} aria-expanded={menuOpen} onClick={()=>setMenuOpen(v=>!v)}><span className="profile-avatar">{initialsOf(user?.displayName || user?.username)}</span><div><strong>{displayName}</strong><small>{subtitle}</small></div><ChevronDown size={14}/></button></div><Button variant="ghost" asChild className={`nav-item ${module==='administration'?'nav-active':''}`} title="Settings"><Link to="/workspace/administration" onClick={()=>{setTab('');setSearch('');setStatusFilter('All statuses');onNavigate?.();}}><Settings/><span>Settings</span></Link></Button><div className="profile-menu" role="menu" aria-label="Account"><div className="profile-menu-head"><strong>{displayName}</strong><small>{connected && user ? (user.email || subtitle) : 'Interface preview'}</small></div>{connected ? <button type="button" className="profile-menu-item" role="menuitem" onClick={()=>{setMenuOpen(false);onNavigate?.();signOut();}}><LogOut size={15}/>Sign out</button> : <button type="button" className="profile-menu-item" role="menuitem" onClick={()=>{setMenuOpen(false);onNavigate?.();setLoginOpen(true);}}><LogOut size={15}/>Sign in</button>}</div></div>
 
   </aside>
 

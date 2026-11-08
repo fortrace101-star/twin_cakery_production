@@ -254,7 +254,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           return;
         }
         const product = await findProductByName(order.product);
-        const requiredAt = order.date ? `${order.date}T10:00:00` : null;
+        const to24 = (t: string) => { const m = String(t||'').match(/^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i); if(!m) return '10:00:00'; let h=Number(m[1] ?? 10), min=Number(m[2] ?? 0); const ap=(m[3] ?? '').toUpperCase(); if(ap==='PM'&&h<12) h+=12; if(ap==='AM'&&h===12) h=0; return `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}:00`; };
+        const requiredAt = order.date ? `${order.date}T${to24(order.time)}` : null;
         const created = await createOrderApi({
           orderNumber: order.id,
           customerId: resolvedCustomer.id,

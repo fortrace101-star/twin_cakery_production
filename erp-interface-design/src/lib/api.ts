@@ -1606,6 +1606,15 @@ export async function markAsRead(notificationId: string, userId?: string): Promi
   }, false);
 }
 
+export async function deleteNotification(notificationId: string, userId?: string): Promise<boolean> {
+  const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+  // Server route is DELETE /notifications/:id → { ok: true }.
+  return safe(async () => {
+    const r = await request<{ ok: boolean }>(`/notifications/${notificationId}${q}`, { method: "DELETE" });
+    return r?.ok === true;
+  }, false);
+}
+
 export async function markAllAsRead(userId?: string): Promise<number> {
   const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
   // Server route is POST /notifications/mark-all-read → { ok, count }.
