@@ -269,10 +269,10 @@ button, a, input, select, textarea { -webkit-tap-highlight-color:transparent; }
 .workspace-switch strong {font-size:11px;font-weight:600;display:block;}
 .workspace-switch small {font-size:11px;color:var(--muted-foreground);}
 .workspace-switch>svg {margin-left:auto;}
-.nav-item {justify-content:flex-start;width:100%;font-size:12px;font-weight:500;height:38px;padding:0 12px;gap:11px;margin:2px 0;color:var(--muted-foreground);border-radius:5px;}
+.nav-item {position:relative;justify-content:flex-start;width:100%;font-size:12px;font-weight:500;height:38px;padding:0 12px;gap:11px;margin:2px 0;color:var(--muted-foreground);border-radius:5px;}
 .nav-item svg {width:17px;height:17px;stroke-width:1.6;flex-shrink:0;}
 .nav-active {background:var(--accent);color:var(--accent-foreground);font-weight:600;}
-.nav-active::before {content:'';height:16px;width:3px;background:var(--chart-revenue);position:absolute;left:18px;border-radius:2px;}
+.nav-active::before {content:'';height:16px;width:3px;background:var(--chart-revenue);position:absolute;left:0;top:50%;transform:translateY(-50%);border-radius:2px;}
 .nav-count {margin-left:auto;font-size:11px;background:var(--muted);color:var(--foreground);padding:1px 6px;border-radius:4px;}
 .nav-stage-badges {display:flex;align-items:center;gap:6px;margin-left:8px;}
 .nav-stage-badge {display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:22px;padding:2px 6px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap;}
@@ -781,7 +781,7 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .sidebar-collapsed .brand {padding-left:0;padding-right:0;}
 .sidebar-collapsed .brand div,.sidebar-collapsed .workspace-switch,.sidebar-collapsed .nav-item span,.sidebar-collapsed .nav-count,.sidebar-collapsed .nav-group>p,.sidebar-collapsed .profile div,.sidebar-collapsed .profile>svg,.sidebar-collapsed .team-presence {display:none;}
 .sidebar-collapsed .nav-item {justify-content:center;padding:0;}
-.sidebar-collapsed .nav-active::before {left:7px;}
+.sidebar-collapsed .nav-active::before {left:0;}
 .sidebar-collapsed .nav-group {margin-top:20px;border-top:1px solid var(--border);padding-top:12px;}
 .sidebar-collapsed .profile {justify-content:center;}
 .sidebar-collapsed .main-shell {margin-left:76px;width:calc(100% - 76px);}

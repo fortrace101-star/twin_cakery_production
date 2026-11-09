@@ -48,12 +48,13 @@ type RequestOptions = {
   body?: unknown;
   auth?: boolean;
   signal?: AbortSignal;
+  headers?: Record<string, string>;
 };
 
 export { request as apiRequest };
 export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, auth = true, signal } = opts;
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...(opts.headers || {}) };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (auth) {
     const token = getToken();
@@ -1425,8 +1426,11 @@ export async function recordPayment(payload: {
   receivedBy?: string;
   notes?: string;
 }): Promise<ServerPayment & { stagedPush: Record<string, unknown> | null } | null> {
+  const idem = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `pay-${Date.now()}-${Math.random().toString(36).slice(2,10)}`;
   return safe(() =>
-    request<ServerPayment & { stagedPush: Record<string, unknown> | null }>("/payments", { method: "POST", body: payload }),
+    request<ServerPayment & { stagedPush: Record<string, unknown> | null }>("/payments", { method: "POST", body: payload, headers: { "Idempotency-Key": idem } }),
     null,
   );
 }
