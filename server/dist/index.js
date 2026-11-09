@@ -40,15 +40,21 @@ const app = express();
 const PORT = Number(process.env.PORT) || 4000;
 // Database seeding is handled by `npm run db:seed` (see server/seeds/seed.ts).
 // CORS allow-list (replaces wildcard)
-const ALLOWED = (process.env.FRONTEND_ORIGIN ?? "").split(",").filter(Boolean);
+const ALLOWED = (process.env.FRONTEND_ORIGIN ?? "")
+    .split(",")
+    .map((o) => o.trim().replace(/\/$/, ""))
+    .filter(Boolean);
 app.use((req, res, next) => {
     const origin = req.headers.origin;
-    if (origin && ALLOWED.includes(origin)) {
-        res.setHeader("Access-Control-Allow-Origin", origin);
-        res.setHeader("Vary", "Origin");
-        res.setHeader("Access-Control-Allow-Credentials", "true");
-        res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, X-CSRF-Token");
-        res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    if (origin) {
+        const normalizedOrigin = origin.replace(/\/$/, "");
+        if (ALLOWED.includes(normalizedOrigin)) {
+            res.setHeader("Access-Control-Allow-Origin", origin);
+            res.setHeader("Vary", "Origin");
+            res.setHeader("Access-Control-Allow-Credentials", "true");
+            res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, X-CSRF-Token, Idempotency-Key");
+            res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+        }
     }
     if (req.method === "OPTIONS")
         return res.sendStatus(204);

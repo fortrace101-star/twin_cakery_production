@@ -115,34 +115,42 @@ export function FinanceView({ tab = "Payments", onNotice }: { tab?: string; onNo
   async function onRecordPayment() {
     if (!orderId || !amount) return onNotice("Enter an order and an amount");
     setRecording(true);
-    const res = await recordPayment({
-      orderId,
-      amount: Number(amount),
-      method,
-      ...(reference ? { reference } : {}),
-      ...(receivedBy ? { receivedBy } : {}),
-    });
-    setRecording(false);
-    if (!res) return onNotice("Could not record the payment — check your connection");
-    setPayments((p) => [...p, res]);
-    if (res.stagedPush && method === "M-Pesa") {
-      setPasa({ checkoutRequestID: String(res.stagedPush["CheckoutRequestID"] || ""), reference: res.reference });
-      onNotice(`"${res.reference}" staged for M-Pesa — confirm in the Pasa simulator`);
-    } else {
-      onNotice(`Payment of ${money(res.amount)} recorded`);
+    try {
+      const res = await recordPayment({
+        orderId,
+        amount: Number(amount),
+        method,
+        ...(reference ? { reference } : {}),
+        ...(receivedBy ? { receivedBy } : {}),
+      });
+      setPayments((p) => [...p, res]);
+      if (res.stagedPush && method === "M-Pesa") {
+        setPasa({ checkoutRequestID: String(res.stagedPush["CheckoutRequestID"] || ""), reference: res.reference });
+        onNotice(`"${res.reference}" staged for M-Pesa — confirm in the Pasa simulator`);
+      } else {
+        onNotice(`Payment of ${money(res.amount)} recorded`);
+      }
+      setAmount("");
+      setReference("");
+      void refreshPayments();
+    } catch (err) {
+      onNotice(err instanceof Error && err.message ? err.message : "Could not record the payment");
+    } finally {
+      setRecording(false);
     }
-    setAmount("");
-    setReference("");
-    void refreshPayments();
   }
 
   async function onConfirmPasa() {
     if (!pasa || !pasa.checkoutRequestID) return;
-    const res = await recordPaymentCallback(pasa.checkoutRequestID, { resultCode: 0 });
-    if (!res) return onNotice("Pasa confirmation failed");
-    onNotice("Payment credited — order is PAID");
-    void refreshPayments();
-    setPasa(null);
+    try {
+      const res = await recordPaymentCallback(pasa.checkoutRequestID, { resultCode: 0 });
+      if (!res) return onNotice("Pasa confirmation failed");
+      onNotice("Payment credited — order is PAID");
+      void refreshPayments();
+      setPasa(null);
+    } catch (err) {
+      onNotice(err instanceof Error && err.message ? err.message : "Pasa confirmation failed");
+    }
   }
 
   // ---- expenses -----------------------------------------------------------

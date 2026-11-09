@@ -57,7 +57,7 @@ type WorkspaceContextValue = {
   signOut: () => void;
   addOrder: (order: Order, phone?: string) => void;
   /** Records the order stage and (optionally) its payment status & paid amount in one write. */
-  updateOrder: (id: string, status: string, payment?: string, paidDelta?: number, payMeta?: { method?: string; receivedBy?: string; reference?: string; notes?: string }) => Promise<boolean>;
+  updateOrder: (id: string, status: string, payment?: string, paidDelta?: number, payMeta?: { method?: string; receivedBy?: string; reference?: string; notes?: string }) => Promise<{ ok: boolean; error?: string }>;
   /**
    * Best-effort duplicate guard used by the new-order flow. Returns an existing CRM customer
    * whose phone or email matches the given contact exactly (case-/space-insensitive), or null
@@ -326,8 +326,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         // Fallback to UI id (often order number); server routes accept id or orderNumber.
         const serverId = server?.id ?? id;
         if (paidDelta && paidDelta > 0) {
-          const payRes = await recordPayment({ orderId: serverId, amount: paidDelta, method: payMeta?.method || "Cash", receivedBy: payMeta?.receivedBy || user?.id || "", ...(payMeta?.reference ? { reference: payMeta.reference } : {}), ...(payMeta?.notes ? { notes: payMeta.notes } : {}) });
-          if (!payRes) { await refresh().catch(() => {}); return false; }
+          try {
+            await recordPayment({ orderId: serverId, amount: paidDelta, method: payMeta?.method || "Cash", receivedBy: payMeta?.receivedBy || user?.id || "", ...(payMeta?.reference ? { reference: payMeta.reference } : {}), ...(payMeta?.notes ? { notes: payMeta.notes } : {}) });
+          } catch (err) {
+            await refresh().catch(() => {});
+            const msg = err instanceof Error && err.message ? err.message : "Failed to record payment";
+            console.error("[store] record payment failed", err);
+            return { ok: false, error: msg };
+          }
         }
         const serverStatus = /^[A-Z_]+$/.test(status) ? status : orderStatusEnum(status);
         const isConfirmed = serverStatus === "CONFIRMED" || status === "Confirmed";
@@ -343,10 +349,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           });
         }
         await refresh().catch(() => {});
-        return !!ok;
-      } catch {
+        return ok ? { ok: true } : { ok: false, error: "Failed to update order" };
+      } catch (err) {
         await refresh().catch(() => {});
-        return false;
+        const msg = err instanceof Error && err.message ? err.message : "Failed to update order";
+        return { ok: false, error: msg };
       }
   }, [user, refresh]);
 

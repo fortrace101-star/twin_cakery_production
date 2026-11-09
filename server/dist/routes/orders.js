@@ -57,6 +57,20 @@ async function persistOrderStatusPg(orderIdOrNumber, newStatus, changedBy, reaso
     catch { }
     return { orderId, previousStatus, newStatus, history };
 }
+function makeServerOrderNumber(seed = "") {
+    // Server-authoritative, low-collision display number. The DB has a UNIQUE
+    // constraint on order_number; callers retry on 23505 if a race still occurs.
+    const base = String(seed || "").trim();
+    if (base && /^TC-[A-Za-z0-9-]{4,32}$/.test(base))
+        return base;
+    return `TC-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+}
+function isUniqueOrderNumberError(err) {
+    if (err?.code !== "23505")
+        return false;
+    const msg = `${err?.constraint || ""} ${err?.detail || ""} ${err?.message || ""}`.toLowerCase();
+    return msg.includes("order_number") || msg.includes("order number");
+}
 async function persistOrderToPg(record, initialHistory) {
     // Postgres mandatory: persist order + items (+ optional initial history). DB columns only.
     const client = await pool.connect();
@@ -150,7 +164,8 @@ router.post("/", required("orders.create"), async (req, res) => {
     const subtotal = items.reduce((sum, i) => sum + Number(i.total || 0) + Number(i.discount || 0), 0);
     const total = subtotal + Number(deliveryCharge || 0) + Number(taxAmount || 0) - Number(discount || 0);
     const record = store.createOrder({
-        orderNumber: orderNumber || `TC-${Date.now().toString().slice(-6)}`,
+        // Ignore optimistic client display numbers; order_number is UNIQUE in Postgres.
+        orderNumber: makeServerOrderNumber(),
         customerId,
         salespersonId: salespersonId || null,
         items,
@@ -171,12 +186,29 @@ router.post("/", required("orders.create"), async (req, res) => {
         deliveryLocation: deliveryLocation || "",
         locationNote: locationNote || "",
     });
-    try {
-        const initialHistory = [...store.db.orderStatusHistory].reverse().find((h) => h.orderId === record.id);
-        await persistOrderToPg(record, initialHistory);
+    let lastErr;
+    for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+            if (attempt > 0) {
+                record.orderNumber = makeServerOrderNumber();
+                try {
+                    store.updateOrder(record.id, { orderNumber: record.orderNumber });
+                }
+                catch { }
+            }
+            const initialHistory = [...store.db.orderStatusHistory].reverse().find((h) => h.orderId === record.id);
+            await persistOrderToPg(record, initialHistory);
+            lastErr = null;
+            break;
+        }
+        catch (err) {
+            lastErr = err;
+            if (!isUniqueOrderNumberError(err) || attempt === 3)
+                break;
+        }
     }
-    catch (err) {
-        const msg = err?.message || "Failed to persist order";
+    if (lastErr) {
+        const msg = lastErr?.message || "Failed to persist order";
         if (/connect|ECONN|timeout|database/i.test(msg))
             return res.status(503).json({ error: "Database unavailable", detail: msg });
         return res.status(500).json({ error: msg });
@@ -450,7 +482,7 @@ router.post("/:id/repeat", required("orders.create"), async (req, res) => {
     const taxAmount = Number(body.taxAmount ?? original.taxAmount);
     const total = body.total !== undefined ? Number(body.total) : subtotal + deliveryCharge + taxAmount - discount;
     const record = store.createOrder({
-        orderNumber: `TC-${Date.now().toString().slice(-6)}`,
+        orderNumber: makeServerOrderNumber(),
         customerId: original.customerId,
         salespersonId: original.salespersonId,
         items,
@@ -469,12 +501,29 @@ router.post("/:id/repeat", required("orders.create"), async (req, res) => {
         inquiryId: null,
         createdBy: session?.userId ?? "",
     });
-    try {
-        const initialHistory = [...store.db.orderStatusHistory].reverse().find((h) => h.orderId === record.id);
-        await persistOrderToPg(record, initialHistory);
+    let lastErr;
+    for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+            if (attempt > 0) {
+                record.orderNumber = makeServerOrderNumber();
+                try {
+                    store.updateOrder(record.id, { orderNumber: record.orderNumber });
+                }
+                catch { }
+            }
+            const initialHistory = [...store.db.orderStatusHistory].reverse().find((h) => h.orderId === record.id);
+            await persistOrderToPg(record, initialHistory);
+            lastErr = null;
+            break;
+        }
+        catch (err) {
+            lastErr = err;
+            if (!isUniqueOrderNumberError(err) || attempt === 3)
+                break;
+        }
     }
-    catch (err) {
-        const msg = err?.message || "Failed to persist order";
+    if (lastErr) {
+        const msg = lastErr?.message || "Failed to persist order";
         if (/connect|ECONN|timeout|database/i.test(msg))
             return res.status(503).json({ error: "Database unavailable", detail: msg });
         return res.status(500).json({ error: msg });

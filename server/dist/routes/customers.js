@@ -22,7 +22,8 @@ const required = (perm) => async (req, res, next) => {
         next(err);
     }
 };
-router.get("/", required("customers.view"), async (req, res) => {
+const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+router.get("/", required("customers.view"), ah(async (req, res) => {
     const customers = store.customers();
     const name = req.query.name;
     const status = req.query.status;
@@ -37,8 +38,8 @@ router.get("/", required("customers.view"), async (req, res) => {
         dateField: "createdAt",
         searchFields: ["name", "email", "phone"],
     }));
-});
-router.post("/", required("customers.create"), async (req, res) => {
+}));
+router.post("/", required("customers.create"), ah(async (req, res) => {
     const { name, phone, email, addresses, preferredContactMethod, source, notes, status } = req.body || {};
     if (!name)
         return res.status(400).json({ error: "Name is required" });
@@ -60,15 +61,15 @@ router.post("/", required("customers.create"), async (req, res) => {
         return res.status(503).json({ error: "Database unavailable: " + (err?.message || "persist failed") });
     }
     res.status(201).json(record);
-});
-router.get("/:id", required("customers.view"), async (req, res) => {
+}));
+router.get("/:id", required("customers.view"), ah(async (req, res) => {
     const customer = store.findCustomer(String(req.params.id));
     if (!customer)
         throw new NotFoundError("Customer not found");
     const interactions = store.interactionsByCustomer(customer.id);
     res.json({ ...customer, interactions });
-});
-router.patch("/:id", required("customers.edit"), async (req, res) => {
+}));
+router.patch("/:id", required("customers.edit"), ah(async (req, res) => {
     const id = String(req.params.id);
     const customer = store.findCustomer(id);
     if (!customer)
@@ -83,7 +84,7 @@ router.patch("/:id", required("customers.edit"), async (req, res) => {
         return res.status(503).json({ error: "Database unavailable: " + (err?.message || "persist failed") });
     }
     res.json(updated);
-});
+}));
 // ---------------------------------------------------------------------------
 // E1 — Customer order history, occasions & recurring event reminders
 // (governing spec §5). Order history + events are customer sub-resources and
@@ -97,7 +98,7 @@ async function actor(req) {
     return session?.userId ?? "";
 }
 /** GET /customers/:id/orders — order history, most recent first, each with its immutable contact snapshot (rule 27). */
-router.get("/:id/orders", required("customers.view"), async (req, res) => {
+router.get("/:id/orders", required("customers.view"), ah(async (req, res) => {
     const customer = store.customer(String(req.params.id));
     if (!customer)
         throw new NotFoundError("Customer not found");
@@ -106,9 +107,9 @@ router.get("/:id/orders", required("customers.view"), async (req, res) => {
         snapshot: store.orderCustomerSnapshot(order.id) ?? null,
     }));
     res.json(history);
-});
+}));
 /** GET /customers/:id/order-history/print — printable order-history list (spec §5). */
-router.get("/:id/order-history/print", required("customers.view"), async (req, res) => {
+router.get("/:id/order-history/print", required("customers.view"), ah(async (req, res) => {
     const customer = store.customer(String(req.params.id));
     if (!customer)
         throw new NotFoundError("Customer not found");
@@ -121,16 +122,16 @@ router.get("/:id/order-history/print", required("customers.view"), async (req, r
         snapshotName: store.orderCustomerSnapshot(order.id)?.snapshotName ?? customer.name,
     }));
     res.json({ customer: { id: customer.id, name: customer.name }, printedAt: new Date().toISOString(), orders: history });
-});
+}));
 /** GET /customers/:id/events — occasions (with recurrence), soonest event date first. */
-router.get("/:id/events", required("customers.view"), async (req, res) => {
+router.get("/:id/events", required("customers.view"), ah(async (req, res) => {
     const customer = store.customer(String(req.params.id));
     if (!customer)
         throw new NotFoundError("Customer not found");
     res.json(store.eventsByCustomer(customer.id));
-});
+}));
 /** POST /customers/:id/events — add an occasion; its recurring reminder is scheduled automatically. */
-router.post("/:id/events", required("customers.interact"), async (req, res) => {
+router.post("/:id/events", required("customers.interact"), ah(async (req, res) => {
     const customer = store.customer(String(req.params.id));
     if (!customer)
         throw new NotFoundError("Customer not found");
@@ -147,22 +148,22 @@ router.post("/:id/events", required("customers.interact"), async (req, res) => {
         createdBy: await actor(req),
     });
     res.status(201).json(record);
-});
+}));
 /** PATCH /customers/:id/events/:eventId — edit an occasion (re-schedules its reminder). */
-router.patch("/:id/events/:eventId", required("customers.interact"), async (req, res) => {
+router.patch("/:id/events/:eventId", required("customers.interact"), ah(async (req, res) => {
     const event = store.customerEvent(String(req.params.eventId));
     if (!event || event.customerId !== String(req.params.id))
         throw new NotFoundError("Event not found");
     const updated = store.updateCustomerEvent(event.id, req.body || {});
     res.json(updated);
-});
+}));
 /** DELETE /customers/:id/events/:eventId — remove an occasion and its pending reminder. */
-router.delete("/:id/events/:eventId", required("customers.interact"), async (req, res) => {
+router.delete("/:id/events/:eventId", required("customers.interact"), ah(async (req, res) => {
     const event = store.customerEvent(String(req.params.eventId));
     if (!event || event.customerId !== String(req.params.id))
         throw new NotFoundError("Event not found");
     store.deleteCustomerEvent(event.id);
     res.status(204).end();
-});
+}));
 export default router;
 //# sourceMappingURL=customers.js.map

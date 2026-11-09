@@ -108,9 +108,32 @@ export const paymentsService = {
             catch (e) {
                 // non-fatal: payment is already committed; just log
             }
-            // Also update in-memory store for compatibility
+            // Also update in-memory store for compatibility. Map snake_case DB row
+            // to the camelCase cache shape so the legacy write-back (index.new.ts)
+            // does not drop order_id and violate NOT NULL / corrupt finance state.
             try {
-                store.db.payments.push(payment);
+                const p = payment;
+                const cachePayment = {
+                    id: p.id,
+                    orderId: p.orderId ?? p.order_id,
+                    amount: Number(p.amount),
+                    method: p.method,
+                    date: p.date ?? p.received_at ?? p.created_at ?? new Date().toISOString(),
+                    reference: p.reference ?? "",
+                    receivedBy: p.receivedBy ?? p.received_by ?? "",
+                    notes: p.notes ?? "",
+                    kind: p.kind,
+                    status: p.status,
+                    idempotencyKey: p.idempotencyKey ?? p.idempotency_key ?? null,
+                    deliveryId: p.deliveryId ?? p.delivery_id ?? null,
+                    invoiceId: p.invoiceId ?? p.invoice_id ?? null,
+                    reversesPaymentId: p.reversesPaymentId ?? p.reverses_payment_id ?? null,
+                    reason: p.reason ?? "",
+                    createdAt: p.createdAt ?? p.created_at,
+                    updatedAt: p.updatedAt ?? p.updated_at,
+                };
+                store.db.payments = (store.db.payments || []).filter((x) => x?.id !== cachePayment.id);
+                store.db.payments.push(cachePayment);
                 store.recomputePaymentStatus(input.orderId);
                 store.persist();
             }

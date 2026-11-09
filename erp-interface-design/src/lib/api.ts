@@ -1425,14 +1425,15 @@ export async function recordPayment(payload: {
   reference?: string;
   receivedBy?: string;
   notes?: string;
-}): Promise<ServerPayment & { stagedPush: Record<string, unknown> | null } | null> {
+}): Promise<ServerPayment & { stagedPush: Record<string, unknown> | null }> {
   const idem = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
     ? crypto.randomUUID()
     : `pay-${Date.now()}-${Math.random().toString(36).slice(2,10)}`;
-  return safe(() =>
-    request<ServerPayment & { stagedPush: Record<string, unknown> | null }>("/payments", { method: "POST", body: payload, headers: { "Idempotency-Key": idem } }),
-    null,
-  );
+  return request<ServerPayment & { stagedPush: Record<string, unknown> | null }>("/payments", {
+    method: "POST",
+    body: payload,
+    headers: { "Idempotency-Key": idem },
+  });
 }
 
 export async function recordPaymentCallback(paymentId: string, payload: {

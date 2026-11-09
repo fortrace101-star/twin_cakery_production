@@ -140,7 +140,9 @@ router.post("/", required("payments.record"), async (req, res, next) => {
             invoiceId: invoiceId || undefined,
             isOverpaymentOk: Boolean(isOverpaymentOk),
         }, actor);
-        // For M-Pesa, also include staged push for backward compatibility
+        // Post-commit side effects: payment is already persisted by paymentsService.
+        // Never fail the HTTP response after commit — that would look like "payment
+        // failed" and cause duplicate retries with new idempotency keys.
         if ((method || "Cash") === "M-Pesa") {
             try {
                 const order = store.db.orders.find((o) => o.id === orderId);
@@ -157,19 +159,53 @@ router.post("/", required("payments.record"), async (req, res, next) => {
             }
             catch { }
         }
-        store.createAuditLog({
-            actor: actor.userId, action: "payment:created",
-            entityType: "payment", entityId: r.payment.id, orderId: String(orderId),
-            reason: `${method || "Cash"}${reference ? ` · ${reference}` : ""} · order ${orderId}`,
-        });
-        store.persist();
-        res.status(r.replayed ? 200 : 201).json({
-            ...r.payment,
-            stagedPush: (method || "Cash") === "M-Pesa" && !r.payment.status ? buildStkPushResponse(r.payment.id, orderId, amt, actor.userId) : ((method || "Cash") === "M-Pesa" ? buildStkPushResponse(r.payment.id, orderId, amt, actor.userId) : null),
-        });
+        try {
+            store.createAuditLog({
+                actor: actor.userId, action: "payment:created",
+                entityType: "payment", entityId: r.payment.id, orderId: String(orderId),
+                reason: `${method || "Cash"}${reference ? ` · ${reference}` : ""} · order ${orderId}`,
+            });
+        }
+        catch (e) {
+            console.warn("[payments] audit log failed (payment recorded):", e);
+        }
+        try {
+            store.persist();
+        }
+        catch (e) {
+            console.warn("[payments] store.persist failed (payment recorded):", e);
+        }
+        let stagedPush = null;
+        if ((method || "Cash") === "M-Pesa") {
+            try {
+                stagedPush = buildStkPushResponse(r.payment.id, orderId, amt, actor.userId);
+            }
+            catch (e) {
+                console.warn("[payments] staged push build failed (payment recorded):", e);
+            }
+        }
+        res.status(r.replayed ? 200 : 201).json({ ...r.payment, stagedPush });
     }
     catch (err) {
-        next(err);
+        const statusCode = Number(err?.statusCode || err?.status);
+        if (Number.isFinite(statusCode) && statusCode >= 400 && statusCode < 600) {
+            return res.status(statusCode).json({ error: err.message || "Payment request failed" });
+        }
+        if (err?.code === "23505") {
+            const msg = `${err?.constraint || ""} ${err?.detail || ""} ${err?.message || ""}`.toLowerCase();
+            if (msg.includes("idempotency") || msg.includes("uq_payments_idem")) {
+                return res.status(409).json({ error: "Duplicate payment request (idempotency key already used)" });
+            }
+            if (msg.includes("reference") || msg.includes("uq_payments_ref")) {
+                return res.status(409).json({ error: "A payment with this method and reference already exists" });
+            }
+            return res.status(409).json({ error: "Duplicate payment record" });
+        }
+        if (/connect|ECONN|timeout|database/i.test(err?.message || "")) {
+            return res.status(503).json({ error: "Database unavailable", detail: err?.message });
+        }
+        console.error("[payments] POST / failed:", err);
+        return res.status(500).json({ error: err?.message || "Failed to record payment" });
     }
 });
 router.post("/:id/callback", required("payments.record"), async (req, res, next) => {
