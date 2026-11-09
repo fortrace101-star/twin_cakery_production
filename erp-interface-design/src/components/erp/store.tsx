@@ -283,6 +283,22 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           // (e.g. confirming right after creation) so we don't fall back to a stale
           // orderNumber-only lookup and require a second attempt.
           serverOrdersRef.current = [created as ServerOrder, ...serverOrdersRef.current.filter((o) => o.id !== (created as ServerOrder).id && o.orderNumber !== (created as ServerOrder).orderNumber)];
+          const initialPaid = Math.min(Math.round(Number(order.paidAmount || 0)), Math.round(Number(order.amount || 0)));
+          if (initialPaid > 0) {
+            const payRes = await recordPayment({
+              orderId: (created as ServerOrder).id,
+              amount: initialPaid,
+              method: "Cash",
+              receivedBy: "",
+              notes: "Initial payment recorded at order creation",
+            }).catch(() => null);
+            if (!payRes) {
+              // Finance correctness: the order exists but the initial installment did not
+              // persist as a payment record. Refresh keeps UI/server state aligned; the
+              // operator can record the installment from the order detail.
+              console.warn("[store] initial order payment was not recorded", { orderId: (created as ServerOrder).id, amount: initialPaid });
+            }
+          }
         }
         await refresh();
       } catch {
