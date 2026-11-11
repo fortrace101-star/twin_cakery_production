@@ -1058,6 +1058,32 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
     .topbar .breadcrumb { position: relative; }
   }
 
+
+  .stage-tabs button.is-empty { opacity: .55; }
+  .stage-tabs { -webkit-overflow-scrolling: touch; }
+  .kanban-wrap { padding: 12px 16px; }
+  .kanban-mobile-search { padding: 0 0 10px; margin: 0; }
+  .kanban-stage-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted-foreground); padding: 2px 0 10px; }
+  .kanban-stage-summary strong { color: var(--foreground); font-weight: 600; }
+  .board-empty-state { display: grid; gap: 8px; justify-items: start; padding: 8px 0 4px; color: var(--muted-foreground); font-size: 13px; }
+  .kanban-other-matches { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted-foreground); padding: 0 0 8px; }
+  .kanban-jump-link { background: none; border: 0; color: var(--primary); font: inherit; font-weight: 600; padding: 4px 0; cursor: pointer; }
+  .stage-tabs { mask-image: linear-gradient(to right, transparent 0, #000 12px, #000 calc(100% - 28px), transparent 100%); }
+
+/* Kanban order cards: let OrderMobileCard control layout on mobile */
+  .kanban-board .order-card.order-row-tint { background: var(--card); padding: 0; overflow: hidden; }
+  .kanban-board .order-card.order-row-tint { border-left: 4px solid var(--accent-solid, var(--border)); }
+  .kanban-board .order-card.order-row-tint.tone-green { --accent-solid: var(--pending-solid); }
+  .kanban-board .order-card.order-row-tint.tone-blue { --accent-solid: var(--blue-solid); }
+  .kanban-board .order-card.order-row-tint.tone-violet { --accent-solid: var(--violet-solid); }
+  .kanban-board .order-card.order-row-tint.tone-teal { --accent-solid: var(--teal-solid); }
+  .kanban-board .order-card.order-row-tint.tone-amber { --accent-solid: var(--peach-solid); }
+  .kanban-board .order-card.order-row-tint.tone-orange { --accent-solid: var(--orange-solid); }
+  .kanban-board .order-card.order-row-tint.tone-rose { --accent-solid: var(--rose-solid); }
+  .kanban-board .order-card.order-row-tint.tone-red, .kanban-board .order-card.order-row-tint.tone-gray { --accent-solid: var(--red-ink); }
+  .kanban-board .order-card .order-mobile-card .omc-content { padding: 12px 14px; }
+}
+
   /* DataTable cards (F0.7, mobile order-card redesign) */
   .dt-cards { list-style: none; margin: 0; padding: 12px 16px; display: grid; gap: 10px; }
   .dt-card { border: 1px solid var(--border); border-radius: 12px; background: var(--card); overflow: hidden; }
@@ -1120,20 +1146,10 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
   .order-progress-bar.tone-rose { --bar-accent: var(--rose-solid); }
   .order-progress-bar.tone-red, .order-progress-bar.tone-gray { --bar-accent: var(--red-ink); }
 
-  /* Kanban order cards: let OrderMobileCard control layout on mobile */
-  .kanban-board .order-card.order-row-tint { background: var(--card); padding: 0; overflow: hidden; }
-  .kanban-board .order-card.order-row-tint { border-left: 4px solid var(--accent-solid, var(--border)); }
-  .kanban-board .order-card.order-row-tint.tone-green { --accent-solid: var(--pending-solid); }
-  .kanban-board .order-card.order-row-tint.tone-blue { --accent-solid: var(--blue-solid); }
-  .kanban-board .order-card.order-row-tint.tone-violet { --accent-solid: var(--violet-solid); }
-  .kanban-board .order-card.order-row-tint.tone-teal { --accent-solid: var(--teal-solid); }
-  .kanban-board .order-card.order-row-tint.tone-amber { --accent-solid: var(--peach-solid); }
-  .kanban-board .order-card.order-row-tint.tone-orange { --accent-solid: var(--orange-solid); }
-  .kanban-board .order-card.order-row-tint.tone-rose { --accent-solid: var(--rose-solid); }
-  .kanban-board .order-card.order-row-tint.tone-red, .kanban-board .order-card.order-row-tint.tone-gray { --accent-solid: var(--red-ink); }
-  .kanban-board .order-card .order-mobile-card .omc-content { padding: 12px 14px; }
-}
 
+
+
+.kanban-wrap { padding: 16px; }
 
 /* DS: mobile breadcrumb = app-level nav trigger. On pressin the breadcrumb, show the
    full icon-and-word menu under the breadcrumb for one open session. */

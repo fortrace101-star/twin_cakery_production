@@ -65,7 +65,7 @@ type DataTableProps<T> = {
   openLabel?: string;
   hideOpenAction?: boolean;
   mobileDetailTop?: (row: T) => ReactNode;
-  cardMode?: "auto" | "table";
+  cardMode?: "auto" | "table" | "cards";
   tapAction?: "drawer" | "activate";
   /** Optional custom mobile card body. Keeps tap-to-drawer/activate and row wrapper behavior. */
   renderMobileCard?: (row: T, index: number) => ReactNode;
@@ -132,7 +132,8 @@ export function DataTable<T>({
 
   const renderCell = (col: Column<T>, row: T, i: number) => (col.render ? col.render(row) : col.cell(row, i));
 
-  if (isMobile && cardMode !== "table" && columns.length > 2) {
+  const useCards = cardMode === "cards" || (isMobile && cardMode !== "table" && columns.length > 2);
+  if (useCards) {
     const used = new Set<MobileRole>();
     const resolved = columns.map((c, i) => ({ col: c, role: resolveMobileRole(c, i, columns, used) }));
     const lead = resolved.find(r => r.role === "lead");

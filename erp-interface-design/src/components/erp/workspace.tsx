@@ -79,20 +79,30 @@ export function Workspace({module='dashboard'}: {module?:string}) {
    if (!visibleOrders.some((o) => o.status === kanbanStage)) setKanbanStage(first);
  }, [isMobile, visibleOrders, kanbanStage]);
 
- const salesKanban = (
-   <div className="kanban-wrap" style={{padding:'16px'}}>
-     {isMobile && <StageTabs stages={SALES_STAGES.map(s => ({ id: s, label: s, count: visibleOrders.filter(o=>o.status===s).length }))} active={kanbanStage} onChange={setKanbanStage} />}
+ const kanbanShort: Record<string,string> = { 'Pending confirmation':'Pending', 'Confirmed':'Confirmed', 'In production':'In production', 'Ready':'Ready', 'Awaiting Collection':'Collect', 'In Transit':'In transit', 'Completed / Delivered':'Done' };
+ const salesKanban = (() => {
+   const activeList = visibleOrders.filter(o=>o.status===kanbanStage);
+   const stageTotal = activeList.reduce((sum,o)=>sum+(o.amount||0),0);
+   const nextWithOrders = SALES_STAGES.find(st=>st!==kanbanStage && visibleOrders.some(o=>o.status===st));
+   const otherMatches = isMobile && search.trim() ? visibleOrders.filter(o=>o.status!==kanbanStage).length : 0;
+   const otherStageWithMatch = otherMatches ? SALES_STAGES.find(st=>st!==kanbanStage && visibleOrders.some(o=>o.status===st)) : undefined;
+   return (
+   <div className="kanban-wrap">
+     {isMobile && <div className="table-controls kanban-mobile-search"><label className="search-box"><Search size={16}/><input aria-label="Search orders" placeholder="Search orders, customers..." value={search} onChange={e=>setSearch(e.target.value)}/></label></div>}
+     {isMobile && <StageTabs stages={SALES_STAGES.map(s => ({ id: s, label: s, shortLabel: kanbanShort[s] || s, count: visibleOrders.filter(o=>o.status===s).length }))} active={kanbanStage} onChange={setKanbanStage} />}
+     {isMobile && <div className="kanban-stage-summary"><span><strong>{kanbanShort[kanbanStage]||kanbanStage}</strong> · {activeList.length} {activeList.length===1?'order':'orders'}</span><strong>{money(stageTotal)}</strong></div>}
+     {isMobile && otherMatches > 0 && <div className="kanban-other-matches"><span>{otherMatches} {otherMatches===1?'match':'matches'} in other stages</span>{otherStageWithMatch && <button type="button" className="kanban-jump-link" onClick={()=>setKanbanStage(otherStageWithMatch)}>View {kanbanShort[otherStageWithMatch]||otherStageWithMatch}</button>}</div>}
      <div className="kanban-board">
        {SALES_STAGES.map(status=>{const list=visibleOrders.filter(o=>o.status===status);return <div key={status} data-stage={status} className={(!isMobile || kanbanStage===status)?'is-active':''}>
          <h3 className="board-col-title">{status} <span className="inline-count">{list.length}</span></h3>
-         {list.length===0 && <p className="board-empty">No orders</p>}
+         {list.length===0 && <div className="board-empty-state"><p>{search.trim() ? `No matches in ${status}` : `No orders in ${status}`}</p>{isMobile && nextWithOrders && <Button variant="outline" size="sm" onClick={()=>setKanbanStage(nextWithOrders)}>Go to {kanbanShort[nextWithOrders]||nextWithOrders}</Button>}</div>}
          {list.map((o,i)=><div key={o.id} className={`order-card order-row-tint tone-${tone(o.status)}`} role="button" tabIndex={0} onClick={() => setSelected(o)} onKeyDown={(e)=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setSelected(o);}}}>
            <OrderMobileCard order={o} index={i} showStatusBadge={false} />
          </div>)}
        </div>;})}
      </div>
    </div>
- );
+ ); })();
 
  return <div className={`workspace ${collapsed?'sidebar-collapsed':''}`}>
   {isMobile ? (
