@@ -493,18 +493,21 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .orders-table td {padding:14px 12px;font-size:12px;font-variant-numeric:tabular-nums;border-bottom:1px solid var(--border);}
 .orders-table tbody tr {cursor:pointer;}
 .orders-table tbody tr:hover {background:var(--background);}
-.orders-table tbody tr.order-row-tint {--row-tint:var(--muted);background:linear-gradient(to right,var(--row-tint) 0%,var(--row-tint) 12%,color-mix(in oklch,var(--row-tint) 45%,var(--card)) 33%,var(--card) 62%,var(--card) 100%);}
+.order-row-tint {--row-tint:var(--muted);}
+.orders-table tbody tr.order-row-tint {background:var(--row-tint);}
 .orders-table tbody tr.order-row-tint td {background:transparent;}
-.orders-table tbody tr.order-row-tint:hover {background:linear-gradient(to right,var(--row-tint) 0%,var(--row-tint) 12%,color-mix(in oklch,var(--row-tint) 45%,var(--background)) 33%,var(--background) 62%,var(--background) 100%);}
-.orders-table tbody tr.order-row-tint.tone-green {--row-tint:var(--green-soft);}
-.orders-table tbody tr.order-row-tint.tone-blue {--row-tint:var(--blue-soft);}
-.orders-table tbody tr.order-row-tint.tone-violet {--row-tint:var(--violet-soft);}
-.orders-table tbody tr.order-row-tint.tone-red {--row-tint:var(--red-soft);}
-.orders-table tbody tr.order-row-tint.tone-amber {--row-tint:var(--peach-soft);}
-.orders-table tbody tr.order-row-tint.tone-gray {--row-tint:var(--muted);}
-.orders-table tbody tr.order-row-tint.tone-teal {--row-tint:var(--teal-soft);}
-.orders-table tbody tr.order-row-tint.tone-orange {--row-tint:var(--orange-soft);}
-.orders-table tbody tr.order-row-tint.tone-rose {--row-tint:var(--rose-soft);}
+.orders-table tbody tr.order-row-tint:hover {background:var(--row-tint); filter:brightness(.985);}
+.dark .orders-table tbody tr.order-row-tint:hover {filter:brightness(1.08);}
+.order-card.order-row-tint, .kanban-board .order-card.order-row-tint, .station-board .order-card.order-row-tint {background:var(--row-tint);}
+.order-row-tint.tone-green {--row-tint:var(--green-soft);}
+.order-row-tint.tone-blue {--row-tint:var(--blue-soft);}
+.order-row-tint.tone-violet {--row-tint:var(--violet-soft);}
+.order-row-tint.tone-red {--row-tint:var(--red-soft);}
+.order-row-tint.tone-amber {--row-tint:var(--peach-soft);}
+.order-row-tint.tone-gray {--row-tint:var(--red-soft);}
+.order-row-tint.tone-teal {--row-tint:var(--teal-soft);}
+.order-row-tint.tone-orange {--row-tint:var(--orange-soft);}
+.order-row-tint.tone-rose {--row-tint:var(--rose-soft);}
 /* Vertical order-progress rail on the left of each order row — graphical only
    (erp_design.md C2: the badge next to it carries the word). Tick = stage
    passed, filled dot = current stage (its hue echoes the row tint via
