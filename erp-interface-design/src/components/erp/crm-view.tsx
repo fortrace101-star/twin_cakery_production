@@ -2,13 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import { useLiveRefresh } from "@/lib/live";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
-import { Select } from "@/components/ui/select";
+import { Select, NativeSelect } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { CalendarDays, Check, Search, MessageSquare, Printer, Mail, Phone, Plus, Loader2, ArrowUpRight, UserPlus, Edit } from "lucide-react";
+import { CalendarDays, Check, Search, MessageSquare, Printer, Mail, Phone, Plus, Loader2, ArrowUpRight, UserPlus, Edit, X } from "lucide-react";
 import { StatusBadge as Status } from "@/components/data-table/StatusBadge";
 import { DataTable, type Column } from "@/components/data-table/DataTable";
 import { useDensity } from "@/lib/density";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { formatOccasionDate, groupOccasions, initialOccasions, type GridRow, type Occasion, type OccasionPeriod } from "./data";
 import { listCustomers, listCustomerEvents, findCustomerByName, listCustomerFeedback, listCustomerOrders, createCustomerFeedback, printCustomerOrders, listEventReminders, orderStatusLabel, type ServerCustomer, type ServerCustomerEvent, type ServerCustomerFeedback, type ServerCustomerOrder, type ServerEventReminder } from "@/lib/api";
 import { useAsync, Loading, Empty, StarRating, feedbackTypeLabel } from "./crm-panels";
@@ -17,6 +19,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Clock3, CalendarPlus } from "lucide-react";
 import type { StatusTone } from "@/lib/theme-tokens";
+import type { ChangeEvent } from "react";
+
 
 function reminderStatus(status: string): { label: string; tone: StatusTone } {
   if (status === "CONTACTED") return { label: "Contacted", tone: "green" };
@@ -27,7 +31,7 @@ function reminderStatus(status: string): { label: string; tone: StatusTone } {
 
 function useCustomerContext(name: string, connected: boolean) {
   const { data: customer } = useAsync<ServerCustomer | null>(
-    () => connected ? findCustomerByName(name).then((c) => c ?? null) : Promise.resolve(null),
+    () => connected ? findCustomerByName(name).then((c) => (Array.isArray(c) ? (c[0] ?? null) : (c ?? null))) : Promise.resolve(null),
     [name, connected],
   );
   const customerId = customer?.id ?? name;
@@ -43,8 +47,12 @@ function useCustomerContext(name: string, connected: boolean) {
     () => connected ? listCustomerFeedback(customerId) : Promise.resolve([]),
     [customerId, connected],
   );
-  const totalSpent = (orders ?? []).reduce((sum: number, o: ServerCustomerOrder) => sum + o.total, 0);
-  const lastOrder = (orders ?? []).slice().sort((a: ServerCustomerOrder, b: ServerCustomerOrder) => (b.requiredAt ?? b.createdAt ?? "").localeCompare(a.requiredAt ?? a.createdAt ?? ""))[0] as ServerCustomerOrder | undefined;
+  const totalSpent = (orders ?? []).reduce((sum: number, o) => sum + (o as ServerCustomerOrder & { total: number }).total, 0);
+  const lastOrder = (orders ?? []).slice().sort((a, b) => {
+    const atA = (a && b && (a as ServerCustomerOrder).requiredAt) ?? "";
+    const atB = (b && (b as ServerCustomerOrder).requiredAt) ?? "";
+    return atA.localeCompare(atB);
+  })[0] as (ServerCustomerOrder | undefined) | null;
   return { customer, orders, events, feedback, totalSpent, lastOrder };
 }
 
@@ -86,14 +94,13 @@ function CustomerMetricsSnapshot({ name, connected }: { name: string; connected:
           <Badge variant="secondary">{orders.length} orders</Badge>
         </div>
         <Separator orientation="vertical" className="h-6" />
-        <div className="metric-item">
-          <span className="text-muted-foreground text-xs">Total spent</span>
+        <div className="metric-item">            <span className="text-muted-foreground text-xs">Total spent</span>
           <strong className="text-sm">{money(totalSpent)}</strong>
         </div>
         <Separator orientation="vertical" className="h-6" />
         <div className="metric-item">
           <span className="text-muted-foreground text-xs">Last order</span>
-          <span className="text-sm">{lastOrder ? new Date(lastOrder.requiredAt ?? lastOrder.createdAt ?? '').toLocaleDateString() : '—'}</span>
+          <span className="text-sm">{lastOrder ? new Date(lastOrder.requiredAt ?? '').toLocaleDateString() : '—'}</span>
         </div>
       </div>
     </div>
@@ -162,7 +169,7 @@ function CustomerOverview({ name, connected }: { name: string; connected: boolea
             <span className="metric-label">Last order value</span>
           </div>
           <div className="crm-metric">
-            <span className="metric-value">{lastOrder ? new Date(lastOrder.requiredAt ?? lastOrder.createdAt ?? '').toLocaleDateString() : '—'}</span>
+            <span className="metric-value">{lastOrder ? new Date(lastOrder.requiredAt ?? '').toLocaleDateString() : '—'}</span>
             <span className="metric-label">Last order date</span>
           </div>
           <div className="crm-metric">
@@ -193,8 +200,7 @@ function CustomerOverview({ name, connected }: { name: string; connected: boolea
               <small className="text-muted-foreground">Recent feedback</small>
               <ul className="crm-activity-list">
                 {recentFeedback.map((f) => (
-                  <li key={f.id}>
-                    <strong>{feedbackTypeLabel(f.type)}</strong>
+                  <li key={f.id}>                     <strong>{feedbackTypeLabel(f.type)}</strong>
                     <small className="text-muted-foreground">{f.comment}</small>
                   </li>
                 ))}
@@ -222,11 +228,14 @@ function CustomerOrders({ name, connected }: { name: string; connected: boolean 
   const customer = ctx.customer!;
 
   const columns: Column<ServerCustomerOrder>[] = [
-    { header: "Order", cell: (o) => <><strong className="product-name">{o.orderNumber || o.id}</strong>{o.snapshot && <small className="cell-sub">{o.snapshot.snapshotName}</small>}</> },
-    { header: "Date", cell: (o) => <small className="text-muted-foreground">{o.requiredAt ? new Date(o.requiredAt).toLocaleDateString() : '—'}</small> },
-    { header: "Amount", align: "right", cell: (o) => <span className="amount-cell">{money(o.total)}</span> },
-    { header: "Status", cell: (o) => <Status value={orderStatusLabel(o.status)} /> },
-    { header: "", cell: () => <Button variant="ghost" size="icon" title="View order"><ArrowUpRight size={14} /></Button> },
+    { header: "Order", mobile: "title", cell: (o) => {
+      const ord = o as ServerCustomerOrder & { snapshot?: { snapshotName?: string | null } };
+      return (<><strong className="product-name">{ord.orderNumber || ord.id}</strong>{ord.snapshot && <small className="cell-sub">{ord.snapshot.snapshotName || ''}</small>}</>);
+    } },
+    { header: "Date", mobile: "meta", cell: (o) => <small className="text-muted-foreground">{o.requiredAt ? new Date(o.requiredAt).toLocaleDateString() : '—'}</small> },
+    { header: "Amount", align: "right", mobile: "value", cell: (o) => <span className="amount-cell">{money(o.total)}</span> },
+    { header: "Status", mobile: "badge", cell: (o) => <Status value={orderStatusLabel(o.status)} /> },
+    { header: "", mobile: "hide", cell: () => <Button variant="ghost" size="icon" title="View order"><ArrowUpRight size={14} /></Button> },
   ];
 
   return (
@@ -245,6 +254,7 @@ function CustomerOrders({ name, connected }: { name: string; connected: boolean 
             rowKey={(o) => o.id}
             stickyHeader
             density={density}
+            mobileTitle={(o) => (o as any).orderNumber || o.id} mobileSubtitle={(o) => o.requiredAt ? new Date(o.requiredAt).toLocaleDateString() : ""} openLabel="View order"
             empty={<Empty icon={<Clock3 />} title="No orders yet" body="This customer hasn't placed any orders yet." />}
           />
           <div className="table-foot"><span>{orderList.length} orders</span></div>
@@ -270,7 +280,11 @@ function RecordFeedbackDialog({
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const completedOrders = (orders ?? []).filter(o => o.status === 'COMPLETED_DELIVERED' || o.status === 'COMPLETED');
+  const completedOrders = (orders ?? []).filter((o) => {
+    const ord = o as ServerCustomerOrder & { status?: string };
+    const s = ord.status ?? '';
+    return s === 'COMPLETED_DELIVERED' || s === 'COMPLETED';
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -306,21 +320,21 @@ function RecordFeedbackDialog({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="form-field">
             <Label>Select completed order</Label>
-            <Select value={selectedOrderId} onChange={(e) => setSelectedOrderId(e.target.value)}>
+            <NativeSelect value={selectedOrderId} onChange={(e: ChangeEvent<HTMLSelectElement>) => setSelectedOrderId(e.target.value)}>
               <option value="">Choose an order...</option>
               {completedOrders.map((o) => (
-                <option key={o.id} value={o.id}>{o.orderNumber || o.id} - {new Date(o.requiredAt ?? o.createdAt ?? '').toLocaleDateString()}</option>
+                <option key={o.id} value={o.id}>{o.orderNumber || o.id} - {new Date(o.requiredAt ?? '').toLocaleDateString()}</option>
               ))}
-            </Select>
+            </NativeSelect>
           </div>
           <div className="form-field">
             <Label>Feedback type</Label>
-            <Select value={type} onChange={(e) => setType(e.target.value)}>
+            <NativeSelect value={type} onChange={(e: ChangeEvent<HTMLSelectElement>) => setType(e.target.value)}>
               <option value="RATING">Rating</option>
               <option value="COMPLAINT">Complaint</option>
               <option value="COMPLIMENT">Compliment</option>
               <option value="GENERAL">General feedback</option>
-            </Select>
+            </NativeSelect>
           </div>
           <div className="form-field">
             <Label>Rating</Label>
@@ -361,12 +375,12 @@ function CustomerFeedback({ name, connected }: { name: string; connected: boolea
   const [showRecordDialog, setShowRecordDialog] = useState(false);
 
   const columns: Column<ServerCustomerFeedback>[] = [
-    { header: "Rating", cell: (f) => <StarRating rating={f.rating} readonly /> },
-    { header: "Type", cell: (f) => <small className="text-muted-foreground">{feedbackTypeLabel(f.type)}</small> },
-    { header: "Date", cell: (f) => <small className="text-muted-foreground">{new Date(f.createdAt).toLocaleDateString()}</small> },
-    { header: "Comment", cell: (f) => <span className="text-sm">{f.comment || '—'}</span> },
-    { header: "Resolution", cell: (f) => <span className="text-sm">{f.resolution || '—'}</span> },
-    { header: "Order", cell: (f) => <small className="text-muted-foreground">{f.orderId || '—'}</small> },
+    { header: "Rating", mobile: "badge", cell: (f) => <StarRating rating={f.rating} readonly /> },
+    { header: "Type", mobile: "meta", cell: (f: ServerCustomerFeedback) => <small className="text-muted-foreground">{feedbackTypeLabel(f.type)}</small> },
+    { header: "Date", mobile: "meta", cell: (f: ServerCustomerFeedback) => <small className="text-muted-foreground">{new Date(f.createdAt).toLocaleDateString()}</small> },
+    { header: "Comment", mobile: "title", cell: (f) => <span className="text-sm">{f.comment || 'No comment'}</span> },
+    { header: "Resolution", mobile: "drawer", cell: (f) => <span className="text-sm">{f.resolution || '—'}</span> },
+    { header: "Order", mobile: "drawer", cell: (f) => <small className="text-muted-foreground">{f.orderId || '—'}</small> },
   ];
 
   return (
@@ -385,6 +399,7 @@ function CustomerFeedback({ name, connected }: { name: string; connected: boolea
             rowKey={(f) => f.id}
             stickyHeader
             density={density}
+            mobileTitle={(f) => f.comment?.slice(0, 60) || "Feedback"} mobileSubtitle={(f) => new Date(f.createdAt).toLocaleDateString()} openLabel="View feedback"
             empty={<Empty icon={<MessageSquare />} title="No feedback recorded" body="Record feedback from a completed order." />}
           />
           <div className="table-foot"><span>{feedbackList.length} feedback entries</span></div>
@@ -619,21 +634,59 @@ export function CrmView({
   followUps?: { id: string; customer: string }[] | undefined;
   onCompleteFollowUp?: ((id: string) => void) | undefined;
 }) {
+  const isMobile = useIsMobile();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<'Overview' | 'Orders' | 'Feedback' | 'Occasions'>('Overview');
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
 
-  const handleActiveIdChange = useCallback((id: string | null) => {
+  const handleActiveIdChange = useCallback((id: string | null, openMobile = false) => {
     setActiveId(id);
     if (id === null || !contacts.some((c) => c.id === id)) {
       setDetailTab('Overview');
+      setMobileDetailOpen(false);
+    } else if (openMobile) {
+      setDetailTab('Overview');
+      setMobileDetailOpen(true);
     }
   }, [contacts]);
+
+  // Keep mobile drawer in sync if viewport changes or selection is cleared.
+  useEffect(() => {
+    if (!isMobile) setMobileDetailOpen(false);
+  }, [isMobile]);
 
   if (tab === "Occasions") return <OccasionsView connected={connected} />;
   useLiveRefresh(() => {});
 
-  const active = contacts.find((c) => c.id === activeId) ?? contacts[0] ?? null;
+  // Desktop keeps current behavior (auto-select first). Mobile is drawer-first: list only until a contact is chosen.
+  const active = isMobile
+    ? (contacts.find((c) => c.id === activeId) ?? null)
+    : (contacts.find((c) => c.id === activeId) ?? contacts[0] ?? null);
+  const activeContactName = active?.name ?? '';
 
+  const closeMobileDetail = useCallback(() => {
+    if (!isMobile) return;
+    setMobileDetailOpen(false);
+    setActiveId(null);
+    setDetailTab('Overview');
+  }, [isMobile]);
+
+  const detailContent = active ? (
+    <>
+      <div className="crm-profile-header sticky">
+        <CustomerProfileHeader
+          name={active.name}
+          id={active.id}
+          status={active.status}
+          detail={active.detail}
+          onPrint={() => {}}
+        />
+        <CustomerMetricsSnapshot name={active.name} connected={connected} />
+      </div>
+      <CustomerDetailsTabs detailTab={detailTab} setDetailTab={setDetailTab} />
+      <CustomerTabContent detailTab={detailTab} name={active.name} connected={connected} />
+    </>
+  ) : null;
   return (
     <section className="panel crm-view">
       <div className="panel-heading">
@@ -669,7 +722,7 @@ export function CrmView({
                   type="button"
                   className={active?.id === c.id ? "selected" : ""}
                   aria-current={active?.id === c.id ? "true" : undefined}
-                  onClick={() => handleActiveIdChange(c.id)}
+                  onClick={() => handleActiveIdChange(c.id, isMobile)}
                 >
                   <span className="customer-avatar avatar-0">
                     {c.name
@@ -692,23 +745,23 @@ export function CrmView({
               </li>
             ))}
           </ul>
-          {active && (
-            <div className="crm-detail">
-              <div className="crm-profile-header sticky">
-                <CustomerProfileHeader
-                  name={active.name}
-                  id={active.id}
-                  status={active.status}
-                  detail={active.detail}
-                  onPrint={() => {}}
-                />
-                <CustomerMetricsSnapshot name={active.name} connected={connected} />
-              </div>
-              <CustomerDetailsTabs detailTab={detailTab} setDetailTab={setDetailTab} />
-              <CustomerTabContent detailTab={detailTab} name={active.name} connected={connected} />
-            </div>
+          {/* R3: desktop keeps side-by-side master/detail; mobile is drawer-first (list → detail sheet). */}
+          {!isMobile && active && detailContent && (
+            <div className="crm-detail">{detailContent}</div>
           )}
         </div>
+      )}
+      {/* Mobile: customer detail sheet with a working close button that returns to the contact list */}
+      {isMobile && active && (
+        <Sheet open={mobileDetailOpen} onOpenChange={(v) => { if (!v) closeMobileDetail(); }}>
+          <SheetContent side="right" className="w-[min(100vw,720px)] max-w-none overflow-y-auto p-4 sm:max-w-lg">
+            <SheetTitle className="sr-only">{activeContactName}</SheetTitle>
+            <div className="absolute top-3 right-3 z-10">
+              <button type="button" aria-label="Close customer details" onClick={closeMobileDetail}><X size={20}/></button>
+            </div>
+            {detailContent}
+          </SheetContent>
+        </Sheet>
       )}
     </section>
   );

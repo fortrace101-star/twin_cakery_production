@@ -1,16 +1,18 @@
-import { Router, Request, RequestHandler } from "express";
+import { Router, Request, Response, NextFunction, RequestHandler } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { flush } from "../database/index.new.js";
+import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
 import { paginate } from "../utils/paginate.js";
 
 const router = Router();
+const rbacService = new RbacService();
 const authService = new AuthService();
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {
   try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
+    const session = await authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
@@ -20,7 +22,10 @@ const required = (perm: string): RequestHandler => async (req, res, next) => {
   }
 };
 
-router.get("/", required("customers.view"), (req, res) => {
+const ah = (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) =>
+  (req: Request, res: Response, next: NextFunction) => Promise.resolve(fn(req, res, next)).catch(next);
+
+router.get("/", required("customers.view"), ah(async (req, res) => {
   const customers = store.customers();
   const name = req.query.name as string | undefined;
   const status = req.query.status as string | undefined;
@@ -33,9 +38,9 @@ router.get("/", required("customers.view"), (req, res) => {
     dateField: "createdAt",
     searchFields: ["name", "email", "phone"],
   }));
-});
+}));
 
-router.post("/", required("customers.create"), (req, res) => {
+router.post("/", required("customers.create"), ah(async (req, res) => {
   const { name, phone, email, addresses, preferredContactMethod, source, notes, status } = req.body || {};
   if (!name) return res.status(400).json({ error: "Name is required" });
   const record = store.createCustomer({
@@ -48,26 +53,26 @@ router.post("/", required("customers.create"), (req, res) => {
     notes: notes || "",
     status: status || "Active",
   });
-  store.persist();
+  try { store.persist(); await flush(); } catch (err: any) { return res.status(503).json({ error: "Database unavailable: " + (err?.message || "persist failed") }); }
   res.status(201).json(record);
-});
+}));
 
-router.get("/:id", required("customers.view"), (req, res) => {
+router.get("/:id", required("customers.view"), ah(async (req, res) => {
   const customer = store.findCustomer(String(req.params.id));
   if (!customer) throw new NotFoundError("Customer not found");
   const interactions = store.interactionsByCustomer(customer.id);
   res.json({ ...customer, interactions });
-});
+}));
 
-router.patch("/:id", required("customers.edit"), (req, res) => {
+router.patch("/:id", required("customers.edit"), ah(async (req, res) => {
   const id = String(req.params.id);
   const customer = store.findCustomer(id);
   if (!customer) throw new NotFoundError("Customer not found");
   const patch = req.body || {};
   const updated = store.updateCustomer(id, patch);
-  store.persist();
+  try { store.persist(); await flush(); } catch (err: any) { return res.status(503).json({ error: "Database unavailable: " + (err?.message || "persist failed") }); }
   res.json(updated);
-});
+}));
 
 // ---------------------------------------------------------------------------
 // E1 — Customer order history, occasions & recurring event reminders
@@ -78,15 +83,15 @@ router.patch("/:id", required("customers.edit"), (req, res) => {
 // ---------------------------------------------------------------------------
 
 /** Authenticated staff id (userId) for auditing createdBy / contactedBy. */
-function actor(req: Request): string {
-  const session = authService.getCurrentSession(
+async function actor(req: Request): Promise<string> {
+  const session = await authService.getCurrentSession(
     extractToken(req.headers.authorization as string | undefined),
   );
   return session?.userId ?? "";
 }
 
 /** GET /customers/:id/orders — order history, most recent first, each with its immutable contact snapshot (rule 27). */
-router.get("/:id/orders", required("customers.view"), (req, res) => {
+router.get("/:id/orders", required("customers.view"), ah(async (req, res) => {
   const customer = store.customer(String(req.params.id));
   if (!customer) throw new NotFoundError("Customer not found");
   const history = store.ordersForCustomer(customer.id).map((order) => ({
@@ -94,10 +99,10 @@ router.get("/:id/orders", required("customers.view"), (req, res) => {
     snapshot: store.orderCustomerSnapshot(order.id) ?? null,
   }));
   res.json(history);
-});
+}));
 
 /** GET /customers/:id/order-history/print — printable order-history list (spec §5). */
-router.get("/:id/order-history/print", required("customers.view"), (req, res) => {
+router.get("/:id/order-history/print", required("customers.view"), ah(async (req, res) => {
   const customer = store.customer(String(req.params.id));
   if (!customer) throw new NotFoundError("Customer not found");
   const history = store.ordersForCustomer(customer.id).map((order) => ({
@@ -109,17 +114,17 @@ router.get("/:id/order-history/print", required("customers.view"), (req, res) =>
     snapshotName: store.orderCustomerSnapshot(order.id)?.snapshotName ?? customer.name,
   }));
   res.json({ customer: { id: customer.id, name: customer.name }, printedAt: new Date().toISOString(), orders: history });
-});
+}));
 
 /** GET /customers/:id/events — occasions (with recurrence), soonest event date first. */
-router.get("/:id/events", required("customers.view"), (req, res) => {
+router.get("/:id/events", required("customers.view"), ah(async (req, res) => {
   const customer = store.customer(String(req.params.id));
   if (!customer) throw new NotFoundError("Customer not found");
   res.json(store.eventsByCustomer(customer.id));
-});
+}));
 
 /** POST /customers/:id/events — add an occasion; its recurring reminder is scheduled automatically. */
-router.post("/:id/events", required("customers.interact"), (req, res) => {
+router.post("/:id/events", required("customers.interact"), ah(async (req, res) => {
   const customer = store.customer(String(req.params.id));
   if (!customer) throw new NotFoundError("Customer not found");
   const { eventType, eventDate, recurrenceRule, orderId, notes } = req.body || {};
@@ -131,25 +136,25 @@ router.post("/:id/events", required("customers.interact"), (req, res) => {
     recurrenceRule,
     orderId: orderId || undefined,
     notes: notes || "",
-    createdBy: actor(req),
+    createdBy: await actor(req),
   });
   res.status(201).json(record);
-});
+}));
 
 /** PATCH /customers/:id/events/:eventId — edit an occasion (re-schedules its reminder). */
-router.patch("/:id/events/:eventId", required("customers.interact"), (req, res) => {
+router.patch("/:id/events/:eventId", required("customers.interact"), ah(async (req, res) => {
   const event = store.customerEvent(String(req.params.eventId));
   if (!event || event.customerId !== String(req.params.id)) throw new NotFoundError("Event not found");
   const updated = store.updateCustomerEvent(event.id, req.body || {});
   res.json(updated);
-});
+}));
 
 /** DELETE /customers/:id/events/:eventId — remove an occasion and its pending reminder. */
-router.delete("/:id/events/:eventId", required("customers.interact"), (req, res) => {
+router.delete("/:id/events/:eventId", required("customers.interact"), ah(async (req, res) => {
   const event = store.customerEvent(String(req.params.eventId));
   if (!event || event.customerId !== String(req.params.id)) throw new NotFoundError("Event not found");
   store.deleteCustomerEvent(event.id);
   res.status(204).end();
-});
+}));
 
 export default router;

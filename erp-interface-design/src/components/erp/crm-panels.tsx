@@ -139,7 +139,7 @@ export function OrderHistoryPanel({ customerId }: { customerId: string }) {
             <span>{money(o.total)}</span>
             <Status value={orderStatusLabel(o.status)} />
             {o.snapshot && <small className="text-muted-foreground crm-snapshot">{o.snapshot.snapshotName}</small>}
-            {o.feedback != null ? <small className="text-muted-foreground crm-feedback">Feedback: {o.feedback}</small> : <small className="text-muted-foreground">No feedback</small>}
+            {o?.feedback != null ? <small className="text-muted-foreground crm-feedback">Feedback: {String(o.feedback)}</small> : <small className="text-muted-foreground">No feedback</small>}
           </li>
         ))}
       </ul>
@@ -315,13 +315,14 @@ export function FeedbackPanelForm({ customerId }: { customerId: string }) {
     e.preventDefault();
     if (!selectedOrderId || rating === 0) return;
     setBusy(true);
+// crm-panels called this with a typed payload; keep runtime shape compatible.
     void createCustomerFeedback({
       customerId,
       orderId: selectedOrderId,
       rating,
       type,
       comment: comment.trim(),
-      resolution: resolution.trim() || undefined as string | undefined,
+      resolution: typeof resolution === 'string' && resolution.trim().length > 0 ? resolution.trim() : undefined,
     }).then((record) => {
       setBusy(false);
       if (record) {
@@ -352,7 +353,7 @@ export function FeedbackPanelForm({ customerId }: { customerId: string }) {
             <label>Select completed order<select value={selectedOrderId ?? ""} onChange={(e) => setSelectedOrderId(e.target.value)}>
               <option value="">Choose an order...</option>
               {completedOrders.map((o) => (
-                <option key={o.id} value={o.id}>{o.orderNumber || o.id} - {new Date(o.date).toLocaleDateString()}</option>
+                <option key={o.id} value={o.id}>{o.orderNumber || o.id} - {new Date(o.requiredAt ?? o.date ?? '').toLocaleDateString()}</option>
               ))}
             </select></label>
           </div>
@@ -432,7 +433,8 @@ export function CustomerE1Panels({ name, connected }: { name: string; connected:
     setResolved(false);
     void findCustomerByName(name).then((customer) => {
       if (!alive) return;
-      setCustomerId(customer?.id ?? null);
+      const one = Array.isArray(customer) ? customer[0] : customer;
+      setCustomerId(one?.id ?? null);
       setResolved(true);
     });
     return () => {

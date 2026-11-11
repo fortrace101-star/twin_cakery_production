@@ -47,14 +47,6 @@ export function DeliveriesView({ onNotice }: { onNotice: (s: string) => void }) 
     const key = (o.id || o.orderNumber);
     return arr.findIndex((x) => ((x.id || x.orderNumber)) === key) === idx;
   });
-  const counts = {
-    Upcoming: upcomingFromOrders.filter((o: any) => {
-      const s = String(o.status || "").toUpperCase();
-      return s === "AWAITING_COLLECTION" || s === "AWAITING COLLECTION";
-    }).length,
-    Dispatch: deliveries.filter((d) => d.status === "IN_TRANSIT").length + inTransitOrders.filter((o: any) => !deliveries.some((d) => d.orderId === o.orderNumber || d.orderId === o.id)).length,
-    Completed: deliveries.filter((d) => d.status === "COMPLETED_DELIVERED").length,
-  };
 
   const [fOrderId, setFOrderId] = useState("");
   const [fType, setFType] = useState("HOME_DELIVERY");
@@ -193,18 +185,26 @@ export function DeliveriesView({ onNotice }: { onNotice: (s: string) => void }) 
     }
   }
 
+  const dispatchOrderIds = new Set<string>();
+  for (const o of [...orders, ...serverOrders]) {
+    const s = String(o.status || "").toUpperCase();
+    if (s === "IN_TRANSIT" || s === "IN TRANSIT") dispatchOrderIds.add(String(o.orderNumber || o.id));
+  }
+
   const byTab = tab === "Upcoming"
     ? []
     : tab === "Dispatch"
       ? ["IN_TRANSIT"]
       : ["COMPLETED_DELIVERED"];
 
-  const inTransitOrders = [...(orders as any[]), ...(serverOrders as any[])].filter((o, idx, arr) => {
-    const s = String(o.status || "").toUpperCase();
-    if (s !== "IN_TRANSIT") return false;
-    const key = (o.id || o.orderNumber);
-    return arr.findIndex((x) => (x.id || x.orderNumber) === key) === idx;
-  });
+  const counts = {
+    Upcoming: upcomingFromOrders.filter((o: any) => {
+      const s = String(o.status || "").toUpperCase();
+      return s === "AWAITING_COLLECTION" || s === "AWAITING COLLECTION";
+    }).length,
+    Dispatch: deliveries.filter((d) => d.status === "IN_TRANSIT").length + [...dispatchOrderIds].filter((id) => !deliveries.some((d) => String(d.orderId) === id)).length,
+    Completed: deliveries.filter((d) => d.status === "COMPLETED_DELIVERED").length,
+  };
 
   const rows = tab === "Upcoming"
     ? (upcomingFromOrders
@@ -229,8 +229,7 @@ export function DeliveriesView({ onNotice }: { onNotice: (s: string) => void }) 
     : tab === "Dispatch"
       ? ([
           ...deliveries.filter((d) => byTab.includes(d.status)),
-          ...inTransitOrders
-            .filter((o: any) => !deliveries.some((d) => d.orderId === o.orderNumber || d.orderId === o.id))
+          ...[...dispatchOrderIds].filter((id) => !deliveries.some((d) => String(d.orderId) === id))
             .map((o: any) => ({
               id: `ord-${o.id}`,
               orderId: o.orderNumber || o.id,

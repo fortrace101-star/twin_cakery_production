@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Boxes, CakeSlice, ChartNoAxesCombined, ChevronDown, ChevronUp, ChefHat, CircleHelp, Globe, LayoutDashboard, LogOut, MapPin, Settings, ShoppingBag, Truck, UserCog, Users, Wallet, type LucideIcon } from "lucide-react";
+import { Boxes, CakeSlice, ChartNoAxesCombined, ChevronDown, ChevronUp, ChefHat, Globe, LayoutDashboard, LogOut, MapPin, Settings, ShoppingBag, Truck, UserCog, Users, Wallet, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import logo from "@/assets/twin-cakery-logo.png";
 import { modules, visibleModules } from "./data";
@@ -34,7 +34,25 @@ function stageBadgeItems(counts: Record<string, number>) {
   return items.map(({ stage, tone }) => stageBadgeItem(counts, stage, tone));
 }
 
-export function Sidebar({module,setTab,setSearch,setStatusFilter,setHelp,user,connected,signOut,setLoginOpen,activeOrders=0,followUps=0,permissions=null,orders=[]}: {module:string;setTab:(v:string)=>void;setSearch:(v:string)=>void;setStatusFilter:(v:string)=>void;setHelp:(v:boolean)=>void;user:ServerUser|null;connected:boolean;signOut:()=>void;setLoginOpen:(v:boolean)=>void;activeOrders?:number;followUps?:number;permissions?:string[]|null;orders?:any[]}) {
+export function Sidebar({
+  module,
+  setTab,
+  setSearch,
+  setStatusFilter,
+  setHelp,
+  user,
+  connected,
+  signOut,
+  setLoginOpen,
+  activeOrders=0,
+  followUps=0,
+  permissions=null,
+  orders=[],
+  variant='rail',
+  onNavigate,
+  theme,
+  setTheme,
+}: {module:string;setTab:(v:string)=>void;setSearch:(v:string)=>void;setStatusFilter:(v:string)=>void;setHelp:(v:boolean)=>void;user:ServerUser|null;connected:boolean;signOut:()=>void;setLoginOpen:(v:boolean)=>void;activeOrders?:number;followUps?:number;permissions?:string[]|null;orders?:any[];variant?:'rail'|'drawer';onNavigate?:()=>void;theme?:'light'|'dark';setTheme?:(t:'light'|'dark')=>void}) {
   const navRef = useRef<HTMLElement | null>(null);
   const profileRef = useRef<HTMLDivElement | null>(null);
   const [canUp, setCanUp] = useState(false);
@@ -78,25 +96,27 @@ export function Sidebar({module,setTab,setSearch,setStatusFilter,setHelp,user,co
   const subtitle = connected && user ? user.role : "Admin / Proprietor";
 
   return (
-  <aside className="sidebar">
+  <aside className={"sidebar" + (variant === "drawer" ? " sidebar-drawer" : "")}>
 
    <Link to="/" className="brand"><img src={logo} alt="Twin Cakery" width="48" height="48"/><div><strong>Twin Cakery<span className="brand-dot">.</span></strong><span>Taste the secret</span></div></Link>
-
-   <div className="workspace-switch"><span className="workspace-avatar">TC</span><div><strong>Business workspace</strong><small>Proprietor</small></div><ChevronDown size={14}/></div>
 
    <div className="sidebar-nav-area">
     <nav aria-label="Main navigation" ref={navRef} onScroll={updateArrows}>
 
-     <Button variant="ghost" asChild className={`nav-item ${module==='dashboard'?'nav-active':''}`} title="Dashboard"><Link to="/"><LayoutDashboard/><span>Dashboard</span></Link></Button>
+     <Button variant="ghost" asChild className={`nav-item ${module==='dashboard'?'nav-active':''}`} title="Dashboard"><Link to="/" onClick={()=>onNavigate?.()}><LayoutDashboard/><span>Dashboard</span></Link></Button>
 
-     {['WORKSPACE','OPERATIONS','PEOPLE','BUSINESS'].map(group=><div className="nav-group" key={group}><p>{group}</p>{visibleModules(modules,permissions).filter(m=>m.group===group).map(m=>{const Icon=icons[m.icon]||LayoutDashboard;return <Button variant="ghost" asChild key={m.id} title={m.label} className={`nav-item ${module===m.id?'nav-active':''}`}><Link to={`/workspace/${m.id}`} onClick={()=>{setTab('');setSearch('');setStatusFilter('All statuses');}}><Icon/><span>{m.label}</span>{m.id==='sales'&&activeOrders>0&&<small className="nav-count">{activeOrders}</small>}{m.id==='crm'&&followUps>0&&<small className="nav-count followup-count" aria-label={`${followUps} completed orders awaiting follow-up`}>{followUps}</small>}{m.id==='delivery'&&Object.keys(deliveryCounts).length>0?<span className="nav-stage-badges" aria-label={`Deliveries by stage`}>{stageBadgeItems(deliveryCounts)}</span>:null}</Link></Button>})}</div>)}
+     {['WORKSPACE','OPERATIONS','PEOPLE','BUSINESS'].map(group=><div className="nav-group" key={group}><p>{group}</p>{visibleModules(modules,permissions).filter(m=>m.group===group).map(m=>{const Icon=icons[m.icon]||LayoutDashboard;return <Button variant="ghost" asChild key={m.id} title={m.label} className={`nav-item ${module===m.id?'nav-active':''}`}><Link to={`/workspace/${m.id}`} onClick={()=>{setTab('');setSearch('');setStatusFilter('All statuses');onNavigate?.();}}><Icon/><span>{m.label}</span>{m.id==='sales'&&activeOrders>0&&<small className="nav-count">{activeOrders}</small>}{m.id==='crm'&&followUps>0&&<small className="nav-count followup-count" aria-label={`${followUps} completed orders awaiting follow-up`}>{followUps}</small>}{m.id==='delivery'&&Object.keys(deliveryCounts).length>0?<span className="nav-stage-badges" aria-label={`Deliveries by stage`}>{stageBadgeItems(deliveryCounts)}</span>:null}</Link></Button>})}</div>)}
 
     </nav>
     {canUp && <button type="button" className="scroll-arrow scroll-up" aria-label="Scroll navigation up" title="Scroll up" onClick={()=>scrollBy(-180)}><ChevronUp size={16}/></button>}
     {canDown && <button type="button" className="scroll-arrow scroll-down" aria-label="Scroll navigation down" title="Scroll down" onClick={()=>scrollBy(180)}><ChevronDown size={16}/></button>}
-   </div>
+       </div>
 
-   <div className="sidebar-bottom"><Button variant="ghost" className="nav-item" onClick={()=>setHelp(true)} title="Help & support"><CircleHelp/><span>Help & support</span></Button><div className="team-presence"><span className="presence-dot"/><span>Let’s bake something great.</span></div><div className="profile-wrap" ref={profileRef}><button type="button" className={`profile ${menuOpen?'profile-open':''}`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={()=>setMenuOpen(v=>!v)}><span className="profile-avatar">{initialsOf(user?.displayName || user?.username)}</span><div><strong>{displayName}</strong><small>{subtitle}</small></div><ChevronDown size={14}/></button>{menuOpen&&<div className="profile-menu" role="menu"><div className="profile-menu-head"><strong>{displayName}</strong><small>{connected && user ? (user.email || subtitle) : 'Interface preview'}</small></div>{connected ? <button type="button" className="profile-menu-item" role="menuitem" onClick={()=>{setMenuOpen(false);signOut();}}><LogOut size={15}/>Sign out</button> : <button type="button" className="profile-menu-item" role="menuitem" onClick={()=>{setMenuOpen(false);setLoginOpen(true);}}><LogOut size={15}/>Sign in</button>}</div>}</div></div>
+   <hr className="sidebar-divider"/>
+   <div className="sidebar-bottom">
+    <Button variant="ghost" asChild className={`nav-item ${module==='administration'?'nav-active':''}`} title="Settings"><Link to="/workspace/administration" onClick={()=>{setTab('');setSearch('');setStatusFilter('All statuses');onNavigate?.();}}><Settings/><span>Settings</span></Link></Button>
+    {connected ? <Button variant="ghost" className="nav-item" title="Sign out" onClick={()=>{onNavigate?.();signOut();}}><LogOut/><span>Sign out</span></Button> : <Button variant="ghost" className="nav-item" title="Sign in" onClick={()=>{onNavigate?.();setLoginOpen(true);}}><LogOut/><span>Sign in</span></Button>}
+   </div>
 
   </aside>
 

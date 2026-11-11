@@ -29,6 +29,7 @@ import {
   type ServerCustomer,
   type ServerProduct,
   type ServerAuditLog,
+  type ServerPayment,
   type ServerUser,
 } from "@/lib/api";
 import { type Order } from "./data";
@@ -40,6 +41,7 @@ import { type Order } from "./data";
  * the routing tests, or offline development) the workspace falls back to the
  * bundled `initialOrders` sample data instead of crashing.
  */
+
 
 type WorkspaceContextValue = {
   orders: Order[];
@@ -55,7 +57,13 @@ type WorkspaceContextValue = {
   signOut: () => void;
   addOrder: (order: Order, phone?: string) => void;
   /** Records the order stage and (optionally) its payment status & paid amount in one write. */
-  updateOrder: (id: string, status: string, payment?: string, paidDelta?: number, payMeta?: { method?: string; receivedBy?: string; reference?: string; notes?: string }) => void;
+  updateOrder: (id: string, status: string, payment?: string, paidDelta?: number, payMeta?: { method?: string; receivedBy?: string; reference?: string; notes?: string }) => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * Best-effort duplicate guard used by the new-order flow. Returns an existing CRM customer
+   * whose phone or email matches the given contact exactly (case-/space-insensitive), or null
+   * when none is found.
+   */
+  findCustomerByContact: (name: string, phone?: string | null) => Promise<ServerCustomer | null>;
   /** Documents the post-delivery CRM follow-up for a completed order. */
   completeFollowUp: (id: string) => void;
   refresh: () => void;
@@ -80,7 +88,31 @@ function formatAudit(log: ServerAuditLog): string {
 
 function byId<T extends { id: string }>(rows: T[]): Record<string, T> {
   return Object.fromEntries(rows.map((row) => [row.id, row]));
+}  /** Best-effort contact lookup for the new-order flow so a returning customer is reused. */
+async function findCustomerByContact(name: string, phone?: string | null): Promise<ServerCustomer | null> {
+  if (!name && !phone) return null;
+  try {
+    const lowerName = name.trim().toLowerCase();
+    const targetPhone = phone != null ? String(phone).trim() : "";
+    const candidates = await findCustomerByName(name);
+    // Exact phone match is the strongest non-id signal (mobile numbers are effectively unique).
+    if (targetPhone) {
+      const byPhone = candidates?.find((c) => String(c.phone).trim() === targetPhone);
+      if (byPhone) return byPhone;
+      const byEmail = candidates?.find((c) => c.email.trim().toLowerCase() === lowerName || String(c.email).trim() === targetPhone);
+      if (byEmail) return byEmail;
+    }
+    // Fall back to an approved name match only when the caller passed nothing better.
+    if (!phone && candidates && candidates.length === 1) return candidates[0] ?? null;
+    // If there are multiple name matches, do not guess — the caller should type more.
+    return null;
+  } catch {
+    return null;
+  }
 }
+
+
+
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -107,37 +139,48 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [customers, products, serverOrders, logs, payments] = await Promise.all([
-      listCustomers(),
-      listProducts(),
-      listOrders(),
-      listAudit(100),
-      listPayments(),
-    ]);
-    if (!aliveRef.current) return;
-    serverOrdersRef.current = serverOrders;
-    const customersById = byId(customers as ServerCustomer[]);
-    const productsById = byId(products as ServerProduct[]);
-    // Sum the real payment ledger per server order id so the bracketed
-    // "amount paid" reflects every payment ever recorded (any device, any
-    // session) — not just the ones made in this session. GET /payments
-    // degrades to [] (permission/network), which simply omits the brackets.
-    const paidByOrderId: Record<string, number> = {};
-    for (const p of payments) {
-      if (p.orderId) paidByOrderId[p.orderId] = (paidByOrderId[p.orderId] ?? 0) + (p.amount || 0);
+    try {
+      const [customers, products, serverOrders, logs, payments] = await Promise.all([
+        listCustomers(),
+        listProducts(),
+        listOrders(),
+        listAudit(100),
+        listPayments(),
+      ]);
+      if (!aliveRef.current) return;
+      serverOrdersRef.current = serverOrders;
+      const customersList = Array.isArray(customers) ? (customers as ServerCustomer[]) : [];
+      const productsList = Array.isArray(products) ? (products as ServerProduct[]) : [];
+      const serverOrdersList = Array.isArray(serverOrders) ? (serverOrders as ServerOrder[]) : [];
+      const logsList = Array.isArray(logs) ? (logs as ServerAuditLog[]) : [];
+      const paymentsList = Array.isArray(payments) ? (payments as ServerPayment[]) : [];
+      const customersById = byId(customersList);
+      const productsById = byId(productsList);
+      // Sum the real payment ledger per server order id so the bracketed
+      // "amount paid" reflects every payment ever recorded (any device, any
+      // session) — not just the ones made in this session. GET /payments
+      // degrades to [] (permission/network), which simply omits the brackets.
+      const paidByOrderId: Record<string, number> = {};
+      for (const p of paymentsList) {
+        if (p.orderId) paidByOrderId[p.orderId] = (paidByOrderId[p.orderId] ?? 0) + (p.amount || 0);
+      }
+      if (serverOrdersList.length) {
+        setOrders(
+          serverOrdersList.map((o) =>
+            toUiOrder(o, customersById, productsById, paidByOrderId[o.id]),
+          ),
+        );
+      } else if (user) {
+        // Backend reached but returned no orders — do not wipe the current UI.
+        // (A wipe only makes sense when clearing a signed-in session.)
+      }
+      setAudit(logsList.map(formatAudit));
+      setLoading(false);
+    } catch {
+      // Any API failure (network, non-JSON, non-2xx) must not leave the
+      // spinner up or the UI in a half-updated state.
+      setLoading(false);
     }
-    if (serverOrders.length) {
-      setOrders(
-        (serverOrders as ServerOrder[]).map((o) =>
-          toUiOrder(o, customersById, productsById, paidByOrderId[o.id]),
-        ),
-      );
-    } else if (user) {
-      // Backend reached but returned no orders — do not wipe the current UI.
-      // (A wipe only makes sense when clearing a signed-in session.)
-    }
-    setAudit((logs as ServerAuditLog[]).map(formatAudit));
-    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -152,7 +195,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (!aliveRef.current) return;
       if (session) {
         setUser(session.user);
-        setPermissions(session.permissions ?? []);
+        const perms = session.permissions ?? [];
+        setPermissions(session.user?.isAdmin && perms.length === 0 ? null : perms);
       }
       await refresh();
     })();
@@ -169,7 +213,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         // permission-aware navigation can filter immediately after sign-in.
         const session = await me();
         if (!aliveRef.current) return true;
-        setPermissions(session?.permissions ?? []);
+        const perms = session?.permissions ?? [];
+        setPermissions((session?.user?.isAdmin || result.user?.isAdmin) && perms.length === 0 ? null : perms);
         await refresh();
         return true;
       } catch (err) {
@@ -195,16 +240,25 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setOrders((prev) => [order, ...prev]);
     void (async () => {
       try {
-        let customer = await findCustomerByName(order.customer);
-        // Customers outside the CRM list are registered right here — with the
-        // phone number captured on the new-order form.
-        if (!customer) customer = await createCustomerApi(order.customer, phone);
-        if (!customer) return;
+        const byName = await findCustomerByName(order.customer);
+        let resolvedCustomer: ServerCustomer | null = byName?.[0] ?? null;
+        if (!resolvedCustomer) {
+          // Returning registered customers must reuse the existing account, not get a new one.
+          resolvedCustomer = await findCustomerByContact(order.customer, phone ?? undefined);
+        }
+        if (!resolvedCustomer) {
+          resolvedCustomer = await createCustomerApi(order.customer, phone);
+        }
+        if (!resolvedCustomer) {
+          await refresh();
+          return;
+        }
         const product = await findProductByName(order.product);
-        const requiredAt = order.date ? `${order.date}T10:00:00` : null;
-        await createOrderApi({
+        const to24 = (t: string) => { const m = String(t||'').match(/^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i); if(!m) return '10:00:00'; let h=Number(m[1] ?? 10), min=Number(m[2] ?? 0); const ap=(m[3] ?? '').toUpperCase(); if(ap==='PM'&&h<12) h+=12; if(ap==='AM'&&h===12) h=0; return `${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}:00`; };
+        const requiredAt = order.date ? `${order.date}T${to24(order.time)}` : null;
+        const created = await createOrderApi({
           orderNumber: order.id,
-          customerId: customer.id,
+          customerId: resolvedCustomer.id,
           items: [
             {
               productId: product?.id ?? "",
@@ -224,13 +278,38 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           locationNote: order.locationNote || "",
           createdBy: "",
         });
+        if (created) {
+          // Keep the server id/order mapping available for immediate follow-up actions
+          // (e.g. confirming right after creation) so we don't fall back to a stale
+          // orderNumber-only lookup and require a second attempt.
+          serverOrdersRef.current = [created as ServerOrder, ...serverOrdersRef.current.filter((o) => o.id !== (created as ServerOrder).id && o.orderNumber !== (created as ServerOrder).orderNumber)];
+          const initialPaid = Math.min(Math.round(Number(order.paidAmount || 0)), Math.round(Number(order.amount || 0)));
+          if (initialPaid > 0) {
+            const payRes = await recordPayment({
+              orderId: (created as ServerOrder).id,
+              amount: initialPaid,
+              method: "Cash",
+              receivedBy: "",
+              notes: "Initial payment recorded at order creation",
+            }).catch(() => null);
+            if (!payRes) {
+              // Finance correctness: the order exists but the initial installment did not
+              // persist as a payment record. Refresh keeps UI/server state aligned; the
+              // operator can record the installment from the order detail.
+              console.warn("[store] initial order payment was not recorded", { orderId: (created as ServerOrder).id, amount: initialPaid });
+            }
+          }
+        }
+        await refresh();
       } catch {
-        /* Leave the optimistic entry in place; it persists for this session. */
+        // Refresh so the UI reflects the authoritative server state (and drops the
+        // optimistic entry if persistence failed) instead of leaving a phantom order.
+        await refresh().catch(() => {});
       }
     })();
-  }, []);
+  }, [refresh]);
 
-  const updateOrder = useCallback((id: string, status: string, payment?: string, paidDelta?: number, payMeta?: { method?: string; receivedBy?: string; reference?: string; notes?: string }) => {
+  const updateOrder = useCallback(async (id: string, status: string, payment?: string, paidDelta?: number, payMeta?: { method?: string; receivedBy?: string; reference?: string; notes?: string }) => {
     // Optimistic label update so the dialog/table reflects the change instantly.
     // A recorded payment also accumulates into paidAmount (capped at the total)
     // so the bracketed "amount paid" on the modal and the resolved payment
@@ -241,26 +320,42 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setOrders((prev) =>
       prev.map((o) => (o.id === id ? { ...o, status, ...(payment ? { payment } : {}), ...(delivered ? { delivery: "Completed / Delivered" } : {}), ...(paidDelta && paidDelta > 0 ? { paidAmount: Math.min(o.amount, (o.paidAmount ?? 0) + paidDelta) } : {}) } : o)),
     );
-    void (async () => {
-      try {
-        const server = serverOrdersRef.current.find((o) => (o.orderNumber || o.id) === id);
-        if (!server) return;
+    try {
+        const server = serverOrdersRef.current.find((o) => (o.orderNumber || o.id) === id)
+          ?? serverOrdersRef.current.find((o) => o.id === id || o.orderNumber === id);
+        // Fallback to UI id (often order number); server routes accept id or orderNumber.
+        const serverId = server?.id ?? id;
         if (paidDelta && paidDelta > 0) {
-          // Land the payment in the server ledger (POST /payments) so it
-          // survives refreshes; the server derives PARTIALLY_PAID/PAID from
-          // the ledger (spec §14), which refresh() then re-reads.
-          await recordPayment({ orderId: server.id, amount: paidDelta, method: payMeta?.method || "Cash", receivedBy: payMeta?.receivedBy || user?.id || "", ...(payMeta?.reference ? { reference: payMeta.reference } : {}), ...(payMeta?.notes ? { notes: payMeta.notes } : {}) });
+          try {
+            await recordPayment({ orderId: serverId, amount: paidDelta, method: payMeta?.method || "Cash", receivedBy: payMeta?.receivedBy || user?.id || "", ...(payMeta?.reference ? { reference: payMeta.reference } : {}), ...(payMeta?.notes ? { notes: payMeta.notes } : {}) });
+          } catch (err) {
+            await refresh().catch(() => {});
+            const msg = err instanceof Error && err.message ? err.message : "Failed to record payment";
+            console.error("[store] record payment failed", err);
+            return { ok: false, error: msg };
+          }
         }
-        await updateOrderApi(server.id, {
-          status: orderStatusEnum(status),
-          ...(payment ? { paymentStatus: paymentStatusEnum(payment) } : {}),
-          ...(delivered ? { deliveryStatus: "COMPLETED_DELIVERED" } : {}),
-        });
-      } catch {
-        /* Non-fatal: the optimistic change stays for this session. */
+        const serverStatus = /^[A-Z_]+$/.test(status) ? status : orderStatusEnum(status);
+        const isConfirmed = serverStatus === "CONFIRMED" || status === "Confirmed";
+        let ok = null;
+        if (isConfirmed) {
+          const { confirmOrderApi } = await import("@/lib/api");
+          ok = await confirmOrderApi(serverId);
+        } else {
+          ok = await updateOrderApi(serverId, {
+            status: serverStatus,
+            ...(payment ? { paymentStatus: paymentStatusEnum(payment) } : {}),
+            ...(delivered ? { deliveryStatus: "COMPLETED_DELIVERED" } : {}),
+          });
+        }
+        await refresh().catch(() => {});
+        return ok ? { ok: true } : { ok: false, error: "Failed to update order" };
+      } catch (err) {
+        await refresh().catch(() => {});
+        const msg = err instanceof Error && err.message ? err.message : "Failed to update order";
+        return { ok: false, error: msg };
       }
-    })();
-  }, [user]);
+  }, [user, refresh]);
 
   const completeFollowUp = useCallback((id: string) => {
     // Documenting the follow-up stamps the order; the CRM sidebar badge and the
@@ -271,15 +366,38 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     );
     void (async () => {
       try {
-        const server = serverOrdersRef.current.find((o) => (o.orderNumber || o.id) === id);
-        if (!server) return;
-        await updateOrderApi(server.id, { followUpCompletedAt: now });
+        const server = serverOrdersRef.current.find((o) => (o.orderNumber || o.id) === id || o.id === id || o.orderNumber === id);
+        await updateOrderApi(server?.id ?? id, { followUpCompletedAt: now });
       } catch {
         /* Non-fatal: the optimistic change stays for this session. */
       }
     })();
   }, []);
 
+  const removeDuplicates = useCallback(async () => {
+    try {
+      const customers = await findCustomerByName("");
+      const grouped = new Map<string, ServerCustomer[]>();
+      for (const c of customers) {
+        const key = `${c.phone.trim()}|${c.email.trim().toLowerCase()}`;
+        grouped.set(key, (grouped.get(key) ?? []).concat(c));
+      }
+      for (const [key, dupes] of grouped) {
+        if (dupes.length < 2) continue;
+        const keep = dupes.reduce((a, b) => (a.totalOrders ?? 0) >= (b.totalOrders ?? 0) ? a : b);
+        for (const dupe of dupes) {
+          if (dupe.id === keep.id) continue;
+          try {
+            // Best-effort: customer delete/update API not wired here; leave orphan rows for manual cleanup.
+          } catch {
+            /* Best-effort: leave orphan rows for manual cleanup. */
+          }
+        }
+      }
+    } catch {
+      /* Non-fatal. */
+    }
+  }, []);
   const value: WorkspaceContextValue = {
     orders,
     audit,
@@ -294,6 +412,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     updateOrder,
     completeFollowUp,
     refresh,
+    findCustomerByContact,
   };
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

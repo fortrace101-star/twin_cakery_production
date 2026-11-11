@@ -16,6 +16,7 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO role_permissions (id, role_id, permission_id)
 SELECT 'rp-admin-' || p.id, 'role-admin', p.id FROM permissions p
 WHERE p.key IN ('deliveries.cancel','feedback.update','finance.view_reports','inquiries.edit','quotations.edit')
+  AND EXISTS (SELECT 1 FROM roles WHERE id = 'role-admin')
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 -- Operational ownership: Production runs deliveries; Sales edits quotes and
@@ -23,12 +24,15 @@ ON CONFLICT (role_id, permission_id) DO NOTHING;
 INSERT INTO role_permissions (id, role_id, permission_id)
 SELECT 'rp-prod-' || p.id, 'role-production', p.id FROM permissions p
 WHERE p.key IN ('deliveries.cancel')
+  AND EXISTS (SELECT 1 FROM roles WHERE id = 'role-production')
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 INSERT INTO role_permissions (id, role_id, permission_id)
 SELECT 'rp-sales-' || p.id, 'role-sales', p.id FROM permissions p
 WHERE p.key IN ('quotations.edit','inquiries.edit')
+  AND EXISTS (SELECT 1 FROM roles WHERE id = 'role-sales')
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 INSERT INTO role_permissions (id, role_id, permission_id)
 SELECT 'rp-csr-' || p.id, 'role-csr', p.id FROM permissions p
 WHERE p.key IN ('feedback.update')
+  AND EXISTS (SELECT 1 FROM roles WHERE id = 'role-csr')
 ON CONFLICT (role_id, permission_id) DO NOTHING;

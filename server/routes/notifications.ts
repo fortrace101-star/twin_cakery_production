@@ -11,26 +11,30 @@ const authService = new AuthService();
 // audit.view requirement was Admin-only and locked every non-admin out of
 // their own bell. The recipient is ALWAYS the signed-in session — any
 // ?userId= override is ignored so one user can never read another's inbox.
-router.use((req, res, next) => {
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
-  if (!session) return res.status(401).json({ error: "Not authenticated" });
-  (req as unknown as { auth: { session: typeof session } }).auth = { session };
-  next();
+router.use(async (req, res, next) => {
+  try {
+    const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+    if (!session) return res.status(401).json({ error: "Not authenticated" });
+    (req as unknown as { auth: { session: typeof session } }).auth = { session };
+    next();
+  } catch (err) {
+    next(err);
+  }
 });
 
 const sessionUserId = (req: unknown): string =>
   ((req as { auth?: { session?: { userId?: string } } }).auth?.session?.userId) || "";
 
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   const notifications = store.getUserNotifications(sessionUserId(req), 50);
   res.json(notifications);
 });
 
-router.get("/unread-count", (req, res) => {
+router.get("/unread-count", async (req, res) => {
   res.json({ count: store.getUnreadCount(sessionUserId(req)) });
 });
 
-router.patch("/:id/read", (req, res) => {
+router.patch("/:id/read", async (req, res) => {
   const id = String(req.params.id);
   const targetUserId = sessionUserId(req);
   if (!targetUserId) return res.status(400).json({ error: "userId required" });
@@ -39,18 +43,18 @@ router.patch("/:id/read", (req, res) => {
   res.json({ ok: true });
 });
 
-router.post("/mark-all-read", (req, res) => {
+router.post("/mark-all-read", async (req, res) => {
   const id = sessionUserId(req);
   if (!id) return res.status(400).json({ error: "userId required" });
   const count = store.markAllAsRead(id);
   res.json({ ok: true, count });
 });
 
-router.get("/preferences", (req, res) => {
+router.get("/preferences", async (req, res) => {
   res.json(store.getNotificationPreferences(sessionUserId(req)));
 });
 
-router.patch("/preferences", (req, res) => {
+router.patch("/preferences", async (req, res) => {
   const userId = sessionUserId(req);
   const { eventTypeId, channel } = req.body || {};
   const { enabled } = req.query;

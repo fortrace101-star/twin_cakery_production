@@ -1,20 +1,14 @@
 // server/scripts/code-staff.ts
 // Mint a Staff Register Code (CLI-only). Prints plaintext once.
 
-import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import crypto from "node:crypto";
+import dotenv from "dotenv";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const requireFromFrontend = createRequire(
-  path.resolve(__dirname, "..", "..", "erp-interface-design", "package.json"),
-);
-const dotenvModule = requireFromFrontend("dotenv") as { config: (opts?: unknown) => void };
-dotenvModule.config({ path: path.resolve(__dirname, "..", "..", ".env") });
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 
 import { pool } from "../database/db.js";
 

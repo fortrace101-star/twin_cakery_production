@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { money, moduleRows, tone, type GridRow, type Order } from "./data";
+import { money, moduleRows, orderOutstandingAmount, tone, type GridRow, type Order } from "./data";
 import { ORDER_STAGE_PIPELINE, orderStageIndex } from "@/lib/theme-tokens";
 import { StatusBadge as Status } from "../data-table/StatusBadge";
 import { DataTable, type Column, type SortState } from "../data-table/DataTable";
@@ -21,9 +21,12 @@ import {
   listProductionJobs, startProductionJob, completeProductionJob, recordQualityCheck, recordProductionWastage, getProductionCosts, getProductionConsumption, recordJobMaterials,
   listInventoryItems, getInventoryLedger,
   listCustomers,
+  listDeliveries,
+  completeDelivery,
   listRbacUsers, listRbacRoles, listRbacPermissions, getRolePermissionKeys, grantRolePermission, revokeRolePermission,
   type ServerProductionJob, type ServerProductionCost, type ServerProductionConsumption, type ServerInventoryItem, type ServerInventoryTransaction,
   type ServerCustomer,
+  type ServerDelivery,
   type ServerRbacUser, type ServerRole, type ServerPermission,
 } from "@/lib/api";
 export function orderRowTone(o: Order): string {
@@ -78,26 +81,27 @@ export function OrderTable({orders,onSelect,compact=false}: {orders:Order[];onSe
 
   const columns: Column<Order>[] = [
 
-    { header:'Progress', width:'28px', cell:(o)=><OrderProgressStepper status={o.status}/> },
+    { header:'Progress', width:'28px', mobile:'hide', cell:(o)=><OrderProgressStepper status={o.status}/> },
 
-    { header:'Order / customer', cell:(o,i)=><div className="customer-cell"><span className={`customer-avatar avatar-${i%4}`}>{o.initials}</span><div><strong>{o.customer}</strong><small>#{o.id}</small></div></div> },
+    { header:'Order / customer', mobile:'title', cell:(o,i)=><div className="customer-cell"><span className={`customer-avatar avatar-${i%4}`}>{o.initials}</span><div><strong>{o.customer}</strong><small>#{o.id}</small></div></div> },
 
-    { header:'Product', cell:(o)=><><strong className="product-name">{o.product}</strong><small className="cell-sub">{o.options.split(' · ').slice(0,2).join(' · ')}</small></> },
+    { header:'Product', mobile:'meta', cell:(o)=><><strong className="product-name">{o.product}</strong><small className="cell-sub">{o.options.split(' · ').slice(0,2).join(' · ')}</small></> },
 
   ];
 
-  if(!compact) columns.push({ header:'Due date', cell:(o)=><><strong className="product-name">{o.date}</strong><small className="cell-sub">{o.time}</small></> });
+  if(!compact) columns.push({ header:'Due date', mobile:'meta', cell:(o)=><><strong className="product-name">{o.date}</strong><small className="cell-sub">{o.time}</small></> });
 
   // Orders with any payment show the amount collected so far under the total.
-  columns.push({ header:'Amount', align:'right', sortKey:'amount', cell:(o)=><span className="amount-cell">{money(o.amount)}{(o.paidAmount??0)>0&&<small className="paid-bracket" title="Amount paid so far">({money(o.paidAmount??0)} paid)</small>}</span> });
+  columns.push({ header:'Amount', align:'right', sortKey:'amount', mobile:'value', cell:(o)=><span className="amount-cell">{money(o.amount)}{(o.paidAmount??0)>0&&<small className="paid-bracket" title="Amount paid so far">({money(o.paidAmount??0)} paid)</small>}</span> });
 
-  columns.push({ header:'Order status', cell:(o)=><Status value={o.status}/> });
+  columns.push({ header:'Order status', mobile:'badge', cell:(o)=><Status value={o.status}/> });
 
-  if(!compact){ columns.push({ header:'Payment', cell:(o)=><Status value={o.payment}/> }); columns.push({ header:'Delivery', cell:(o)=><Status value={o.delivery}/> }); }
+  if(!compact){ columns.push({ header:'Payment', mobile:'badge', cell:(o)=><Status value={o.payment}/> }); columns.push({ header:'Delivery', mobile:'drawer', cell:(o)=><Status value={o.delivery}/> }); }
 
-  columns.push({ header:'', cell:(o)=><Button variant="ghost" size="icon" title={`Open order ${o.id}`} aria-label={`Open order ${o.id}`} onClick={e=>{e.stopPropagation();onSelect(o)}}><MoreHorizontal/></Button> });
+  columns.push({ header:'', mobile:'hide', cell:(o)=><Button variant="ghost" size="icon" title={`Open order ${o.id}`} aria-label={`Open order ${o.id}`} onClick={e=>{e.stopPropagation();onSelect(o)}}><MoreHorizontal/></Button> });
 
-  return <DataTable columns={columns} rows={sorted} rowKey={(o)=>o.id} rowClassName={(o)=>orderRowTone(o)} sort={sort} onSortChange={setSort} onRowActivate={onSelect} stickyHeader density={density} empty={<div className="empty-state"><Search/><h3>No orders found</h3><p>Try a different customer, product, or status.</p></div>}/>;
+  return <DataTable columns={columns} rows={sorted} rowKey={(o)=>o.id} rowClassName={(o)=>orderRowTone(o)} sort={sort} onSortChange={setSort} onRowActivate={onSelect} stickyHeader density={density} mobileTitle={(o)=>o.customer} mobileSubtitle={(o)=>`#${o.id}`} openLabel="Open order" empty={<div className="empty-state"><Search/><h3>No orders found</h3><p>Try a different customer, product, or status.</p></div>}/>;
+
 
 }
 
@@ -332,11 +336,22 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
 
   const [record,setRecord] = useState<GridRow|null>(null);
   const { density } = useDensity();
-  const { updateOrder } = useWorkspace();
+  const { updateOrder, refresh: refreshStore } = useWorkspace();
+
+const refreshDeliveriesLive = useCallback(() => {
+  if (module === 'delivery') refreshStore();
+}, [module, refreshStore]);
+useLiveRefresh(refreshDeliveriesLive);
 
   const [jobs, setJobs] = useState<ServerProductionJob[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [customers, setCustomers] = useState<ServerCustomer[]>([]);
+  const [deliveries, setDeliveries] = useState<ServerDelivery[]>([]);
+  const [settleMode, setSettleMode] = useState<'collect'|'no_collection'>('collect');
+  const [collectAmount, setCollectAmount] = useState('');
+  const [collectMethod, setCollectMethod] = useState('Cash');
+  const [collectRef, setCollectRef] = useState('');
+  const [noCollectionReason, setNoCollectionReason] = useState('');
 
   // Deliveries modal: the Upcoming/Dispatch record dialog shows the order's
   // location note + the customer's contact details, so we need the CRM list.
@@ -344,6 +359,7 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
     if (module !== 'delivery') return;
     let alive = true;
     void listCustomers().then((list) => { if (alive) setCustomers(list || []); }).catch(() => { if (alive) setCustomers([]); });
+    void listDeliveries().then((list) => { if (alive) setDeliveries(list || []); }).catch(() => { if (alive) setDeliveries([]); });
     return () => { alive = false; };
   }, [module]);
 
@@ -366,7 +382,7 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
 
   let rows: GridRow[] = [];
   if (module === 'production') {
-    const jobRows: GridRow[] = jobs.map((job: ServerProductionJob) => {
+    const jobRows: GridRow[] = (jobs ?? []).map((job: ServerProductionJob) => {
       const order = orders.find((o) => o.id === job.orderId);
       const productName = order?.product || job.variantOptions || job.orderId;
       const customerName = order?.customer || job.orderId;
@@ -407,13 +423,13 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
 
   const columns: Column<GridRow>[] = [
 
-    { header: headings[0] ?? 'Record', cell: (r)=><><strong className="product-name">{r.name}</strong><small className="cell-sub">{r.id} · {r.detail}</small></> },
+    { header: headings[0] ?? 'Record', mobile: 'title', cell: (r)=><><strong className="product-name">{r.name}</strong><small className="cell-sub">{r.id} · {r.detail}</small></> },
 
-    { header: headings[1] ?? 'Date', cell: (r)=>r.secondary },
+    { header: headings[1] ?? 'Date', mobile: 'meta', cell: (r)=>r.secondary },
 
-    { header: headings[2] ?? 'Value', align: 'right', cell: (r)=><span className="amount-cell">{r.value}</span> },
+    { header: headings[2] ?? 'Value', align: 'right', mobile: 'value', cell: (r)=><span className="amount-cell">{r.value}</span> },
 
-    { header: 'Status', cell: (r)=>{
+    { header: 'Status', mobile: 'badge', cell: (r)=>{
       const status = String(r.status || '');
       if (module === 'production') {
         if (status === 'Baking') return <Status value={r.status} tone="orange" />;
@@ -422,7 +438,11 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
       return <Status value={r.status}/>
     } },
 
-    { header: '', cell: (r)=><Button variant="ghost" size="icon" aria-label={`View ${r.id}`} onClick={e=>{e.stopPropagation();setRecord(r)}}><ArrowUpRight/></Button> },
+    { header: '', mobile: module === 'delivery' && (tab === 'Upcoming' || tab === 'Dispatch') ? 'action' : 'hide', cell: (r)=> module === 'delivery' && tab === 'Upcoming'
+      ? <Button size="sm" disabled={busyAction} onClick={e=>{e.stopPropagation();void handleSetInTransitFor(r);}}><ArrowRight size={16}/>Set In-Transit</Button>
+      : module === 'delivery' && tab === 'Dispatch'
+        ? <Button size="sm" disabled={busyAction} onClick={e=>{e.stopPropagation();void handleCompleteOrderFor(r);}}><Check size={16}/>Complete</Button>
+        : <Button variant="ghost" size="icon" aria-label={`View ${r.id}`} onClick={e=>{e.stopPropagation();setRecord(r)}}><ArrowUpRight/></Button> },
 
   ];
 
@@ -534,11 +554,10 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
   // Deliveries > Upcoming: move an awaiting-collection order to In Transit —
   // flips the order status (optimistic local write + server PATCH via the
   // workspace store) so the row leaves Upcoming and shows under Dispatch.
-  async function handleSetInTransit() {
-    if (!record) return;
+  async function handleSetInTransitFor(row: GridRow) {
     setBusyAction(true);
     try {
-      updateOrder(record.id, 'In Transit');
+      updateOrder(row.id, 'In Transit');
       onNotice('Order set to In Transit — it now shows under Dispatch');
       setRecord(null);
     } finally {
@@ -546,20 +565,56 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
     }
   }
 
+  async function handleSetInTransit() {
+    if (!record) return;
+    await handleSetInTransitFor(record);
+  }
+
   // Deliveries > Dispatch: complete the order — flips it to Completed /
   // Delivered (local + server via the workspace store, which also settles
   // station/follow-up on the backend) so it leaves Dispatch and shows under
   // the Completed tab.
+  // Deliveries > Dispatch: complete with settlement (DEL-01/04 UI). Uses
+  // POST /deliveries/:id/complete when a delivery record is resolved; requires
+  // collected amount/method or a no-collection reason per server contract.
   async function handleCompleteOrder() {
     if (!record) return;
+    const order = orders.find((o) => o.id === record.id) ?? null;
+    const balance = order ? Math.max(0, order.amount - (order.paidAmount ?? 0)) : 0;
+    if (settleMode === 'collect') {
+      const amt = Number(collectAmount);
+      if (!Number.isFinite(amt) || amt < 0) { onNotice('Enter a valid collected amount.'); return; }
+      if (collectMethod !== 'Cash' && !String(collectRef).trim()) { onNotice('Reference is required for non-cash payments.'); return; }
+    } else {
+      if (!String(noCollectionReason).trim()) { onNotice('Please provide a reason for no collection.'); return; }
+    }
+    const delivery = deliveries.find((d) => d.orderId === record.id || d.orderId === order?.id)
+      ?? deliveries.find((d: any) => (d as any).orderNumber === record.id);
     setBusyAction(true);
     try {
-      updateOrder(record.id, 'Completed / Delivered');
-      onNotice('Order completed — it now shows under Completed');
+      if (delivery?.id) {
+        const body = settleMode === 'collect'
+          ? { collected: { amount: Math.round(Number(collectAmount) || 0), method: collectMethod, ...(collectRef.trim() ? { reference: collectRef.trim() } : {}) } }
+          : { noCollection: { reason: noCollectionReason.trim() } };
+        const res = await completeDelivery(delivery.id, body as any);
+        if (!res) { onNotice('Could not complete delivery. Check settlement details and try again.'); return; }
+        await refreshStore();
+        const collectedMsg = settleMode === 'collect' && Number(collectAmount) > 0 ? ` Collected ${money(Math.round(Number(collectAmount) || 0))} (${collectMethod}).` : settleMode === 'no_collection' ? ' No collection recorded.' : '';
+        onNotice(`Delivery completed.${collectedMsg}`);
+        void listDeliveries().then((list) => setDeliveries(list || [])).catch(() => {});
+      } else {
+        updateOrder(record.id, 'Completed / Delivered');
+        onNotice(balance > 0 ? 'Order marked completed. No delivery record found to settle — record payment separately if needed.' : 'Order completed.');
+      }
       setRecord(null);
     } finally {
       setBusyAction(false);
     }
+  }
+
+  async function handleCompleteOrderFor(row: GridRow) {
+    // Open the record dialog so settlement can be confirmed before completing.
+    setRecord(row);
   }
 
   // Deliveries modal extras: the open order's location note and the customer's
@@ -571,7 +626,7 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
     : '';
   const showDeliveryExtras = module === 'delivery' && (tab === 'Upcoming' || tab === 'Dispatch') && record;
 
-  return <section className="panel module-table"><div className="panel-heading"><div><h2>{tab}</h2><p>{module==='inventory'?'Stock quantities reflect opening, purchases, adjustments, usage and wastage.':`${rows.length} ${tab.toLowerCase()} in your workspace`}</p></div><Button variant="outline" onClick={()=>onNotice('Sample workspace — live records are not connected')}><Plus/>{module==='purchasing'?'Create purchase order':module==='inventory'?'Record adjustment':'Add record'}</Button></div><div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label={`Search ${tab}`} value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Search ${tab.toLowerCase()}...`}/></label><label className="filter-select"><SlidersHorizontal size={14}/><select aria-label="Filter records" value={filter} onChange={e=>setFilter(e.target.value)}><option>All records</option>{Array.from(new Set(moduleRows(module,tab,orders).map(r=>r.status))).map(s=><option key={s}>{s}</option>)}</select></label></div><DataTable columns={columns} rows={rows} rowKey={(r)=>r.id} rowClassName={(r)=>`order-row-tint tone-${tone(r.status)}`} onRowActivate={(r)=>setRecord(r)} stickyHeader density={density} empty={<div className="empty-state"><Search/><h3>No matching records</h3><p>Try a different search or filter.</p></div>}/><div className="table-foot"><span>{rows.length} records</span><span>October 2026</span></div><Dialog open={Boolean(record)} onOpenChange={v=>{if(!v)setRecord(null)}}><DialogContent className="max-w-2xl"><DialogTitle>{record?.name}</DialogTitle><DialogDescription>{record?.id} · {tab}</DialogDescription>{module === 'production' ? (<div className="space-y-4">
+  return <section className="panel module-table"><div className="panel-heading"><div><h2>{tab}</h2><p>{module==='inventory'?'Stock quantities reflect opening, purchases, adjustments, usage and wastage.':`${rows.length} ${tab.toLowerCase()} in your workspace`}</p></div><Button variant="outline" onClick={()=>onNotice('Sample workspace — live records are not connected')}><Plus/>{module==='purchasing'?'Create purchase order':module==='inventory'?'Record adjustment':'Add record'}</Button></div><div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label={`Search ${tab}`} value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Search ${tab.toLowerCase()}...`}/></label><label className="filter-select"><SlidersHorizontal size={14}/><select aria-label="Filter records" value={filter} onChange={e=>setFilter(e.target.value)}><option>All records</option>{Array.from(new Set(moduleRows(module,tab,orders).map(r=>r.status))).map(s=><option key={s}>{s}</option>)}</select></label></div><DataTable columns={columns} rows={rows} rowKey={(r)=>r.id} rowClassName={(r)=>`order-row-tint tone-${tone(r.status)}`} onRowActivate={(r)=>setRecord(r)} stickyHeader density={density} mobileTitle={(r)=>r.name} mobileSubtitle={(r)=>`${r.id} · ${r.detail}`} openLabel="Open record" hideOpenAction={module === 'delivery' && (tab === 'Upcoming' || tab === 'Dispatch')} empty={<div className="empty-state"><Search/><h3>No matching records</h3><p>Try a different search or filter.</p></div>}/><div className="table-foot"><span>{rows.length} records</span><span>October 2026</span></div><Dialog open={Boolean(record)} onOpenChange={v=>{if(!v)setRecord(null)}}><DialogContent className="max-w-2xl"><DialogTitle>{record?.name}</DialogTitle><DialogDescription>{record?.id} · {tab}</DialogDescription>{module === 'production' ? (<div className="space-y-4">
   <div className="configuration-list"><p><span>Order/Job</span><strong>{record?.detail}</strong></p><p><span>Due/Info</span><strong>{record?.secondary}</strong></p><p><span>Status</span><Status value={record?.status || productionJob?.status || ''}/></p><p><span>Progress</span><strong>{productionJob?.progress ?? record?.value ?? '—'}</strong></p></div>
   <div className="flex flex-wrap gap-2">
     {(productionJob?.status === 'PENDING' || productionJob?.status === 'SCHEDULED' || productionJob?.status === 'READY_FOR_PRODUCTION') && <Button size="sm" onClick={handleStartJob} disabled={busyAction}>Start Production</Button>}
@@ -586,13 +641,12 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
       return (<div key={c.id} className="flex justify-between text-xs"><span>{name} × {c.quantity} {c.unit}</span><span>{c.notes || ''}</span></div>);
     })}</div>)}
     <div className="mt-3 space-y-2">
-      {materialEntries.map((m, idx) => (<div key={idx} className="flex gap-2 items-center">
-        <select className="input flex-1" value={m.itemId} onChange={e => { const next = [...materialEntries]; next[idx] = { ...next[idx], itemId: e.target.value }; setMaterialEntries(next); }}>
+      {materialEntries.map((m, idx) => (<div key={idx} className="flex gap-2 items-center">          <select className="input flex-1" value={m.itemId} onChange={e => { const next = [...materialEntries]; next[idx] = { itemId: e.target.value, quantity: next[idx]?.quantity ?? 0, notes: next[idx]?.notes ?? '' }; setMaterialEntries(next); }}>
           <option value="">Select item...</option>
           {inventoryItems.map(it => <option key={it.id} value={it.id}>{it.name} - {it.physicalStock} {it.unit}</option>)}
         </select>
-        <Input className="w-24" type="number" placeholder="Qty" value={m.quantity || ''} onChange={e => { const next = [...materialEntries]; next[idx] = { ...next[idx], quantity: Number(e.target.value) }; setMaterialEntries(next); }} />
-        <Input className="flex-1" placeholder="Notes" value={m.notes} onChange={e => { const next = [...materialEntries]; next[idx] = { ...next[idx], notes: e.target.value }; setMaterialEntries(next); }} />
+        <Input className="w-24" type="number" placeholder="Qty" value={m.quantity} onChange={e => { const next = [...materialEntries]; next[idx] = { itemId: next[idx]?.itemId ?? '', quantity: Number(e.target.value), notes: next[idx]?.notes ?? '' }; setMaterialEntries(next); }} />
+        <Input className="flex-1" placeholder="Notes" value={m.notes} onChange={e => { const next = [...materialEntries]; next[idx] = { itemId: next[idx]?.itemId ?? '', quantity: next[idx]?.quantity ?? 0, notes: e.target.value }; setMaterialEntries(next); }} />
       </div>))}
       <div className="flex gap-2">
         <Button size="sm" variant="outline" onClick={() => setMaterialEntries([...materialEntries, { itemId: "", quantity: 0, notes: "" }])}>Add Row</Button>
@@ -600,7 +654,28 @@ export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotic
       </div>
     </div>
   </div>
-</div>) : (<div className="configuration-list"><p><span>Details</span><strong>{record?.detail}</strong></p><p><span>{headings[1]}</span><strong>{record?.secondary}</strong></p><p><span>{headings[2]}</span><strong>{record?.value}</strong></p>{record&&<p><span>Status</span><Status value={record.status}/></p>}</div>)}{module==='inventory'&&<><h3 className="text-sm font-semibold">Stock ledger</h3><div className="configuration-list"><p><span>Opening stock</span><strong>20 kg</strong></p><p><span>Purchase receipt</span><strong>+10 kg</strong></p><p><span>Production consumption</span><strong>−21 kg</strong></p><p><span>Recorded wastage</span><strong>−1 kg</strong></p></div><p className="text-xs text-muted-foreground">Illustrative transaction breakdown for all-purpose flour.</p></>}{module==='sales'&&<Button onClick={()=>{const o=orders.find(o=>o.customer===record?.name);if(o){setRecord(null);onSelect(o)}}}>Open related order<ArrowRight/></Button>}{showDeliveryExtras&&<div className="configuration-list"><p><span>Location note</span><strong>{deliveryOrder?.locationNote||'—'}</strong></p><p><span>Customer contact</span><strong>{deliveryContact||'—'}</strong></p></div>}{module==='delivery'&&tab==='Upcoming'&&record&&<div className="dialog-actions"><Button onClick={handleSetInTransit} disabled={busyAction}><ArrowRight size={16}/>Set In-Transit</Button></div>}{module==='delivery'&&tab==='Dispatch'&&record&&<div className="dialog-actions"><Button onClick={handleCompleteOrder} disabled={busyAction}><Check size={16}/>Complete</Button></div>}</DialogContent></Dialog></section>
+</div>) : (<div className="configuration-list"><p><span>Details</span><strong>{record?.detail}</strong></p><p><span>{headings[1]}</span><strong>{record?.secondary}</strong></p><p><span>{headings[2]}</span><strong>{record?.value}</strong></p>{record&&<p><span>Status</span><Status value={record.status}/></p>}</div>)}{module==='inventory'&&<><h3 className="text-sm font-semibold">Stock ledger</h3><div className="configuration-list"><p><span>Opening stock</span><strong>20 kg</strong></p><p><span>Purchase receipt</span><strong>+10 kg</strong></p><p><span>Production consumption</span><strong>−21 kg</strong></p><p><span>Recorded wastage</span><strong>−1 kg</strong></p></div><p className="text-xs text-muted-foreground">Illustrative transaction breakdown for all-purpose flour.</p></>}{module==='sales'&&<Button onClick={()=>{const o=orders.find(o=>o.customer===record?.name);if(o){setRecord(null);onSelect(o)}}}>Open related order<ArrowRight/></Button>}{showDeliveryExtras&&<div className="configuration-list"><p><span>Location note</span><strong>{deliveryOrder?.locationNote||'—'}</strong></p><p><span>Customer contact</span><strong>{deliveryContact||'—'}</strong></p>{tab==='Dispatch'&&deliveryOrder&&<p><span>Order total / paid</span><strong>{money(deliveryOrder.amount)} / {money(deliveryOrder.paidAmount ?? 0)}</strong></p>}</div>}{module==='delivery'&&tab==='Upcoming'&&record&&<div className="dialog-actions"><Button onClick={handleSetInTransit} disabled={busyAction}><ArrowRight size={16}/>Set In-Transit</Button></div>}{module==='delivery'&&tab==='Dispatch'&&record&&(()=>{
+  const order = orders.find((o)=>o.id===record.id) ?? null;
+  const balance = order ? Math.max(0, order.amount - (order.paidAmount ?? 0)) : 0;
+  const needsRef = collectMethod !== 'Cash';
+  const canComplete = settleMode === 'collect'
+    ? (Number.isFinite(Number(collectAmount)) && Number(collectAmount) >= 0 && (!needsRef || collectRef.trim().length > 0))
+    : noCollectionReason.trim().length > 0;
+  return <div className="space-y-3">
+    <div className="configuration-list"><p><span>Balance due</span><strong>{money(balance)}</strong></p>{balance > 0 && <p><span>Collect on completion</span><strong>{money(balance)}</strong></p>}</div>
+    <div className="space-y-2">
+      <label className="flex items-center gap-2 text-sm"><input type="radio" name="settleMode" checked={settleMode==='collect'} onChange={()=>setSettleMode('collect')} /> Collected payment</label>
+      {settleMode==='collect' && <div className="grid gap-2 pl-5">
+        <label className="text-sm">Amount collected (UGX)<Input type="number" min={0} step={1} value={collectAmount} onChange={e=>setCollectAmount(e.target.value)} /></label>
+        <label className="text-sm">Method <select className="input w-full" value={collectMethod} onChange={e=>setCollectMethod(e.target.value)}><option value="Cash">Cash</option><option value="MTN MoMo">MTN MoMo</option><option value="Airtel Money">Airtel Money</option><option value="Bank">Bank transfer</option><option value="Card">Card</option></select></label>
+        {needsRef && <label className="text-sm">Reference<Input value={collectRef} onChange={e=>setCollectRef(e.target.value)} placeholder="Required for non-cash" /></label>}
+      </div>}
+      <label className="flex items-center gap-2 text-sm"><input type="radio" name="settleMode" checked={settleMode==='no_collection'} onChange={()=>setSettleMode('no_collection')} /> No collection (reason required)</label>
+      {settleMode==='no_collection' && <label className="text-sm pl-5">Reason<Input value={noCollectionReason} onChange={e=>setNoCollectionReason(e.target.value)} placeholder="e.g. Already paid / refused / reschedule" /></label>}
+    </div>
+    <div className="dialog-actions"><Button onClick={handleCompleteOrder} disabled={busyAction || !canComplete}><Check size={16}/>Complete delivery</Button></div>
+  </div>;
+})()}</DialogContent></Dialog></section>
 }
 
 export function Administration({tab,audit,onNotice,connected=false}: {tab:string;audit:string[];onNotice:(s:string)=>void;connected?:boolean}){

@@ -2,10 +2,13 @@ import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
 import { notificationService } from "../services/notification.service.js";
 import { NotFoundError } from "../utils/errors.js";
+import { rateLimit } from "../middleware/rateLimit.js";
 
 const router = Router();
 
-router.get("/catalogue", (req, res) => {
+const publicRateLimit = rateLimit({ max: 20, windowMs: 15 * 60 * 1000 });
+
+router.get("/catalogue", async (req, res) => {
   const categories = store.db.catalogue?.categories || [];
   const products = store.db.catalogue?.products || [];
   const visible = products.filter((p) => p.catalogueVisible && p.active === true);
@@ -33,7 +36,7 @@ router.get("/catalogue", (req, res) => {
   res.json(catalogue);
 });
 
-router.get("/products/:id", (req, res) => {
+router.get("/products/:id", async (req, res) => {
   const product = store.db.catalogue?.products?.find((p) => p.id === String(req.params.id));
   if (!product || !product.catalogueVisible || product.active !== true) {
     throw new NotFoundError("Product not found");
@@ -46,7 +49,7 @@ router.get("/products/:id", (req, res) => {
 
 // ---- Blog (public, read-only; published posts only) ----
 
-router.get("/blog", (req, res) => {
+router.get("/blog", async (req, res) => {
   const posts = store.publishedBlogPosts();
   const categories = store.blogCategories().filter((c) => c.active);
   const catById = new Map(categories.map((c) => [c.id, c.name]));
@@ -63,7 +66,7 @@ router.get("/blog", (req, res) => {
   res.json({ posts: items, categories });
 });
 
-router.get("/blog/:slug", (req, res) => {
+router.get("/blog/:slug", async (req, res) => {
   const post = store.blogPostBySlug(String(req.params.slug));
   if (!post) throw new NotFoundError("Post not found");
   const category = post.categoryId ? store.blogCategory(post.categoryId) : undefined;
@@ -97,7 +100,7 @@ function notifyNewInquiry(inquiryId: string, subject: string): void {
   }
 }
 
-router.post("/inquiries", (req, res) => {
+router.post("/inquiries", publicRateLimit, async (req, res) => {
   const { name, phone, email, source, channel, subject, summary, details } = req.body || {};
   if (!name || !subject) return res.status(400).json({ error: "name and subject are required" });
   // FK-safe: inquiries.customer_id is NOT NULL, so resolve-or-create a REAL
@@ -135,7 +138,7 @@ router.post("/inquiries", (req, res) => {
 
 const DELIVERY_TYPES = ["PICKUP", "HOME_DELIVERY", "COLLECTION", "DELIVERY"];
 
-router.post("/order-proposals", (req, res) => {
+router.post("/order-proposals", publicRateLimit, async (req, res) => {
   const {
     customerName,
     name,
@@ -283,6 +286,10 @@ router.post("/order-proposals", (req, res) => {
     inquiryId: inquiry.id,
     message: "Order request received. We will confirm availability and pricing shortly.",
   });
+});
+
+router.use((req, res) => {
+  res.status(404).json({ error: "Not found" });
 });
 
 export default router;

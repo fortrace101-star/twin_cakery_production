@@ -2,9 +2,7 @@
 node_modules/
 
 # Build output
-dist/
-dist-ssr/
-dist-server/
+
 
 server/node_modules
 erp-interface-design/node_modules
@@ -37,3 +35,4 @@ usercount.json
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars
+.env

@@ -1,5 +1,79 @@
 import { query, withTransaction, type TxClient } from "./db.js";
 import { logger } from "../utils/logger.js";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+// In-process set of resource keys whose cache rows have been touched since the
+// last flush(). Routes that mutate data mark the relevant keys here; the live
+// layer reads this set when deciding what to broadcast.
+export const resourceDirty = new Set<string>();
+
+/** Stable, serializable keys used in live broadcasts and client subscriptions.
+ *  Kept simple (table/entity names) so both server and client can agree on them
+ *  without importing nested DB shapes.
+ */
+export type ResourceKey = string;
+
+export const RESOURCE_KEYS = {
+  orders: "orders" as ResourceKey,
+  orderItems: "orderItems" as ResourceKey,
+  orderStatusHistory: "orderStatusHistory" as ResourceKey,
+  orderSnapshots: "orderSnapshots" as ResourceKey,
+  payments: "payments" as ResourceKey,
+  deliveries: "deliveries" as ResourceKey,
+  invoices: "invoices" as ResourceKey,
+  productionJobs: "productionJobs" as ResourceKey,
+  qualityChecks: "qualityChecks" as ResourceKey,
+  productionWastage: "productionWastage" as ResourceKey,
+  productionConsumption: "productionConsumption" as ResourceKey,
+  productionCosts: "productionCosts" as ResourceKey,
+  inventoryItems: "inventoryItems" as ResourceKey,
+  inventoryTransactions: "inventoryTransactions" as ResourceKey,
+  stockReservations: "stockReservations" as ResourceKey,
+  suppliers: "suppliers" as ResourceKey,
+  purchaseOrders: "purchaseOrders" as ResourceKey,
+  purchaseOrderItems: "purchaseOrderItems" as ResourceKey,
+  purchaseRequirements: "purchaseRequirements" as ResourceKey,
+  goodsReceipts: "goodsReceipts" as ResourceKey,
+  goodsReceiptItems: "goodsReceiptItems" as ResourceKey,
+  supplierPriceHistory: "supplierPriceHistory" as ResourceKey,
+  customers: "customers" as ResourceKey,
+  customerInteractions: "customerInteractions" as ResourceKey,
+  inquiries: "inquiries" as ResourceKey,
+  quotations: "quotations" as ResourceKey,
+  quotationItems: "quotationItems" as ResourceKey,
+  notifications: "notifications" as ResourceKey,
+  notificationRecipients: "notificationRecipients" as ResourceKey,
+  notificationPreferences: "notificationPreferences" as ResourceKey,
+  notificationTemplates: "notificationTemplates" as ResourceKey,
+  auditLogs: "auditLogs" as ResourceKey,
+  users: "users" as ResourceKey,
+  roles: "roles" as ResourceKey,
+  permissions: "permissions" as ResourceKey,
+  userRoles: "userRoles" as ResourceKey,
+  rolePermissions: "rolePermissions" as ResourceKey,
+  customerFeedback: "customerFeedback" as ResourceKey,
+  orderProposals: "orderProposals" as ResourceKey,
+  orderProposalItems: "orderProposalItems" as ResourceKey,
+  staff: "staff" as ResourceKey,
+  staffAttendance: "staffAttendance" as ResourceKey,
+  salaryProfiles: "salaryProfiles" as ResourceKey,
+  remunerationPeriods: "remunerationPeriods" as ResourceKey,
+  remunerationItems: "remunerationItems" as ResourceKey,
+  staffAdvances: "staffAdvances" as ResourceKey,
+  remunerationPayments: "remunerationPayments" as ResourceKey,
+  payslips: "payslips" as ResourceKey,
+  customerEvents: "customerEvents" as ResourceKey,
+  customerEventReminders: "customerEventReminders" as ResourceKey,
+  expenses: "expenses" as ResourceKey,
+  expenseCategories: "expenseCategories" as ResourceKey,
+  catalogue: "catalogue" as ResourceKey,
+  blogCategories: "blogCategories" as ResourceKey,
+  blogPosts: "blogPosts" as ResourceKey,
+  websiteUsers: "websiteUsers" as ResourceKey,
+  followups: "followups" as ResourceKey,
+} as const;
 import type {
   AuditLog,
   BlogCategory,
@@ -191,19 +265,75 @@ export interface DbCache {
   blogPosts: BlogPost[];
   websiteUsers: WebsiteUser[];
   persist: () => Promise<void>;
+  _dirtyKeys: () => string[];
+  _touchResource: (key: string) => void;
+  _clearDirtyResource: (key: string) => void;
 }
 
-// serialises write-backs so concurrent persist() calls cannot interleave.
-// The chain itself never rejects (callers may fire-and-forget safely); failures
-// are recorded so flush() can surface them to the request that caused them.
+export interface DbCacheWithDirtyKeys extends DbCache {
+  _dirtyKeys: () => string[];
+  _touchResource: (key: string) => void;
+  _clearDirtyResource: (key: string) => void;
+}
+
+export type DbCacheForLive = DbCacheWithDirtyKeys;
+
+// Serialises write-backs so concurrent persist() calls cannot interleave.
+// Postgres is mandatory: failures are recorded and flush()/awaited persist()
+// reject so callers in critical paths can return hard errors (503).
 let saveChain: Promise<void> = Promise.resolve();
 let pendingPersistError: Error | null = null;
+let authoritativeLoad = false; // true only when loaded from Postgres schema/data
+const ALLOW_FILE_SNAPSHOT = process.env.ERP_ALLOW_FILE_SNAPSHOT === "1";
+
+/** In-process change log that the write-back layer can replay after a crash
+ * boot so clients can be told which logical resources changed even if the
+ * in-memory cache still needs to be re-loaded from Postgres. This is dev-only:
+ * production servers do not replay this log, and the buffer is bounded/rotated
+ * so unbounded growth does not happen (and it is not advertised to clients).
+ *
+ * Each entry is small (resource key + when), never serialized/DTO payloads, so
+ * the overhead is negligible compared with the current full-cache persisted
+ * write-back path.
+ */
+export interface CacheChange {
+  resource: string;
+  at: number;
+}
+
+const maxChangeLogEntries = 1000;
+let _changeLog: CacheChange[] = [];
+
+function recordChange(key: string): void {
+  if (_changeLog.length >= maxChangeLogEntries) {
+    _changeLog.shift();
+  }
+  _changeLog.push({ resource: key, at: Date.now() });
+}
+
+/** Return the recent change log consumed since `last` (or all if omitted).
+ *  The log is snapshotted and truncated on each call so repeated reads of the
+ *  same cursor do not re-emit the same entries. */
+export function consumeChangeLogSince(last?: number): CacheChange[] {
+  let entries: CacheChange[];
+  if (last === undefined) {
+    entries = _changeLog.slice();
+    _changeLog.length = 0;
+  } else {
+    const cutoff = _changeLog.findIndex((e) => e.at > last);
+    if (cutoff < 0) {
+      entries = [];
+    } else {
+      entries = _changeLog.splice(cutoff);
+    }
+  }
+  return entries;
+}
 
 /** Await every queued write-back; throw if one failed while waiting. */
 export async function flush(): Promise<void> {
-  const seen = pendingPersistError;
   await saveChain;
-  if (pendingPersistError && pendingPersistError !== seen) {
+  if (pendingPersistError) {
     const err = pendingPersistError;
     pendingPersistError = null;
     throw err;
@@ -273,12 +403,27 @@ export function createCache(): DbCache {
     persist: () => {
       saveChain = saveChain
         .then(() => saveCache())
-        .then(() => {})
+        .then(() => {
+          if (ALLOW_FILE_SNAPSHOT) { try { saveToFile(currentDb); } catch {} }
+          pendingPersistError = null;
+        })
         .catch((err: unknown) => {
           pendingPersistError = err instanceof Error ? err : new Error(String(err));
           logger.failure("store", `persist failed: ${pendingPersistError.message}`);
         });
       return saveChain;
+    },
+    /** Resource keys touched by mutations in this process since boot.
+     *  Used by the live-events layer to advertise which caches are dirty
+     *  so clients can refresh only the views that matter.
+     */
+    _dirtyKeys: () => Array.from(dirtyKeysSnapshot()),
+    _touchResource: (key: string) => {
+      resourceDirty.add(key);
+      recordChange(key);
+    },
+    _clearDirtyResource: (key: string) => {
+      resourceDirty.delete(key);
     },
   };
 }
@@ -335,30 +480,21 @@ function coerceRow(cols: Column[], raw: Record<string, unknown>): Record<string,
 
 export async function loadCache(): Promise<void> {
   const cache = createCache();
+  // Postgres is the mandatory source of truth. Do NOT load server/data/store.json
+  // as authoritative state (it is stale/debug-only and previously caused mirror
+  // deletes that wiped DB rows). Boot fails hard if Postgres is unavailable.
   try {
-    try {
-      columnMap = await fetchColumnMap();
-    } catch (err) {
-      logger.failure("store", "schema introspection failed");
-      columnMap = null;
-      return;
-    }
+    columnMap = await fetchColumnMap();
     const cm = columnMap as Map<string, Column[]>;
 
-    const load = async <T>(table: string): Promise<T[] | null> => {
+    const load = async <T>(table: string): Promise<T[]> => {
       const cols = cm.get(table);
       if (!cols || cols.length === 0) {
-        logger.failure("store", `table ${table} not found in schema - skipping`);
-        return null;
+        throw new Error(`Table ${table} not found in schema`);
       }
-      try {
-        const rows = await query<Record<string, unknown>>(`SELECT * FROM ${table}`);
-        loadedTables.add(table);
-        return rows.map((r) => coerceRow(cols, r) as unknown as T);
-      } catch (err) {
-        logger.failure("store", `load failed for ${table}`);
-        return null;
-      }
+      const rows = await query<Record<string, unknown>>(`SELECT * FROM ${table}`);
+      loadedTables.add(table);
+      return rows.map((r) => coerceRow(cols, r) as unknown as T);
     };
 
     // customers + nested addresses/feedback
@@ -511,13 +647,19 @@ export async function loadCache(): Promise<void> {
     cache.remunerationPayments = (await load<RemunerationPayment>("remuneration_payments")) ?? [];
     cache.payslips = (await load<Payslip>("payslips")) ?? [];
 
+    authoritativeLoad = true;
     currentDb = cache;
-    logger.boot(`cache loaded: ${cache.users.length} users, ${cache.customers.length} customers, ` +
+    logger.boot(`cache loaded from Postgres: ${cache.users.length} users, ${cache.customers.length} customers, ` +
       `${cache.orders.length} orders, ${cache.quotations.length} quotations, ` +
       `${cache.inventoryItems.length} inventory items, ${cache.catalogue.products.length} catalogue products, ` +
       `${cache.blogPosts.length} blog posts`);
   } catch (err) {
-    console.error("[store] loadCache failed - booting with empty/partial cache:", err);
+    authoritativeLoad = false;
+    loadedTables.clear();
+    columnMap = null;
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.failure("store", `Postgres load failed (mandatory): ${msg}`);
+    throw new Error(`Postgres is required but load failed: ${msg}`);
   }
 }
 
@@ -669,10 +811,146 @@ const MIRRORS: Mirror[] = [
   { table: "website_users", rows: (c) => c.websiteUsers },
 ];
 
+
+// File-based persistence fallback
+const __filename_fp = fileURLToPath(import.meta.url);
+const __dirname_fp = path.dirname(__filename_fp);
+const PERSIST_FILE = path.resolve(__dirname_fp, '..', 'data', 'store.json');
+console.log('[store] PERSIST_FILE:', PERSIST_FILE);
+
+function ensurePersistDir() {
+  try {
+    const dir = path.dirname(PERSIST_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  } catch {}
+}
+
+function saveToFile(cache: DbCache) {
+  try {
+    ensurePersistDir();
+    const data = {
+      customers: cache.customers,
+      customerInteractions: cache.customerInteractions,
+      inquiries: cache.inquiries,
+      quotations: cache.quotations,
+      quotationItems: cache.quotationItems,
+      orders: cache.orders,
+      orderItems: cache.orderItems,
+      orderSnapshots: cache.orderSnapshots,
+      payments: cache.payments,
+      productionJobs: cache.productionJobs,
+      qualityChecks: cache.qualityChecks,
+      productionWastage: cache.productionWastage,
+      productionConsumption: cache.productionConsumption,
+      productionCosts: cache.productionCosts,
+      inventoryItems: cache.inventoryItems,
+      inventoryTransactions: cache.inventoryTransactions,
+      stockReservations: cache.stockReservations,
+      suppliers: cache.suppliers,
+      productionFixedCostCategories: cache.productionFixedCostCategories,
+      productionFixedCostEntries: cache.productionFixedCostEntries,
+      purchaseOrders: cache.purchaseOrders,
+      poItems: cache.poItems,
+      purchaseRequirements: cache.purchaseRequirements,
+      goodsReceipts: cache.goodsReceipts,
+      goodsReceiptItems: cache.goodsReceiptItems,
+      supplierPriceHistory: cache.supplierPriceHistory,
+      deliveries: cache.deliveries,
+      notifications: cache.notifications,
+      notificationRecipients: cache.notificationRecipients,
+      notificationPreferences: cache.notificationPreferences,
+      notificationTemplates: cache.notificationTemplates,
+      auditLogs: cache.auditLogs,
+      users: cache.users,
+      roles: cache.roles,
+      permissions: cache.permissions,
+      userRoles: cache.userRoles,
+      rolePermissions: cache.rolePermissions,
+      orderStatusHistory: cache.orderStatusHistory,
+      customerFeedback: cache.customerFeedback,
+      customerEvents: cache.customerEvents,
+      customerEventReminders: cache.customerEventReminders,
+      expenses: cache.expenses,
+      expenseCategories: cache.expenseCategories,
+      orderProposals: cache.orderProposals,
+      orderProposalItems: cache.orderProposalItems,
+      staff: cache.staff,
+      staffAttendance: cache.staffAttendance,
+      salaryProfiles: cache.salaryProfiles,
+      remunerationPeriods: cache.remunerationPeriods,
+      remunerationItems: cache.remunerationItems,
+      staffAdvances: cache.staffAdvances,
+      remunerationPayments: cache.remunerationPayments,
+      payslips: cache.payslips,
+      catalogue: cache.catalogue,
+      blogCategories: cache.blogCategories,
+      blogPosts: cache.blogPosts,
+      websiteUsers: cache.websiteUsers,
+    };
+    const pathsToWrite = [
+      PERSIST_FILE,
+      path.resolve(process.cwd(), 'server', 'data', 'store.json'),
+      path.resolve(process.cwd(), 'data', 'store.json'),
+    ];
+    for (const p of pathsToWrite) {
+      try {
+        const dir = path.dirname(p);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(p, JSON.stringify(data, null, 2));
+      } catch {}
+    }
+  } catch (e) {
+    logger.failure('store', 'file persist failed');
+  }
+}
+
+function loadFromFile(cache: DbCache): boolean {
+  try {
+    if (!fs.existsSync(PERSIST_FILE)) return false;
+    const raw = fs.readFileSync(PERSIST_FILE, 'utf8');
+    const data = JSON.parse(raw);
+    if (!data) return false;
+    Object.keys(data).forEach(k => {
+      if ((cache as any)[k] !== undefined && data[k] !== undefined) {
+        (cache as any)[k] = data[k];
+      }
+    });
+    // Rebuild nested refs
+    for (const o of cache.orders) {
+      o.items = cache.orderItems.filter((i: any) => i.orderId === o.id);
+    }
+    for (const q of cache.quotations) {
+      q.items = cache.quotationItems.filter((i: any) => i.quotationId === q.id);
+    }
+    for (const po of cache.purchaseOrders) {
+      po.items = cache.poItems.filter((i: any) => i.purchaseOrderId === po.id);
+    }
+    for (const r of cache.goodsReceipts) {
+      r.items = cache.goodsReceiptItems.filter((i: any) => i.goodsReceiptId === r.id);
+    }
+    for (const p of cache.orderProposals) {
+      p.items = cache.orderProposalItems.filter((i: any) => i.proposalId === p.id);
+    }
+    // Mark all tables as loaded for file fallback
+    const allTables = ['customers','customer_interactions','inquiries','quotations','quotation_items','orders','order_items','order_status_history','payments','production_jobs','quality_checks','production_wastage','production_consumption','production_costs','inventory_items','inventory_transactions','stock_reservations','suppliers','production_fixed_cost_categories','production_fixed_cost_entries','purchase_orders','purchase_order_items','purchase_requirements','goods_receipts','goods_receipt_items','supplier_price_history','deliveries','expense_categories','expenses','notifications','notification_recipients','notification_preferences','notification_templates','audit_logs','users','roles','permissions','user_roles','role_permissions','customer_feedback','order_customer_snapshots','customer_events','customer_event_reminders','order_proposals','order_proposal_items','staff','staff_attendance','salary_profiles','remuneration_periods','remuneration_items','staff_advances','remuneration_payments','payslips','blog_categories','blog_posts','website_users','catalogue_categories','product_types','products','product_variants','option_definitions','option_values','customer_addresses'];
+    allTables.forEach(t => loadedTables.add(t));
+    loadedTables.add('catalogue_categories');
+    loadedTables.add('products');
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 async function saveCache(): Promise<void> {
-  if (loadedTables.size === 0 || !columnMap) {
-    // Never silently drop write-backs: this means boot-time load never ran.
-    logger.failure("store", "saveCache skipped - cache not loaded");
+  if (!columnMap) {
+    logger.boot("saveCache skipped (schema not loaded)");
+    return;
+  }
+  if (!authoritativeLoad || loadedTables.size === 0) {
+    // Pre-ready/race: don't throw (boot-order code may persist before `ready`).
+    // Post-load DB write failures still throw below.
+    logger.boot("saveCache skipped (cache not authoritatively loaded yet)");
     return;
   }
   const cm = columnMap;
@@ -704,6 +982,25 @@ export function getDb(): DbCache {
 export function resetStore(): void {
   currentDb = createCache();
   loadedTables.clear();
+  resourceDirty.clear();
+  _changeLog.length = 0;
 }
 
+export function dirtyKeys(): ReadonlySet<string> {
+  return resourceDirty;
+}
+
+export function clearDirtyResource(key: string): void {
+  resourceDirty.delete(key);
+}
+
+export function dirtyKeysSnapshot(): ReadonlySet<string> {
+  return new Set(resourceDirty);
+}
+export function markResourceDirty(...keys: string[]): void {
+  for (const k of keys) {
+    resourceDirty.add(k);
+    recordChange(k);
+  }
+}
 export const ready: Promise<void> = loadCache();

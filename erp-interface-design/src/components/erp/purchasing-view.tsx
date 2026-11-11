@@ -53,7 +53,7 @@ function CreatePoDialog(props: {
   };
   useEffect(() => {
     if (!form.supplierId && suppliers.length > 0) {
-      const def = suppliers.find(s => s.active)?.id ?? suppliers[0].id;
+      const def = suppliers.find(s => s.active)?.id ?? suppliers[0]?.id ?? '';
       setForm({ ...form, supplierId: def });
     }
   }, [suppliers]);
@@ -66,17 +66,17 @@ function CreatePoDialog(props: {
       <div className="erp-form">
         <div className="form-row"><Label htmlFor="po-expected">Expected date</Label><Input id="po-expected" type="date" value={form.expectedDate} onChange={e => setForm({ ...form, expectedDate: e.target.value })}/></div>
         <h3 className="text-sm font-semibold">Lines</h3>
-        {form.lines.map((l, idx) => <div key={idx} className="form-row" style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          <select aria-label={`Item ${idx + 1}`} className="input" style={{flex:2,minWidth:160}} value={l.productId} onChange={e => {
+        {form.lines.map((l, idx) => <div key={idx} className="po-line-row">
+          <select aria-label={`Item ${idx + 1}`} className="input po-line-item" value={l.productId} onChange={e => {
             const it = items.find(i => i.id === e.target.value);
             setLine(idx, { productId: e.target.value, unit: it?.unit ?? l.unit });
           }}>
             <option value="">Select item…</option>
             {items.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
           </select>
-          <Input aria-label={`Quantity ${idx + 1}`} type="number" min="0" placeholder="Qty" style={{flex:1,minWidth:80}} value={l.quantity} onChange={e => setLine(idx, { quantity: e.target.value })}/>
-          <Input aria-label={`Unit price ${idx + 1}`} type="number" min="0" placeholder={`Price / ${l.unit}`} style={{flex:1,minWidth:100}} value={l.unitPrice} onChange={e => setLine(idx, { unitPrice: e.target.value })}/>
-          <Button variant="ghost" size="icon" aria-label={`Remove line ${idx + 1}`} disabled={form.lines.length === 1} onClick={() => setForm({ ...form, lines: form.lines.filter((_, i) => i !== idx) })}><Trash2/></Button>
+          <Input aria-label={`Quantity ${idx + 1}`} type="number" min="0" placeholder="Qty" className="po-line-qty" value={l.quantity || ''} onChange={e => setLine(idx, { quantity: e.target.value })}/>
+          <Input aria-label={`Unit price ${idx + 1}`} type="number" min="0" placeholder={`Price / ${l.unit}`} className="po-line-price" value={l.unitPrice || ''} onChange={e => setLine(idx, { unitPrice: e.target.value })}/>
+          <Button variant="ghost" size="icon" className="po-line-remove" aria-label={`Remove line ${idx + 1}`} disabled={form.lines.length === 1} onClick={() => setForm({ ...form, lines: form.lines.filter((_, i) => i !== idx) })}><Trash2/></Button>
         </div>)}
         <Button variant="outline" size="sm" onClick={() => setForm({ ...form, lines: [...form.lines, { productId: "", quantity: "", unit: "unit", unitPrice: "", newItem: false, newName: "", newSku: "", newCategory: "" }] })}><Plus/> Add line</Button>
         <div className="form-row"><Label htmlFor="po-notes">Notes</Label><Input id="po-notes" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Optional"/></div>
@@ -268,13 +268,14 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
       <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search suppliers" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search suppliers, contacts…"/></label></div>
       <DataTable
         columns={[
-          { header: "Supplier", cell: (s) => <><strong className="product-name">{s.businessName}</strong><small className="cell-sub">{s.address || s.id}</small></> },
-          { header: "Contact", cell: (s) => <>{s.contactPerson || "—"}<small className="cell-sub">{[s.phone, s.email].filter(Boolean).join(" · ")}</small></> },
-          { header: "Supplies", cell: (s) => s.productsSupplied || "—" },
-          { header: "Terms", cell: (s) => s.paymentTerms || "—" },
-          { header: "Status", cell: (s) => <Status value={s.active ? "Active" : "Inactive"}/> },
+          { header: "Supplier", mobile: "title", cell: (s) => <><strong className="product-name">{s.businessName}</strong><small className="cell-sub">{s.address || s.id}</small></> },
+          { header: "Contact", mobile: "meta", cell: (s) => <>{s.contactPerson || "—"}<small className="cell-sub">{[s.phone, s.email].filter(Boolean).join(" · ")}</small></> },
+          { header: "Supplies", mobile: "drawer", cell: (s) => s.productsSupplied || "—" },
+          { header: "Terms", mobile: "drawer", cell: (s) => s.paymentTerms || "—" },
+          { header: "Status", mobile: "badge", cell: (s) => <Status value={s.active ? "Active" : "Inactive"}/> },
         ] as Column<ServerSupplier>[]}
         rows={filteredSuppliers} rowKey={(s) => s.id} stickyHeader density={density}
+        mobileTitle={(s) => s.businessName} mobileSubtitle={(s) => s.contactPerson || s.address || ""}
         empty={<div className="empty-state"><Building2/><h3>No suppliers found</h3><p>Suppliers are configured by the administrator.</p></div>}
       />
       <div className="table-foot"><span>{filteredSuppliers.length} suppliers</span><span>{suppliers.filter(s => s.active).length} active</span></div>
@@ -309,12 +310,12 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
       <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search requirements" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search requirements, items…"/></label></div>
       <DataTable
         columns={[
-          { header: "Item(s)", cell: (r) => <strong className="product-name">{requestedByLabel(r)}</strong> },
-          { header: "Quantity", align: "right", cell: (r) => <span className="amount-cell">{r.quantity} {r.unit}</span> },
-          { header: "Reason", cell: (r) => r.reason || "—" },
-          { header: "Urgency", cell: (r) => <Status value={r.urgency.charAt(0) + r.urgency.slice(1).toLowerCase()}/> },
-          { header: "Status", cell: (r) => <Status value={reqStatusLabel(r.status)}/> },
-          { header: "", cell: (r) => <div style={{ display: "flex", gap: 4 }}>
+          { header: "Item(s)", mobile: "title", cell: (r) => <strong className="product-name">{requestedByLabel(r)}</strong> },
+          { header: "Quantity", align: "right", mobile: "value", cell: (r) => <span className="amount-cell">{r.quantity} {r.unit}</span> },
+          { header: "Reason", mobile: "drawer", cell: (r) => r.reason || "—" },
+          { header: "Urgency", mobile: "badge", cell: (r) => <Status value={r.urgency.charAt(0) + r.urgency.slice(1).toLowerCase()}/> },
+          { header: "Status", mobile: "meta", cell: (r) => <Status value={reqStatusLabel(r.status)}/> },
+          { header: "", mobile: "action", cell: (r) => <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
             {r.status === "OPEN" && <Button variant="outline" size="sm" disabled={busy} onClick={e => { e.stopPropagation(); void acknowledgeReq(r); }}>Acknowledge</Button>}
             {(r.status === "OPEN" || r.status === "ACKNOWLEDGED") && <Button variant="ghost" size="sm" disabled={busy || invItems.length === 0} onClick={e => {
               e.stopPropagation();
@@ -325,6 +326,7 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
           </div> },
         ] as Column<ServerPurchaseRequirement>[]}
         rows={filteredReqs} rowKey={(r) => r.id} stickyHeader density={density}
+        mobileTitle={(r) => requestedByLabel(r)} mobileSubtitle={(r) => r.reason || ""} openLabel="View requirement"
         empty={<div className="empty-state"><Truck/><h3>No purchase requirements</h3><p>Raise one from an Inventory → Alerts shortfall.</p></div>}
       />
       <div className="table-foot"><span>{filteredReqs.length} requirements</span><span>{requirements.filter(r => r.status === "OPEN").length} open</span></div>
@@ -338,15 +340,16 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
       <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search goods receipts" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search receipts, POs…"/></label></div>
       <DataTable
         columns={[
-          { header: "Receipt", cell: (g) => <><strong className="product-name">{orders.find(o => o.id === g.purchaseOrderId)?.poNumber ?? g.purchaseOrderId}</strong><small className="cell-sub">{g.id}</small></> },
-          { header: "Date", cell: (g) => new Date(g.date).toLocaleDateString() },
-          { header: "Received by", cell: (g) => g.receivedBy || "—" },
-          { header: "Lines", align: "right", cell: (g) => <span className="amount-cell">{g.items?.length ?? 0}</span> },
-          { header: "Total", align: "right", cell: (g) => <span className="amount-cell">{money(g.total)}</span> },
-          { header: "Status", cell: (g) => <Status value={poStatusLabel(g.status)}/> },
-          { header: "", cell: (g) => <Button variant="ghost" size="icon" aria-label={`Open receipt ${g.id}`} onClick={e => { e.stopPropagation(); setReceiptDetail(g); }}><ArrowUpRight/></Button> },
+          { header: "Receipt", mobile: "title", cell: (g) => <><strong className="product-name">{orders.find(o => o.id === g.purchaseOrderId)?.poNumber ?? g.purchaseOrderId}</strong><small className="cell-sub">{g.id}</small></> },
+          { header: "Date", mobile: "meta", cell: (g) => new Date(g.date).toLocaleDateString() },
+          { header: "Received by", mobile: "drawer", cell: (g) => g.receivedBy || "—" },
+          { header: "Lines", align: "right", mobile: "drawer", cell: (g) => <span className="amount-cell">{g.items?.length ?? 0}</span> },
+          { header: "Total", align: "right", mobile: "value", cell: (g) => <span className="amount-cell">{money(g.total)}</span> },
+          { header: "Status", mobile: "badge", cell: (g) => <Status value={poStatusLabel(g.status)}/> },
+          { header: "", mobile: "hide", cell: (g) => <Button variant="ghost" size="icon" aria-label={`Open receipt ${g.id}`} onClick={e => { e.stopPropagation(); setReceiptDetail(g); }}><ArrowUpRight/></Button> },
         ] as Column<ServerGoodsReceipt>[]}
         rows={filteredReceipts} rowKey={(g) => g.id} onRowActivate={(g) => setReceiptDetail(g)} stickyHeader density={density}
+        mobileTitle={(g) => orders.find(o => o.id === g.purchaseOrderId)?.poNumber ?? g.purchaseOrderId} mobileSubtitle={(g) => new Date(g.date).toLocaleDateString()} openLabel="Open receipt"
         empty={<div className="empty-state"><PackageCheck/><h3>No goods received yet</h3><p>Receipts are created when a purchase order is received.</p></div>}
       />
       <div className="table-foot"><span>{filteredReceipts.length} receipts</span><span>{receipts.reduce((s, g) => s + (g.items?.length ?? 0), 0)} lines received</span></div>
@@ -372,15 +375,16 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
     <div className="table-controls"><label className="search-box"><Search size={16}/><input aria-label="Search purchase orders" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search PO numbers, suppliers…"/></label></div>
     <DataTable
       columns={[
-        { header: "PO / supplier", cell: (p) => <><strong className="product-name">{p.poNumber}</strong><small className="cell-sub">{supplierName(p.supplierId)}</small></> },
-        { header: "Expected", cell: (p) => new Date(p.expectedDate).toLocaleDateString() },
-        { header: "Lines", align: "right", cell: (p) => <span className="amount-cell">{p.items.length}</span> },
-        { header: "Received", align: "right", cell: (p) => <span className="amount-cell">{p.items.filter(i => i.receivedQuantity >= i.quantity).length}/{p.items.length}</span> },
-        { header: "Total", align: "right", cell: (p) => <span className="amount-cell">{money(p.total)}</span> },
-        { header: "Status", cell: (p) => <Status value={poStatusLabel(p.status)}/> },
-        { header: "", cell: (p) => <Button variant="ghost" size="icon" aria-label={`Open ${p.poNumber}`} onClick={e => { e.stopPropagation(); setDetail(p); }}><ArrowUpRight/></Button> },
+        { header: "PO / supplier", mobile: "title", cell: (p) => <><strong className="product-name">{p.poNumber}</strong><small className="cell-sub">{supplierName(p.supplierId)}</small></> },
+        { header: "Expected", mobile: "meta", cell: (p) => new Date(p.expectedDate).toLocaleDateString() },
+        { header: "Lines", align: "right", mobile: "drawer", cell: (p) => <span className="amount-cell">{p.items.length}</span> },
+        { header: "Received", align: "right", mobile: "meta", cell: (p) => <span className="amount-cell">{p.items.filter(i => i.receivedQuantity >= i.quantity).length}/{p.items.length} received</span> },
+        { header: "Total", align: "right", mobile: "value", cell: (p) => <span className="amount-cell">{money(p.total)}</span> },
+        { header: "Status", mobile: "badge", cell: (p) => <Status value={poStatusLabel(p.status)}/> },
+        { header: "", mobile: "hide", cell: (p) => <Button variant="ghost" size="icon" aria-label={`Open ${p.poNumber}`} onClick={e => { e.stopPropagation(); setDetail(p); }}><ArrowUpRight/></Button> },
       ] as Column<ServerPurchaseOrder>[]}
       rows={filtered} rowKey={(p) => p.id} onRowActivate={(p) => setDetail(p)} stickyHeader density={density}
+      mobileTitle={(p) => p.poNumber} mobileSubtitle={(p) => supplierName(p.supplierId)} openLabel="Open PO"
       empty={<div className="empty-state"><Search/><h3>No purchase orders found</h3><p>Purchase orders appear once suppliers are engaged.</p></div>}
     />
     <div className="table-foot"><span>{filtered.length} orders</span><span>{orders.filter(p => p.status === "COMPLETED").length} received</span></div>
@@ -396,41 +400,44 @@ export function Purchasing({ tab, search, setSearch, onNotice, onSignIn }: { tab
         {detail.status !== "COMPLETED" && detail.status !== "CANCELLED" && <>
           <div>
             <h3 className="text-sm font-semibold mb-2">Additional items received (not on original PO)</h3>
-            {extraReceiveItems.map((ex, idx) => (
-              <div key={idx} className="form-row" style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:8}}>
-                <select className="input" style={{flex:2,minWidth:160}} value={ex.productId} onChange={e => {
-                  const next = [...extraReceiveItems];
-                  if (e.target.value === "__new__") {
-                    next[idx] = { ...next[idx], productId: "__new__" };
+            {extraReceiveItems.map((ex, idx) => {
+              const productId = ((ex as any).productId as string | undefined) ?? "";
+              return (
+                <div key={idx} className="po-line-row">
+                  <select className="input po-line-item" value={productId || ""} onChange={e => {
+                    const next = [...extraReceiveItems];
+                    if (e.target.value === "__new__") {
+                      next[idx] = { productId: "__new__", quantity: next[idx]?.quantity ?? '', unit: next[idx]?.unit ?? 'unit', unitPrice: next[idx]?.unitPrice ?? '' };
+                      setExtraReceiveItems(next);
+                      return;
+                    }
+                    const it = invItems.find(i => i.id === e.target.value);
+                    next[idx] = { productId: e.target.value, quantity: next[idx]?.quantity ?? '', unit: it?.unit ?? next[idx]?.unit ?? 'unit', unitPrice: next[idx]?.unitPrice ?? '' };
                     setExtraReceiveItems(next);
-                    return;
-                  }
-                  const it = invItems.find(i => i.id === e.target.value);
-                  next[idx] = { ...next[idx], productId: e.target.value, unit: it?.unit ?? next[idx].unit };
-                  setExtraReceiveItems(next);
-                }}>
-                  <option value="">Select item…</option>
-                  {invItems.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
-                  <option value="__new__">+ Add new item</option>
-                </select>
-                {ex.productId === "__new__" && <>
-                  <Input placeholder="Item name" style={{flex:2,minWidth:120}} value={(ex as any).newName || ""} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).newName = e.target.value; setExtraReceiveItems(next); }}/>
-                  <Input placeholder="SKU" style={{flex:1,minWidth:80}} value={(ex as any).newSku || ""} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).newSku = e.target.value; setExtraReceiveItems(next); }}/>
-                  <Input placeholder="Unit" style={{flex:1,minWidth:60}} value={(ex as any).unit || "unit"} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).unit = e.target.value; setExtraReceiveItems(next); }}/>
-                </>}
-                <Input placeholder="Qty" style={{flex:1,minWidth:80}} value={ex.quantity} onChange={e => { const next=[...extraReceiveItems]; next[idx]={...next[idx],quantity:e.target.value}; setExtraReceiveItems(next); }}/>
-                <Input placeholder="Unit price" style={{flex:1,minWidth:100}} value={ex.unitPrice} onChange={e => { const next=[...extraReceiveItems]; next[idx]={...next[idx],unitPrice:e.target.value}; setExtraReceiveItems(next); }}/>
-                <Button variant="ghost" size="icon" onClick={() => setExtraReceiveItems(extraReceiveItems.filter((_,i)=>i!==idx))}><Trash2/></Button>
-              </div>
-            ))}
-            <Button variant="outline" size="sm" onClick={() => setExtraReceiveItems([...extraReceiveItems, { productId: invItems[0]?.id ?? "", quantity: "", unit: invItems[0]?.unit ?? "unit", unitPrice: "" }])}><Plus/> Add extra item</Button>
+                  }}>
+                    <option value="">Select item…</option>
+                    {invItems.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
+                    <option value="__new__">+ Add new item</option>
+                  </select>
+                  {productId === "__new__" && <div className="po-line-new-fields">
+                  <Input placeholder="Item name" className="po-line-new-name" value={(ex as any).newName || ''} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).newName = e.target.value; setExtraReceiveItems(next); }}/>
+                  <Input placeholder="SKU" className="po-line-new-sku" value={(ex as any).newSku || ''} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).newSku = e.target.value; setExtraReceiveItems(next); }}/>
+                  <Input placeholder="Unit" className="po-line-new-unit" value={(ex as any).unit || 'unit'} onChange={e => { const next=[...extraReceiveItems]; (next[idx] as any).unit = e.target.value; setExtraReceiveItems(next); }}/>
+                  </div>}
+                  <Input placeholder="Qty" className="po-line-qty" value={ex.quantity || ''} onChange={e => { const next=[...extraReceiveItems]; next[idx]={ productId: ((next[idx] as any).productId ?? ''), quantity: e.target.value, unit: next[idx]?.unit ?? 'unit', unitPrice: next[idx]?.unitPrice ?? '' }; setExtraReceiveItems(next); }}/>
+                  <Input placeholder="Unit price" className="po-line-price" value={ex.unitPrice || ''} onChange={e => { const next=[...extraReceiveItems]; next[idx]={ productId: ((next[idx] as any).productId ?? ''), quantity: next[idx]?.quantity ?? '', unit: next[idx]?.unit ?? 'unit', unitPrice: e.target.value }; setExtraReceiveItems(next); }}/>
+                  <Button variant="ghost" size="icon" className="po-line-remove" onClick={() => setExtraReceiveItems(extraReceiveItems.filter((_,i)=>i!==idx))}><Trash2/></Button>
+                </div>
+              );
+            })}
+          <Button variant="outline" size="sm" onClick={() => setExtraReceiveItems([...extraReceiveItems, { productId: invItems[0]?.id ?? "", quantity: "", unit: invItems[0]?.unit ?? "unit", unitPrice: "" }])}><Plus/> Add extra item</Button>
           </div>
           <div className="dialog-actions">
             <Button disabled={busy} onClick={async () => {
               setBusy(true);
               const extras: any[] = [];
               for (const e of extraReceiveItems) {
-                if (!Number(e.quantity) || Number(e.quantity) <= 0) continue;
+                if (!e.quantity || !Number(e.quantity) || Number(e.quantity) <= 0) continue;
                 if ((e as any).productId === "__new__") {
                   const name = ((e as any).newName || "").trim();
                   if (!name) continue;

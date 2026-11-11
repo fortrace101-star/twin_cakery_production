@@ -3,7 +3,7 @@
 // preserving structure, roles, permissions, and _migrations.
 
 import readline from "node:readline";
-import { createRequire } from "node:module";
+import dotenv from "dotenv";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -13,11 +13,7 @@ import { execSync } from "node:child_process";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const requireFromFrontend = createRequire(
-  path.resolve(__dirname, "..", "..", "erp-interface-design", "package.json"),
-);
-const dotenvModule = requireFromFrontend("dotenv") as { config: (opts?: unknown) => void };
-dotenvModule.config({ path: path.resolve(__dirname, "..", "..", ".env") });
+dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
 
 import { pool } from "../database/db.js";
 
@@ -155,18 +151,21 @@ async function main() {
   }
   console.log("");
 
-  const backupDir = path.resolve(__dirname, "..", "..", "backups");
+  const backupDir = path.resolve(__dirname, "..", "backups");
   if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
   const backupPath = path.join(backupDir, `pre-wipe-${ts}.sql`);
-  const dbUrl = process.env.DATABASE_URL || "postgres://postgres:90210@localhost:5432/twin_cakery";
-
-  try {
-    execSync(`pg_dump "${dbUrl}" -f "${backupPath}"`, { stdio: "inherit" });
-    console.log(`Backup created: ${backupPath}`);
-  } catch (err) {
-    console.warn("WARNING: pg_dump failed or not available. Skipping backup.");
-    console.warn(`  ${(err as Error).message}`);
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) {
+    console.warn("WARNING: DATABASE_URL is not set; skipping pg_dump backup.");
+  } else {
+    try {
+      execSync(`pg_dump "${dbUrl}" -f "${backupPath}"`, { stdio: "inherit" });
+      console.log(`Backup created: ${backupPath}`);
+    } catch (err) {
+      console.warn("WARNING: pg_dump failed or not available. Skipping backup.");
+      console.warn(`  ${(err as Error).message}`);
+    }
   }
   console.log("");
 
@@ -207,7 +206,7 @@ async function main() {
     const hash = crypto.createHash("sha256").update(adminCode).digest("hex");
     await pool.query(
       `INSERT INTO activation_codes (id, code, type, created_at, expires_at) VALUES ($1, $2, 'admin', now(), now() + interval '7 days')`,
-      [ (await import("uuid")).v4(), hash ],
+      [crypto.randomUUID(), hash],
     );
     console.log("=== ADMIN CODE (save this — shown once) ===");
     console.log(`  ${adminCode}`);
@@ -234,4 +233,22 @@ async function main() {
   await pool.end();
 }
 
-main().catch((err) => { console.error("Wipe failed:", err); process.exit(1); });
+main().catch((err) => {
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as { code?: string } | null)?.code;
+  if (code === "28P01" || /password authentication failed/i.test(msg)) {
+    console.error("Wipe failed: PostgreSQL authentication failed.");
+    console.error("");
+    console.error("This script wipes the *Postgres* database. Check DATABASE_URL and DB credentials.");
+    console.error("  - server/.env (used by the API) and/or the root .env (loaded by this script)");
+    console.error("  - ensure the DB user/password/host/port/database are correct and Postgres is running");
+    console.error("");
+    console.error("If you are using the file-backed store (server/data/store.json), this wipe script");
+    console.error("does not clear that file; handle file-store reset separately and with care.");
+    console.error("");
+    console.error(`Details: ${msg}`);
+    process.exit(1);
+  }
+  console.error("Wipe failed:", err);
+  process.exit(1);
+});

@@ -1,18 +1,117 @@
 import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { flush } from "../database/index.new.js";
+import { pool } from "../database/db.js";
+import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { businessService } from "../services/business.service.js";
 import { ConflictError, NotFoundError } from "../utils/errors.js";
 import { paginate } from "../utils/paginate.js";
 import type { OrderStation } from "../database/types.js";
 
+function resolveOrderRef(idOrNumber: string) {
+  const key = String(idOrNumber || "");
+  return store.orders().find((o) => o.id === key || o.orderNumber === key) || store.findOrder?.(key);
+}
+
+async function resolveOrderIdPg(idOrNumber: string): Promise<string | null> {
+  const key = String(idOrNumber || "");
+  const byId = await pool.query<{ id: string }>(`SELECT id FROM orders WHERE id = $1 LIMIT 1`, [key]);
+  if (byId.rowCount) return byId.rows[0].id;
+  const byNum = await pool.query<{ id: string }>(`SELECT id FROM orders WHERE order_number = $1 LIMIT 1`, [key]);
+  if (byNum.rowCount) return byNum.rows[0].id;
+  const mem = resolveOrderRef(key);
+  return mem?.id ?? null;
+}
+
+async function persistOrderStatusPg(orderIdOrNumber: string, newStatus: string, changedBy: string, reason: string) {
+  const now = new Date().toISOString();
+  const histId = `osh-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const prev = await pool.query<{ id: string; status: string }>(
+    `SELECT id, status FROM orders WHERE id = $1 OR order_number = $1 LIMIT 1`,
+    [String(orderIdOrNumber || "")],
+  );
+  if (prev.rowCount === 0) throw new NotFoundError("Order not found");
+  const orderId = prev.rows[0].id;
+  const previousStatus = prev.rows[0].status;
+  await pool.query(`UPDATE orders SET status = $1, updated_at = $2 WHERE id = $3`, [newStatus, now, orderId]);
+  await pool.query(
+    `INSERT INTO order_status_history (id, order_id, previous_status, new_status, changed_by, reason, timestamp, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [histId, orderId, previousStatus, newStatus, String(changedBy ?? ""), String(reason ?? ""), now, now, now],
+  );
+  const history = { id: histId, orderId, previousStatus, newStatus, changedBy: String(changedBy ?? ""), reason: String(reason ?? ""), timestamp: now, createdAt: now, updatedAt: now };
+  // Keep in-memory cache aligned so the DB mirror (saveCache) cannot clobber
+  // direct-PG writes, and so reads in this process reflect the transition.
+  try { store.updateOrder(orderId, { status: newStatus, station: newStatus === "CONFIRMED" ? "confirmed" : undefined } as any); } catch {}
+  try {
+    const o = store.db.orders.find((x) => x.id === orderId || (x as any).orderNumber === orderId);
+    if (o) { (o as any).status = newStatus; (o as any).station = newStatus === "CONFIRMED" ? "confirmed" : (o as any).station; (o as any).updatedAt = now; }
+  } catch {}
+  try {
+    if (!Array.isArray((store.db as any).orderStatusHistory)) (store.db as any).orderStatusHistory = [];
+    (store.db as any).orderStatusHistory.push(history);
+  } catch {}
+  return { orderId, previousStatus, newStatus, history };
+}
+
+function makeServerOrderNumber(seed = "") {
+  // Server-authoritative, low-collision display number. The DB has a UNIQUE
+  // constraint on order_number; callers retry on 23505 if a race still occurs.
+  const base = String(seed || "").trim();
+  if (base && /^TC-[A-Za-z0-9-]{4,32}$/.test(base)) return base;
+  return `TC-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+}
+
+function isUniqueOrderNumberError(err: any): boolean {
+  if (err?.code !== "23505") return false;
+  const msg = `${err?.constraint || ""} ${err?.detail || ""} ${err?.message || ""}`.toLowerCase();
+  return msg.includes("order_number") || msg.includes("order number");
+}
+
+async function persistOrderToPg(record: any, initialHistory?: any) {
+  // Postgres mandatory: persist order + items (+ optional initial history). DB columns only.
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO orders (id,order_number,customer_id,salesperson_id,subtotal,discount,delivery_charge,tax_amount,total,currency,required_by,required_at,notes,status,payment_status,delivery_status,quotation_id,inquiry_id,created_by,delivered_at,created_at,updated_at,follow_up_completed_at,delivery_location,location_note)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+       ON CONFLICT (id) DO NOTHING`,
+      [record.id, record.orderNumber, record.customerId, record.salespersonId ?? null, Number(record.subtotal||0), Number(record.discount||0), Number(record.deliveryCharge||0), Number(record.taxAmount||0), Number(record.total||0), record.currency ?? "KES", record.requiredBy ?? null, record.requiredAt ?? null, String(record.notes ?? ""), record.status, record.paymentStatus ?? "UNPAID", record.deliveryStatus ?? "PENDING", record.quotationId ?? null, record.inquiryId ?? null, String(record.createdBy ?? ""), record.deliveredAt ?? null, record.createdAt, record.updatedAt, record.followUpCompletedAt ?? null, String(record.deliveryLocation ?? ""), String(record.locationNote ?? "")],
+    );
+    for (const item of Array.isArray(record.items) ? record.items : []) {
+      await client.query(
+        `INSERT INTO order_items (id,order_id,product_id,variant_options,quantity,unit_price,discount,total,recipe_version,created_at,updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT (id) DO NOTHING`,
+        [item.id, record.id, item.productId, String(item.variantOptions ?? ""), Number(item.quantity||0), Number(item.unitPrice||0), Number(item.discount||0), Number(item.total||0), item.recipeVersion ?? null, item.createdAt ?? record.createdAt, item.updatedAt ?? record.updatedAt],
+      );
+    }
+    if (initialHistory?.id) {
+      await client.query(
+        `INSERT INTO order_status_history (id, order_id, previous_status, new_status, changed_by, reason, timestamp, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT (id) DO NOTHING`,
+        [initialHistory.id, record.id, initialHistory.previousStatus, initialHistory.newStatus, String(initialHistory.changedBy ?? ""), String(initialHistory.reason ?? ""), initialHistory.timestamp ?? record.createdAt, initialHistory.createdAt ?? record.createdAt, initialHistory.updatedAt ?? record.updatedAt],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    try { await client.query("ROLLBACK"); } catch {}
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 const router = Router();
+const rbacService = new RbacService()
 const authService = new AuthService();
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {
   try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
+    const session = await authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
@@ -28,7 +127,10 @@ router.get("/", required("orders.view"), (req, res) => {
   const customerId = req.query.customerId as string | undefined;
   let list = orders;
   if (customerId) list = list.filter((o) => o.customerId === customerId);
-  if (status) list = list.filter((o) => o.status === status);
+  if (status) {
+    const statuses = String(status).split(",").map((s) => s.trim()).filter(Boolean);
+    list = statuses.length > 1 ? list.filter((o) => statuses.includes(o.status)) : list.filter((o) => o.status === status);
+  }
   // §33 — opt-in `?page=&pageSize=` envelope; no params → plain array (unchanged).
   res.json(paginate(list, req.query, {
     sortable: ["createdAt", "requiredBy", "total", "status"],
@@ -37,19 +139,42 @@ router.get("/", required("orders.view"), (req, res) => {
   }));
 });
 
-router.post("/", required("orders.create"), (req, res) => {
-  const { orderNumber, customerId, salespersonId, items, subtotal, discount, deliveryCharge, taxAmount, total, requiredBy, requiredAt, notes, status, paymentStatus, deliveryStatus, quotationId, inquiryId, createdBy, deliveryLocation, locationNote } = req.body || {};
+router.post("/", required("orders.create"), async (req, res) => {
+  const { orderNumber, customerId, salespersonId, items: reqItems, subtotal: reqSubtotal, discount = 0, deliveryCharge = 0, taxAmount = 0, total: reqTotal, requiredBy, requiredAt, notes, status, paymentStatus, deliveryStatus, quotationId, inquiryId, createdBy, deliveryLocation, locationNote } = req.body || {};
   if (!customerId) return res.status(400).json({ error: "customerId is required" });
+  const catalogueProducts = store.db.catalogue?.products || [];
+  const items = Array.isArray(reqItems)
+    ? reqItems.map((raw: any) => {
+        const productId = String(raw.productId || "");
+        const product = catalogueProducts.find((p: any) => p.id === productId);
+        const unitPrice = product && product.basePrice !== undefined ? Number(product.basePrice) : Number(raw.unitPrice || 0);
+        const quantity = Number(raw.quantity || 0);
+        const lineDiscount = Number(raw.discount || 0);
+        const total = unitPrice * quantity - lineDiscount;
+        return {
+          productId,
+          variantOptions: raw.variantOptions || "",
+          quantity,
+          unitPrice,
+          discount: lineDiscount,
+          total: Math.max(0, total),
+          recipeVersion: raw.recipeVersion || null,
+        };
+      })
+    : [];
+  const subtotal = items.reduce((sum: number, i: any) => sum + Number(i.total || 0) + Number(i.discount || 0), 0);
+  const total = subtotal + Number(deliveryCharge || 0) + Number(taxAmount || 0) - Number(discount || 0);
   const record = store.createOrder({
-    orderNumber: orderNumber || `TC-${Date.now().toString().slice(-6)}`,
+    // Ignore optimistic client display numbers; order_number is UNIQUE in Postgres.
+    orderNumber: makeServerOrderNumber(),
     customerId,
     salespersonId: salespersonId || null,
-    items: items || [],
-    subtotal: subtotal || 0,
-    discount: discount || 0,
-    deliveryCharge: deliveryCharge || 0,
-    taxAmount: taxAmount || 0,
-    total: total || 0,
+    items,
+    subtotal,
+    discount: Number(discount || 0),
+    deliveryCharge: Number(deliveryCharge || 0),
+    taxAmount: Number(taxAmount || 0),
+    total: Math.max(0, total),
     requiredBy: requiredBy || null,
     requiredAt: requiredAt || null,
     notes: notes || "",
@@ -62,157 +187,226 @@ router.post("/", required("orders.create"), (req, res) => {
     deliveryLocation: deliveryLocation || "",
     locationNote: locationNote || "",
   });
-  store.persist();
+  let lastErr: any;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      if (attempt > 0) {
+        record.orderNumber = makeServerOrderNumber();
+        try { store.updateOrder(record.id, { orderNumber: record.orderNumber }); } catch {}
+      }
+      const initialHistory = [...store.db.orderStatusHistory].reverse().find((h: any) => h.orderId === record.id);
+      await persistOrderToPg(record, initialHistory);
+      lastErr = null;
+      break;
+    } catch (err: any) {
+      lastErr = err;
+      if (!isUniqueOrderNumberError(err) || attempt === 3) break;
+    }
+  }
+  if (lastErr) {
+    const msg = lastErr?.message || "Failed to persist order";
+    if (/connect|ECONN|timeout|database/i.test(msg)) return res.status(503).json({ error: "Database unavailable", detail: msg });
+    return res.status(500).json({ error: msg });
+  }
   res.status(201).json(record);
 });
 
 router.get("/:id", required("orders.view"), (req, res) => {
-  const order = store.orders().find((o) => o.id === String(req.params.id));
+  const order = resolveOrderRef(String(req.params.id));
   if (!order) throw new NotFoundError("Order not found");
   res.json(order);
 });
 
 router.get("/:id/history", required("orders.view"), (req, res) => {
-  const order = store.orders().find((o) => o.id === String(req.params.id));
+  const order = resolveOrderRef(String(req.params.id));
   if (!order) throw new NotFoundError("Order not found");
   const history = store.db.orderStatusHistory as import("../database/types.js").OrderStatusHistory[];
   res.json(history.filter((h) => h.orderId === order.id));
 });
 
-router.patch("/:id", required("orders.confirm"), async (req, res) => {
-  const id = String(req.params.id);
-  const order = store.orders().find((o) => o.id === id);
+router.patch("/:id", required("deliveries.update"), async (req, res) => {
+  const rawId = String(req.params.id);
+  let order = resolveOrderRef(rawId);
   if (!order) throw new NotFoundError("Order not found");
+  const id = order.id;
   const patch = req.body || {};
-  const wasCompleted = order.status === "COMPLETED_DELIVERED";
 
-  // If moving to CONFIRMED from a state that needs confirmation, use proper confirmation flow
-  if (patch.status === "CONFIRMED" && order.status !== "CONFIRMED") {
-    try {
-      const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
-      if (session) {
-        const result = await businessService.confirmOrder(order, session.userId);
-        if (patch.notes !== undefined) {
-          const updatedWithNotes = store.updateOrder(id, { notes: patch.notes });
-          store.persist();
-          return res.json(updatedWithNotes || result.order);
-        }
-        store.persist();
-        return res.json(result.order);
-      }
-    } catch (e) {
-      // Fall through to normal update if confirmation flow fails
+  // ORD-01: whitelist financial/identity fields; status transitions are allowed
+  // (validated + durably persisted) to support production/delivery flows (e.g.
+  // "Mark Awaiting Pickup" → AWAITING_COLLECTION).
+  const forbidden = ['total', 'paymentStatus', 'customerId', 'paidAt', 'balanceDue'] as const;
+  for (const key of forbidden) {
+    if (key in patch) {
+      return res.status(400).json({ error: `Field '${key}' cannot be updated via this endpoint` });
     }
   }
 
-  // Determine the new station based on status transition
-  let newStation: OrderStation = order.station;
-  const newStatus = patch.status || order.status;
+  const wasCompleted = order.status === "COMPLETED_DELIVERED";
 
-  // Station transition logic
-  if (newStatus === "CONFIRMED" && order.station !== "confirmed") {
-    newStation = "confirmed";
-  } else if (
-    ["READY_FOR_PRODUCTION", "IN_PRODUCTION"].includes(newStatus) &&
-    !["baking", "done"].includes(order.station)
-  ) {
-    newStation = "baking";
-  } else if (newStatus === "COMPLETED_DELIVERED") {
-    newStation = "done";
-  } else if (
-    newStatus === "CONFIRMED" && 
-    ["pendingConfirm"].includes(order.station)
-  ) {
-    // Order moving from pendingConfirm to confirmed
-    newStation = "confirmed";
+  // Status transition (optional): validate, then persist durably to Postgres.
+  if (patch.status !== undefined) {
+    let nextStatus = String(patch.status || "").trim().toUpperCase().replace(/s+/g, "_");
+    if (nextStatus === "AWAITING_PICKUP") nextStatus = "AWAITING_COLLECTION"; // legacy alias
+    if (nextStatus && nextStatus !== String(order.status)) {
+      try {
+        (businessService as any).validateOrderStatusTransition?.(order.status, nextStatus);
+      } catch (err: any) {
+        return res.status(409).json({ error: err?.message || "Invalid status transition" });
+      }
+      const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+      try {
+        await persistOrderStatusPg(id, nextStatus, session?.userId ?? "system", String(patch.statusReason || patch.reason || "Status updated"));
+      } catch (err: any) {
+        if (err?.name === "NotFoundError" || err instanceof NotFoundError) throw err;
+        const msg = err?.message || "Failed to persist status";
+        if (/connect|ECONN|timeout|database/i.test(msg)) return res.status(503).json({ error: "Database unavailable", detail: msg });
+        return res.status(500).json({ error: msg });
+      }
+      // Re-read authoritative in-memory state so the response payload reflects
+      // the transition, and so the client does not see a stale label on retry.
+      order = store.orders().find((o) => o.id === id) || store.findOrder?.(id);
+      if (order) {
+        (order as any).status = nextStatus;
+        (order as any).updatedAt = new Date().toISOString();
+        if (nextStatus === "CONFIRMED" || nextStatus === "COMPLETED_DELIVERED" || nextStatus === "CANCELLED")
+          (order as any).station = nextStatus === "CONFIRMED" ? "confirmed" : "done";
+      }
+    }
   }
 
-  // Preserve notes if not explicitly provided in patch, otherwise update
-  const newNotes = patch.notes !== undefined ? patch.notes : order.notes;
+  // Non-status field updates (allowed subset).
+  const allowedUpdates: Record<string, unknown> = {};
+  const allowed = ['notes', 'deliveryType', 'deliveryLocation', 'deliveryDate', 'deliveryTime', 'dueDate', 'dueTime', 'eventType', 'reference', 'guest', 'items', 'source', 'fulfilmentType'] as const;
+  for (const key of allowed) {
+    if (key in patch) allowedUpdates[key] = (patch as any)[key];
+  }
 
-  const updated = store.updateOrder(id, {
-    ...patch,
-    status: newStatus,
-    station: newStation,
-    notes: newNotes,
-  });
+  let updated = order;
+  if (Object.keys(allowedUpdates).length > 0) {
+    updated = store.updateOrder(id, { ...allowedUpdates }) || order;
+  }
 
   if (updated && !wasCompleted && updated.status === "COMPLETED_DELIVERED") {
-    // Fresh completion: any stale flag is cleared and the admin is asked to
-    // follow up (badge on Customers & CRM until documented).
     updated.followUpCompletedAt = null;
-    const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+    const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
     businessService.requestCustomerFollowUp(updated, session?.userId ?? "system");
-    // Order just crossed into Delivered: archive the production job so it
-    // moves to the History tab (non-fatal — mirrors the deliver-flow hook).
     try { businessService.archiveCompletedJob(updated, session?.userId ?? "system"); } catch { /* non-fatal */ }
   }
 
   if (updated && ["CONFIRMED", "PRODUCTION_REVIEW", "READY_FOR_PRODUCTION", "IN_PRODUCTION"].includes(updated.status)) {
-    // Moving an order into the production pipeline must leave a Production Job
-    // behind — otherwise the Jobs board stays empty. Idempotent: skip when a
-    // job already exists for this order.
     const hasJob = store.productionJobs().some((j) => j.orderId === updated.id);
     if (!hasJob) {
       try {
-        const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+        const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
         businessService.prepareOrderForProduction(updated.id, session?.userId ?? "system");
-      } catch {
-        /* Non-fatal: invalid transition or missing items must not block the status write. */
-      }
+      } catch { /* Non-fatal */ }
     }
   }
 
-  // Propagate baking station status changes to global order status
-  if (updated?.station === "baking" && patch.status && order.station !== "baking") {
-    // When order moves to baking station, ensure global status is consistent
-    // with the baking station's state. This ensures the global order status
-    // reflects what's happening at the baking station.
-    const statusMap: Record<OrderStation, string> = {
-      pendingConfirm: "AWAITING_CONFIRMATION",
-      confirmed: "CONFIRMED",
-      baking: "IN_PRODUCTION",
-      done: "COMPLETED_DELIVERED",
-    };
-    // If the baking station has a specific status, apply it
-    if (statusMap[updated.station] && !updated.status.includes(statusMap[updated.station])) {
-      // Update the global order status to match the station state
-      // This is a one-way propagation: baking station → global status
-    }
+  try {
+    store.persist();
+    await flush();
+  } catch (err: any) {
+    const msg = err?.message || "Failed to persist order";
+    if (/connect|ECONN|timeout|database/i.test(msg)) return res.status(503).json({ error: "Database unavailable", detail: msg });
+    return res.status(500).json({ error: msg });
   }
-
-  store.persist();
-  res.json(updated);
+  // Re-read so the client receives the same authoritative label the server will
+  // persist to Postgres; avoids stale reads when another request mutated the
+  // in-memory record between the patch and the durability gate.
+  const final = store.orders().find((o) => o.id === id) || store.findOrder?.(id) || updated;
+  res.json(final);
 });
 
 router.post("/:id/confirm", required("orders.confirm"), async (req, res) => {
-  const id = String(req.params.id);
-  const order = store.orders().find((o) => o.id === id);
-  if (!order) throw new NotFoundError("Order not found");
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const rawId = String(req.params.id);
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   try {
-    const result = await businessService.confirmOrder(order, session.userId);
-    store.persist();
-    res.json({ order: result.order, history: result.history, job: result.job });
-  } catch {
-    const result = store.updateOrderStatus(id, "CONFIRMED", session.userId, "Admin confirmed order");
-    if (!result) throw new NotFoundError("Order not found");
-    store.persist();
-    res.json({ order: result.order, history: result.history });
+    // Resolve + validate against the authoritative Postgres state (accepts id or orderNumber).
+    const cur = await pool.query<{ id: string; status: string }>(
+      `SELECT id, status FROM orders WHERE id = $1 OR order_number = $1 LIMIT 1`,
+      [rawId],
+    );
+    if (!cur.rowCount) throw new NotFoundError("Order not found");
+    const { id: orderId, status: previousStatus } = cur.rows[0];
+
+    if (previousStatus === "CONFIRMED") {
+      const order = resolveOrderRef(orderId);
+      if (order) { (order as any).status = "CONFIRMED"; (order as any).station = "confirmed"; }
+      let job: any = store.productionJobs().find((j) => j.orderId === orderId) ?? null;
+      if (!job) {
+        try { job = businessService.prepareOrderForProduction(orderId, session.userId).job; } catch {}
+      }
+      return res.json({ order: order || { id: orderId, status: "CONFIRMED" }, history: null, job, previousStatus, idempotent: true });
+    }
+
+    try {
+      (businessService as any).validateOrderStatusTransition?.(previousStatus, "CONFIRMED");
+    } catch (err: any) {
+      return res.status(409).json({ error: err?.message || "Invalid status transition" });
+    }
+
+    // Postgres mandatory for the state transition.
+    const { history } = await persistOrderStatusPg(orderId, "CONFIRMED", session.userId, "Admin confirmed order");
+
+    // Full confirm side effects (invoice, inventory reservation, notifications, audit,
+    // production job) run once for the real transition; best-effort per effect.
+    let job: any = null;
+    if (previousStatus !== "CONFIRMED") {
+      try {
+        const orderForEffects = resolveOrderRef(orderId) || ({ id: orderId, status: previousStatus, orderNumber: String(rawId) } as any);
+        const out = await (businessService as any).applyConfirmSideEffects?.({ ...orderForEffects, status: previousStatus }, session.userId);
+        job = out?.job ?? null;
+      } catch { /* non-fatal side effects */ }
+    }
+    if (!job) {
+      try { job = businessService.prepareOrderForProduction(orderId, session.userId).job; } catch {}
+      try { job = job ?? store.productionJobs().find((j) => j.orderId === orderId) ?? null; } catch {}
+    }
+
+    // Re-read authoritative in-memory state before returning.
+    const order = resolveOrderRef(orderId);
+    if (order) {
+      (order as any).status = "CONFIRMED";
+      (order as any).station = "confirmed";
+      (order as any).updatedAt = new Date().toISOString();
+    }
+    try { store.persist(); await flush(); } catch { /* status already in PG */ }
+    return res.json({ order: order || { id: orderId, status: "CONFIRMED" }, history, job, previousStatus });
+  } catch (err: any) {
+    if (err?.name === "NotFoundError" || err instanceof NotFoundError) throw err;
+    if (err?.name === "ConflictError" || err?.statusCode === 409) return res.status(409).json({ error: err?.message || "Invalid status transition" });
+    const msg = err?.message || "Confirmation failed";
+    if (/connect|ECONN|timeout|database/i.test(msg)) return res.status(503).json({ error: "Database unavailable", detail: msg });
+    return res.status(500).json({ error: msg });
   }
 });
 
-router.post("/:id/cancel", required("orders.cancel"), (req, res) => {
-  const id = String(req.params.id);
-  const order = store.orders().find((o) => o.id === id);
-  if (!order) throw new NotFoundError("Order not found");
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+router.post("/:id/cancel", required("orders.cancel"), async (req, res) => {
+  const rawId = String(req.params.id);
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   if (!session) return res.status(401).json({ error: "Not authenticated" });
   const { reason = "No reason provided" } = req.body || {};
-  const result = store.cancelOrder(order, session.userId, reason);
-  store.persist();
-  res.json({ order: result.order, history: result.history });
+  try {
+    const { orderId, previousStatus, history } = await persistOrderStatusPg(rawId, "CANCELLED", session.userId, String(reason));
+    try {
+      await pool.query(
+        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, previous_status, new_status, reason, timestamp, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$9)`,
+        [`al-${Date.now()}-${Math.random().toString(36).slice(2,8)}`, session.userId, "order:cancelled", "order", orderId, previousStatus, "CANCELLED", String(reason), new Date().toISOString()],
+      );
+    } catch { /* audit best-effort */ }
+    const order = resolveOrderRef(orderId);
+    if (order) { (order as any).status = "CANCELLED"; (order as any).station = "done"; }
+    try { store.persist(); await flush(); } catch { /* status already in PG */ }
+    res.json({ order: order || { id: orderId, status: "CANCELLED" }, history });
+  } catch (err: any) {
+    if (err?.name === "NotFoundError" || err instanceof NotFoundError) throw err;
+    const msg = err?.message || "Cancellation failed";
+    if (/connect|ECONN|timeout|database/i.test(msg)) return res.status(503).json({ error: "Database unavailable", detail: msg });
+    return res.status(500).json({ error: msg });
+  }
 });
 
 /**
@@ -224,31 +418,38 @@ router.post("/:id/cancel", required("orders.cancel"), (req, res) => {
  * own order number, status history and customer snapshot via store.createOrder.
  * Cancelled orders are not eligible templates (409).
  */
-router.post("/:id/repeat", required("orders.create"), (req, res) => {
+router.post("/:id/repeat", required("orders.create"), async (req, res) => {
   const original = store.findOrder(String(req.params.id));
   if (!original) throw new NotFoundError("Order not found");
   if (original.status === "CANCELLED") throw new ConflictError("Cancelled orders cannot be repeated");
   const body = req.body || {};
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
-  const items = Array.isArray(body.items)
-    ? body.items
-    : original.items.map((item) => ({
-        productId: item.productId,
-        variantOptions: item.variantOptions,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        discount: item.discount,
-        total: item.total,
-        recipeVersion: item.recipeVersion,
-      }));
-  const subtotal = body.subtotal !== undefined ? Number(body.subtotal)
-    : items.reduce((sum: number, i: { total?: number | string | null }) => sum + Number(i.total ?? 0), 0);
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const catalogueProducts = store.db.catalogue?.products || [];
+  const sourceItems = Array.isArray(body.items) ? body.items : original.items;
+  const items = sourceItems.map((raw: any) => {
+    const productId = String(raw.productId || "");
+    const product = catalogueProducts.find((p: any) => p.id === productId);
+    const unitPrice = product && product.basePrice !== undefined ? Number(product.basePrice) : Number(raw.unitPrice || 0);
+    const quantity = Number(raw.quantity || 0);
+    const lineDiscount = Number(raw.discount || 0);
+    const total = unitPrice * quantity - lineDiscount;
+    return {
+      productId,
+      variantOptions: raw.variantOptions || "",
+      quantity,
+      unitPrice,
+      discount: lineDiscount,
+      total: Math.max(0, total),
+      recipeVersion: raw.recipeVersion || null,
+    };
+  });
+  const subtotal = items.reduce((sum: number, i: any) => sum + Number(i.total || 0) + Number(i.discount || 0), 0);
   const deliveryCharge = Number(body.deliveryCharge ?? original.deliveryCharge);
   const discount = Number(body.discount ?? original.discount);
   const taxAmount = Number(body.taxAmount ?? original.taxAmount);
   const total = body.total !== undefined ? Number(body.total) : subtotal + deliveryCharge + taxAmount - discount;
   const record = store.createOrder({
-    orderNumber: `TC-${Date.now().toString().slice(-6)}`,
+    orderNumber: makeServerOrderNumber(),
     customerId: original.customerId,
     salespersonId: original.salespersonId,
     items,
@@ -256,7 +457,7 @@ router.post("/:id/repeat", required("orders.create"), (req, res) => {
     discount,
     deliveryCharge,
     taxAmount,
-    total,
+    total: Math.max(0, total),
     requiredBy: body.requiredBy ?? original.requiredBy,
     requiredAt: body.requiredAt ?? original.requiredAt,
     notes: body.notes ?? original.notes,
@@ -267,6 +468,27 @@ router.post("/:id/repeat", required("orders.create"), (req, res) => {
     inquiryId: null,
     createdBy: session?.userId ?? "",
   });
+  let lastErr: any;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      if (attempt > 0) {
+        record.orderNumber = makeServerOrderNumber();
+        try { store.updateOrder(record.id, { orderNumber: record.orderNumber }); } catch {}
+      }
+      const initialHistory = [...store.db.orderStatusHistory].reverse().find((h: any) => h.orderId === record.id);
+      await persistOrderToPg(record, initialHistory);
+      lastErr = null;
+      break;
+    } catch (err: any) {
+      lastErr = err;
+      if (!isUniqueOrderNumberError(err) || attempt === 3) break;
+    }
+  }
+  if (lastErr) {
+    const msg = lastErr?.message || "Failed to persist order";
+    if (/connect|ECONN|timeout|database/i.test(msg)) return res.status(503).json({ error: "Database unavailable", detail: msg });
+    return res.status(500).json({ error: msg });
+  }
   res.status(201).json({ order: record, repeatedFrom: original.id });
 });
 

@@ -9,6 +9,7 @@
  *   sample data instead of crashing.
  */
 
+import { useEffect } from "react";
 export const API_BASE = (import.meta.env?.["VITE_API_URL"] as string | undefined) ?? "/api/v1";
 const TOKEN_KEY = "twin_cakery_token";
 
@@ -47,11 +48,13 @@ type RequestOptions = {
   body?: unknown;
   auth?: boolean;
   signal?: AbortSignal;
+  headers?: Record<string, string>;
 };
 
-async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+export { request as apiRequest };
+export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, auth = true, signal } = opts;
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...(opts.headers || {}) };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (auth) {
     const token = getToken();
@@ -75,7 +78,7 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     try {
       payload = JSON.parse(text);
     } catch {
-      payload = null;
+      throw new ApiError("Server returned a non-JSON response", res.status);
     }
   }
   if (!res.ok) {
@@ -102,9 +105,10 @@ export function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /** Non-throwing wrapper: returns `fallback` when the request fails. */
-async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+export async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try {
-    return await fn();
+    const v = await fn();
+    return v ?? fallback;
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") throw err;
     return fallback;
@@ -141,7 +145,8 @@ export interface ServerOrder {
   requiredAt: string | null;
   notes: string;
   status: string;
-  paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PROCESSING" | "PAID" | "REFUNDED" | "OVERPAID";  deliveryStatus: string;
+  paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PROCESSING" | "PAID" | "REFUNDED" | "OVERPAID";
+  deliveryStatus: string;
   createdBy: string;
   deliveredAt: string | null;
   /** Stamped when the post-delivery CRM follow-up has been done & documented. */
@@ -153,6 +158,9 @@ export interface ServerOrder {
    *  Present once the backend writes station on orders; unknown order rows drop
    *  back to `undefined` so station-aware filtering degrades safely. */
   station?: "pendingConfirm" | "confirmed" | "baking" | "done" | undefined;
+  /** Optional legacy/wire date field used by a few UI paths until the backend
+   *  aligns on `requiredAt` as the canonical required-by date. */
+  date?: string | null;
 }
 export interface ServerDelivery {
   id: string;
@@ -471,6 +479,19 @@ export async function hasExistingUser(): Promise<boolean> {
   return res.hasHistory === true;
 }
 
+export async function listAuthUsers(): Promise<any[]> {
+  return safe(() => request<any[]>("/auth/users"), []);
+}
+
+export async function listAuthSessions(userId?: string): Promise<any[]> {
+  const qs = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+  return safe(() => request<any[]>(`/auth/sessions${qs}`), []);
+}
+
+export async function revokeAuthSession(opts: { sessionId?: string; userId?: string; all?: boolean }): Promise<boolean> {
+  return safe(() => request<boolean>("/auth/sessions/revoke", { method: "POST", body: opts }), false);
+}
+
 export async function listCustomers(): Promise<ServerCustomer[]> {
   return safe(() => request<ServerCustomer[]>("/customers"), []);
 }
@@ -490,9 +511,10 @@ export async function createOrderApi(payload: Record<string, unknown>): Promise<
 export async function updateOrderApi(id: string, patch: Record<string, unknown>): Promise<ServerOrder | null> {
   return safe(() => request<ServerOrder>(`/orders/${id}`, { method: "PATCH", body: patch }), null);
 }
-export async function findCustomerByName(name: string): Promise<ServerCustomer | null> {
+export async function findCustomerByName(name: string): Promise<ServerCustomer[]> {
   const list = await safe(() => request<ServerCustomer[]>(`/customers?name=${encodeURIComponent(name)}`), []);
-  return list[0] ?? null;
+  if (!Array.isArray(list)) return [];
+  return list.filter((c) => c.name.toLowerCase() === name.toLowerCase());
 }
 export async function createCustomerApi(name: string, phone?: string): Promise<ServerCustomer | null> {
   // Phone is optional here so callers that only know a name still work; the
@@ -516,7 +538,7 @@ export interface OrderSnapshot {
 }
 
 /** Order history row: a full order plus its immutable contact snapshot. */
-export type ServerCustomerOrder = ServerOrder & { snapshot: OrderSnapshot | null };
+export type ServerCustomerOrder = ServerOrder & { snapshot: OrderSnapshot | null; feedback?: unknown };
 
 /** Single row of the printable order-history list (spec §5). */
 export interface ServerOrderPrintRow {
@@ -599,7 +621,7 @@ export function createCustomerFeedback(payload: {
   rating: number;
   type?: string;
   comment?: string;
-  resolution?: string;
+  resolution?: string | undefined;
   followUpRequired?: boolean;
   followUpCompleted?: boolean;
   recordedBy?: string;
@@ -943,11 +965,15 @@ export interface ServerDeliveryCompletion {
   order: ServerOrder | null;
 }
 
-/** POST /deliveries/:id/complete — mark a delivery delivered. The server also
- * settles the order's outstanding Cash-on-Delivery balance (spec §14) so the
- * returned `order.paymentStatus` reads "PAID" once the balance is covered. */
-export function completeDelivery(id: string): Promise<ServerDeliveryCompletion | null> {
-  return safe(() => request<ServerDeliveryCompletion>(`/deliveries/${id}/complete`, { method: "POST" }), null);
+export type DeliveryCompleteBody =
+  | { collected: { amount: number; method: string; reference?: string } }
+  | { noCollection: { reason: string } };
+
+/** POST /deliveries/:id/complete — mark a delivery delivered with settlement.
+ * Body must provide either `collected` (amount/method/reference) or
+ * `noCollection` (reason), matching the server contract. */
+export function completeDelivery(id: string, body: DeliveryCompleteBody): Promise<ServerDeliveryCompletion | null> {
+  return safe(() => request<ServerDeliveryCompletion>(`/deliveries/${id}/complete`, { method: "POST", body }), null);
 }
 
 export interface ServerMaterialInput {
@@ -989,6 +1015,100 @@ export interface ServerProductionConsumption {
   notes: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/* ── Production board cache (5s tick + SSE live push) ────────────────────── */
+
+/** Client-side polling interval for the production board cache (ms). */
+export const PRODUCTION_BOARD_TICK_MS = 5000;
+
+/** Fetch jobs + affected orders in a single parallel request. */
+export async function pollProductionBoard(): Promise<{ jobs: ServerProductionJob[]; orders: ServerOrder[] }> {
+  const [jobs, orders] = await Promise.all([
+    listProductionJobs(),
+    listOrders(),
+  ]);
+  return { jobs: jobs || [], orders: orders || [] };
+}
+
+interface BoardPollHandle {
+  stop: () => void;
+}
+
+let _boardPollId: ReturnType<typeof setTimeout> | null = null;
+
+/** Start the 5s polling tick for the production board, guarded by an in-flight flag.
+ *  Returns { stop } to tear the interval down. */
+export function startProductionBoardPolling(onRefresh: (jobs: ServerProductionJob[], orders: ServerOrder[]) => void): BoardPollHandle {
+  // Initial tick is short so the first board population lands quickly; then tick every PRODUCTION_BOARD_TICK_MS.
+  const tick = (): void => {
+    if (_boardPollId !== null) return;
+    _boardPollId = setTimeout(async () => {
+      _boardPollId = null;
+      try {
+        const { jobs, orders } = await pollProductionBoard();
+        onRefresh(jobs, orders);
+      } catch {
+        // Poll failure must not freeze the board; the SSE live push still drives updates.
+      }
+    }, 350);
+  };
+
+  const id = setInterval(tick, PRODUCTION_BOARD_TICK_MS);
+  // Ensure an immediate first tick before the loop kicks in.
+  tick();
+
+  return {
+    stop: () => clearInterval(id),
+  };
+}
+
+interface CacheState {
+  jobs: ServerProductionJob[];
+  orders: ServerOrder[];
+}
+
+interface BoardCache {
+  state: CacheState;
+  refresh: (jobs: ServerProductionJob[], orders: ServerOrder[]) => void;
+}
+
+let _boardCache: BoardCache | null = null;
+
+/** Load the production board cache with initial data. */
+export function loadProductionBoardCache(jobs: ServerProductionJob[], orders: ServerOrder[]): BoardCache {
+  const state: CacheState = { jobs: jobs || [], orders: orders || [] };
+  const refresh = (js: ServerProductionJob[], os: ServerOrder[]) => {
+    state.jobs = js || [];
+    state.orders = os || [];
+  };
+  _boardCache = { state, refresh };
+  return _boardCache;
+}
+
+/** Return the shared production board cache, creating it if needed. */
+export function getProductionBoardCache(): BoardCache {
+  if (!_boardCache) {
+    throw new Error('Production board cache not initialised; call loadProductionBoardCache first.');
+  }
+  return _boardCache;
+}
+
+/* ── React hook: mount the production board poll per view ────────────────── */
+
+export function useProductionBoardCache(refreshBoard: (jobs?: ServerProductionJob[], orders?: ServerOrder[]) => void | Promise<void>): void {
+  useEffect(() => {
+    // Initialise the shared cache, then start the polling tick.
+    const { refresh } = loadProductionBoardCache([], []);
+    const handle = startProductionBoardPolling((jobs, orders) => {
+      refresh(jobs, orders);
+      void refreshBoard(jobs, orders);
+    });
+    return () => {
+      handle.stop();
+      _boardCache = null;
+    };
+  }, [refreshBoard]);
 }
 
 /* ── E3: Inventory ledger + purchasing receive ───────────────────────────── */
@@ -1305,11 +1425,15 @@ export async function recordPayment(payload: {
   reference?: string;
   receivedBy?: string;
   notes?: string;
-}): Promise<ServerPayment & { stagedPush: Record<string, unknown> | null } | null> {
-  return safe(() =>
-    request<ServerPayment & { stagedPush: Record<string, unknown> | null }>("/payments", { method: "POST", body: payload }),
-    null,
-  );
+}): Promise<ServerPayment & { stagedPush: Record<string, unknown> | null }> {
+  const idem = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `pay-${Date.now()}-${Math.random().toString(36).slice(2,10)}`;
+  return request<ServerPayment & { stagedPush: Record<string, unknown> | null }>("/payments", {
+    method: "POST",
+    body: payload,
+    headers: { "Idempotency-Key": idem },
+  });
 }
 
 export async function recordPaymentCallback(paymentId: string, payload: {
@@ -1382,6 +1506,14 @@ export interface FinanceReport {
 export async function listFinanceReports(period = "month"): Promise<FinanceReport | null> {
   const q = period ? `?period=${encodeURIComponent(period)}` : "";
   return safe(() => request<FinanceReport>(`/finance/reports${q}`), null);
+}
+
+export async function listInvoices(): Promise<any[]> {
+  return safe(() => request<any[]>("/finance/invoices"), []);
+}
+
+export async function listFinanceApprovals(): Promise<any[]> {
+  return safe(() => request<any[]>("/finance/approvals"), []);
 }
 
 export async function createExpenseCategory(name: string): Promise<ServerExpenseCategory | null> {
@@ -1479,6 +1611,15 @@ export async function markAsRead(notificationId: string, userId?: string): Promi
   // Server route is PATCH /notifications/:id/read → { ok: true }.
   return safe(async () => {
     const r = await request<{ ok: boolean }>(`/notifications/${notificationId}/read${q}`, { method: "PATCH" });
+    return r?.ok === true;
+  }, false);
+}
+
+export async function deleteNotification(notificationId: string, userId?: string): Promise<boolean> {
+  const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+  // Server route is DELETE /notifications/:id → { ok: true }.
+  return safe(async () => {
+    const r = await request<{ ok: boolean }>(`/notifications/${notificationId}${q}`, { method: "DELETE" });
     return r?.ok === true;
   }, false);
 }

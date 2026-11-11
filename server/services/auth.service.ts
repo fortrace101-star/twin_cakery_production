@@ -1,16 +1,8 @@
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
+import crypto from "node:crypto";
+import bcrypt from "bcryptjs";
 import { UnauthorizedError, ForbiddenError } from "../utils/errors.js";
 import { store } from "../database/store.js";
-import type { User, NotificationChannel, NotificationPriority } from "../database/types.js";
-
-// server/ lives outside the frontend package, so resolve bcryptjs
-// from the frontend's node_modules explicitly (same pattern as db.ts).
-const requireFromFrontend = createRequire(
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "erp-interface-design", "package.json"),
-);
-const bcryptModule = requireFromFrontend("bcryptjs") as typeof import("bcryptjs");
+import { query } from "../database/db.js";
 
 export interface AuthSession {
   userId: string;
@@ -22,20 +14,23 @@ export interface AuthSession {
   createdAt: number;
 }
 
-const SESSIONS = new Map<string, AuthSession>();
-const SESSION_TTL = 7 * 24 * 60 * 60 * 1000;
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 let tokenSeq = 0;
 
+/**
+ * SEC-06: Real sessions live only in the `sessions` table.
+ * - token is random (crypto.randomBytes(32), base64url) and is NEVER stored.
+ * - token_hash = sha256(token) is stored at rest; lookup is by hash only.
+ * - Revoke = set revoked_at in the same row; no in-process Map.
+ */
 function generateToken(): string {
   tokenSeq += 1;
-  return `tc_${Date.now().toString(36)}_${tokenSeq}_${Math.random().toString(36).slice(2, 8)}`;
+  return `${Date.now().toString(36)}-${tokenSeq}-${crypto.randomBytes(32).toString("base64url")}`;
 }
 
-function isSessionValid(session: AuthSession): boolean {
-  const now = Date.now();
-  if (now - session.createdAt > SESSION_TTL) return false;
-  return true;
+function hashToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
 }
 
 export class AuthService {
@@ -47,80 +42,128 @@ export class AuthService {
     const hash = user.passwordHash || "";
     let ok = false;
     try {
-      ok = hash.startsWith("$2") && bcryptModule.compareSync(credentials.password, hash);
+      ok = hash.startsWith("$2") && bcrypt.compareSync(credentials.password, hash);
     } catch {
       ok = false;
-    }
-    // Dev fallback: legacy/placeholder hashes that were never bcrypt-hashed.
-    if (!ok && (hash === "" || hash === "$2b$10$placeholder")) {
-      ok = credentials.password === "placeholder" || credentials.password === "TwinCakery123!";
     }
     if (!ok) {
       throw new UnauthorizedError("Invalid credentials");
     }
+    const token = generateToken();
+    const tokenHash = hashToken(token);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
+    const id = `sess-${Date.now()}-${crypto.randomBytes(8).toString("hex")}`;
+    void query(
+      `INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at) VALUES ($1,$2,$3,$4,$5)`,
+      [id, user.id, tokenHash, now.toISOString(), expiresAt.toISOString()],
+    );
     const session: AuthSession = {
       userId: user.id,
       username: user.username,
       displayName: user.displayName,
       role: user.role,
       isAdmin: user.isAdmin,
-      token: generateToken(),
+      token,
       createdAt: Date.now(),
     };
-    SESSIONS.set(session.token, session);
     return session;
   }
 
   logout(token: string | null): void {
-    if (token) SESSIONS.delete(token);
+    if (!token) return;
+    try {
+      const tokenHash = hashToken(token);
+      void query(`UPDATE sessions SET revoked_at = now() WHERE token_hash = $1`, [tokenHash]);
+    } catch {
+      /* ignore */
+    }
   }
 
-  getCurrentSession(token: string | null): AuthSession | null {
+  /**
+   * SEC-06: DB-first session lookup. A token is valid only while:
+   * 1. a sessions row exists for its hash,
+   * 2. it has not been revoked (revoked_at IS NULL),
+   * 3. expires_at is in the future.
+   * No in-process Map, no token reuse after logout.
+   */
+  async getCurrentSession(token: string | null): Promise<AuthSession | null> {
     if (!token) return null;
-    const session = SESSIONS.get(token);
-    if (!session || !isSessionValid(session)) return null;
-    return session;
+    try {
+      const tokenHash = hashToken(token);
+      const rows = (await query(
+        `SELECT s.user_id, s.expires_at, s.revoked_at, u.username, u.display_name, u.role, u.is_admin
+         FROM sessions s JOIN users u ON u.id = s.user_id
+         WHERE s.token_hash = $1
+           AND s.revoked_at IS NULL
+         ORDER BY s.created_at DESC
+         LIMIT 1`,
+        [tokenHash],
+      )) as Array<{
+        user_id: string;
+        expires_at: string;
+        revoked_at: string | null;
+        username: string;
+        display_name: string;
+        role: string;
+        is_admin: boolean;
+      }>;
+      const row = rows[0];
+      if (!row) return null;
+      if (new Date(row.expires_at).getTime() < Date.now()) return null;
+      return {
+        userId: row.user_id,
+        username: row.username,
+        displayName: row.display_name,
+        role: row.role,
+        isAdmin: row.is_admin,
+        token: "", // never exposed outside this process
+        createdAt: Date.now(),
+      };
+    } catch {
+      return null;
+    }
   }
 
-  requireAuth(token: string | null): AuthSession {
-    const session = this.getCurrentSession(token);
+  async requireAuth(token: string | null): Promise<AuthSession> {
+    const session = await this.getCurrentSession(token);
     if (!session) {
       throw new UnauthorizedError("Authentication required");
     }
     return session;
   }
 
-  requireRole(token: string | null, allowedRoles: string[]): AuthSession {
-    const session = this.requireAuth(token);
+  async requireRole(token: string | null, allowedRoles: string[]): Promise<AuthSession> {
+    const session = await this.requireAuth(token);
     if (!allowedRoles.includes(session.role)) {
       throw new ForbiddenError("Insufficient permissions for this action");
     }
     return session;
   }
 
-  hasPermission(token: string | null, permission: string): boolean {
-    const session = this.getCurrentSession(token);
+  async hasPermission(token: string | null, permission: string): Promise<boolean> {
+    const session = await this.getCurrentSession(token);
     if (!session) return false;
+    if (session.isAdmin) return true;
     const rolePermissions = store.rolePermissionsForRole(session.role);
     const rolePermissionIds = rolePermissions.map((rp) => rp.permissionId);
     const requested = store.permissions().find((p) => p.key === permission);
     return Boolean(requested && rolePermissionIds.includes(requested.id));
   }
 
-  static getSession(token: string | null): AuthSession | null {
+  static async getSession(token: string | null): Promise<AuthSession | null> {
     return new AuthService().getCurrentSession(token);
   }
 
-  static requireAuth(token: string | null): AuthSession {
+  static async requireAuth(token: string | null): Promise<AuthSession> {
     return new AuthService().requireAuth(token);
   }
 
-  static requireRole(token: string | null, allowedRoles: string[]): AuthSession {
+  static async requireRole(token: string | null, allowedRoles: string[]): Promise<AuthSession> {
     return new AuthService().requireRole(token, allowedRoles);
   }
 }
 
-// Attach a helper to read token from Authorization header
 export function extractToken(authorization: string | undefined): string | null {
   if (!authorization) return null;
   if (authorization.startsWith("Bearer ")) return authorization.slice(7);

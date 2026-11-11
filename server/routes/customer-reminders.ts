@@ -1,9 +1,11 @@
 import { Router, Request, RequestHandler } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
 import type { CustomerEventReminder } from "../database/types.js";
+
+const rbacService = new RbacService()
 
 // ---------------------------------------------------------------------------
 // E1 — Recurring event reminders (governing spec §5).
@@ -19,7 +21,7 @@ const authService = new AuthService();
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {
   try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
+    const session = await authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
@@ -30,8 +32,8 @@ const required = (perm: string): RequestHandler => async (req, res, next) => {
 };
 
 /** Authenticated staff id (userId) for auditing contactedBy. */
-function actor(req: Request): string {
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+async function actor(req: Request): Promise<string> {
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   return session?.userId ?? "";
 }
 
@@ -46,17 +48,17 @@ function withCustomer(reminder: CustomerEventReminder) {
 }
 
 /** GET /customer-reminders — reminders due within `days` (default 30, max 365), most urgent first. */
-router.get("/", required("customers.view"), (req, res) => {
+router.get("/", required("customers.view"), async (req, res) => {
   const raw = Number(req.query.days);
   const days = Number.isFinite(raw) && raw > 0 ? Math.min(Math.floor(raw), 365) : 30;
   res.json(store.dueReminders(days).map(withCustomer));
 });
 
 /** PATCH /customer-reminders/:id/contacted — staff acted; records outcome and rolls to the next occurrence. */
-router.patch("/:id/contacted", required("customers.interact"), (req, res) => {
+router.patch("/:id/contacted", required("customers.interact"), async (req, res) => {
   const { outcome, followUpNotes } = req.body || {};
   const updated = store.markReminderContacted(String(req.params.id), {
-    contactedBy: actor(req),
+    contactedBy: await actor(req),
     outcome: outcome ?? "",
     followUpNotes: followUpNotes ?? "",
   });
@@ -65,7 +67,7 @@ router.patch("/:id/contacted", required("customers.interact"), (req, res) => {
 });
 
 /** PATCH /customer-reminders/:id/dismiss — close this occurrence with no follow-up. */
-router.patch("/:id/dismiss", required("customers.interact"), (req, res) => {
+router.patch("/:id/dismiss", required("customers.interact"), async (req, res) => {
   const updated = store.dismissReminder(String(req.params.id));
   if (!updated) throw new NotFoundError("Reminder not found");
   res.json(withCustomer(updated));

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { DataTable, type Column } from "../data-table/DataTable";
 import { StatusBadge as Status } from "../data-table/StatusBadge";
 import { money } from "./data";
 import {
@@ -124,6 +125,16 @@ export function OrderProposalsView({ onNotice }: { onNotice: (s: string) => void
     void refresh();
   }
 
+  const columns: Column<OrderProposal>[] = [
+    { header: "Proposal", mobile: "title", cell: (p) => <><strong>{p.proposalNumber}</strong><div className="cell-sub">{new Date(p.createdAt).toLocaleDateString("en-UG")}</div></> },
+    { header: "Customer", mobile: "meta", cell: (p) => <>{p.customerName}<div className="cell-sub">{p.phone}{p.email ? ` - ${p.email}` : ""}</div></> },
+    { header: "Items", mobile: "drawer", cell: (p) => <>{p.productSummary || `${p.items.length} items`}<div className="cell-sub">{p.deliveryType}{p.deliveryLocation ? ` - ${p.deliveryLocation}` : ""}</div></> },
+    { header: "Total", align: "right", mobile: "value", cell: (p) => money(proposalTotal(p)) },
+    { header: "Preferred", mobile: "meta", cell: (p) => p.preferredDate ? new Date(p.preferredDate).toLocaleDateString("en-UG") : "-" },
+    { header: "Status", mobile: "badge", cell: (p) => <Status value={statusLabel(p.status)} /> },
+    { header: "Actions", mobile: "action", cell: (p) => <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); void openDetail(p.id); }}><Eye size={14} /> Review</Button> },
+  ];
+
   return (
     <div className="space-y-4">
       <section className="panel module-table">
@@ -165,62 +176,17 @@ export function OrderProposalsView({ onNotice }: { onNotice: (s: string) => void
             {loading ? "Loading..." : "Refresh"}
           </Button>
         </div>
-        <div className="table-wrap">
-          <table className="table data">
-            <thead>
-              <tr>
-                <th>Proposal</th>
-                <th>Customer</th>
-                <th>Items</th>
-                <th className="num">Total</th>
-                <th>Preferred</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((p) => (
-                <tr key={p.id}>
-                  <td>
-                    <strong>{p.proposalNumber}</strong>
-                    <div className="cell-sub">{new Date(p.createdAt).toLocaleDateString("en-UG")}</div>
-                  </td>
-                  <td>
-                    {p.customerName}
-                    <div className="cell-sub">{p.phone}{p.email ? ` - ${p.email}` : ""}</div>
-                  </td>
-                  <td>
-                    {p.productSummary || `${p.items.length} items`}
-                    <div className="cell-sub">
-                      {p.deliveryType}{p.deliveryLocation ? ` - ${p.deliveryLocation}` : ""}
-                    </div>
-                  </td>
-                  <td className="num">{money(proposalTotal(p))}</td>
-                  <td>{p.preferredDate ? new Date(p.preferredDate).toLocaleDateString("en-UG") : "-"}</td>
-                  <td>
-                    <Status value={statusLabel(p.status)} />
-                  </td>
-                  <td className="actions">
-                    <Button variant="ghost" size="sm" onClick={() => void openDetail(p.id)}>
-                      <Eye size={14} /> Review
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-              {visible.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="empty">
-                    {loading ? "Loading proposals..." : "No proposals match"}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="table-foot">
-          <span>{visible.length} proposals</span>
-          <span>October 2026</span>
-        </div>
+        <DataTable
+          columns={columns}
+          rows={visible}
+          rowKey={(p) => p.id}
+          onRowActivate={(p) => void openDetail(p.id)}
+          mobileTitle={(p) => p.proposalNumber}
+          mobileSubtitle={(p) => p.customerName}
+          openLabel="Review proposal"
+          empty={<div className="empty-state"><Search /><h3>{loading ? "Loading proposals..." : "No proposals match"}</h3><p>Try a different search or filter.</p></div>}
+          footer={<><span>{visible.length} proposals</span><span>October 2026</span></>}
+        />
       </section>
       <Dialog open={selected !== null} onOpenChange={(v) => { if (!v) closeDetail(); }}>
         <DialogContent className="order-form-dialog">
@@ -322,4 +288,3 @@ export function OrderProposalsView({ onNotice }: { onNotice: (s: string) => void
     </div>
   );
 }
-

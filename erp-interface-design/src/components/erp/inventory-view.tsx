@@ -231,31 +231,33 @@ export function Inventory({ tab, search, setSearch, onNotice, onSignIn }: { tab:
     {isAlerts ? <>
     <DataTable
       columns={[
-        { header:'Ingredient', cell:(a)=><><strong className="product-name">{a.name}</strong><small className="cell-sub">{a.sku} · {a.category}</small></> },
-        { header:'On hand', align:'right', cell:(a)=><span className="amount-cell">{a.physicalStock} {a.unit}</span> },
-        { header:'Available', align:'right', cell:(a)=><span className="amount-cell">{a.availableStock} {a.unit}</span> },
-        { header:'Reorder level', align:'right', cell:(a)=><span className="amount-cell">{a.reorderLevel}</span> },
-        { header:'Shortfall', align:'right', cell:(a)=><span className="amount-cell">{a.shortfall} {a.unit}</span> },
-        { header:'Status', cell:(a)=><Status value={a.status}/> },
-        { header:'', cell:(a)=><Button variant="outline" size="sm" disabled={busy} onClick={e=>{e.stopPropagation();void raiseRequirement(a)}}>Raise requirement</Button> },
-        { header:'', cell:(a)=><Button variant="ghost" size="icon" aria-label={`Ledger for ${a.name}`} onClick={e=>{e.stopPropagation();setLedgerFor(a)}}><ArrowUpRight/></Button> },
+        { header:'Ingredient', mobile:'title', cell:(a)=><><strong className="product-name">{a.name}</strong><small className="cell-sub">{a.sku} · {a.category}</small></> },
+        { header:'On hand', align:'right', mobile:'value', cell:(a)=><span className="amount-cell">{a.physicalStock} {a.unit}</span> },
+        { header:'Available', align:'right', mobile:'meta', cell:(a)=><span className="amount-cell">{a.availableStock} {a.unit}</span> },
+        { header:'Reorder level', align:'right', mobile:'meta', cell:(a)=><span className="amount-cell">Reorder {a.reorderLevel}</span> },
+        { header:'Shortfall', align:'right', mobile:'drawer', cell:(a)=><span className="amount-cell">{a.shortfall} {a.unit}</span> },
+        { header:'Status', mobile:'badge', cell:(a)=><Status value={a.status}/> },
+        { header:'', mobile:'hide', cell:(a)=><Button variant="outline" size="sm" disabled={busy} onClick={e=>{e.stopPropagation();void raiseRequirement(a)}}>Raise requirement</Button> },
+        { header:'', mobile:'hide', cell:(a)=><Button variant="ghost" size="icon" aria-label={`Ledger for ${a.name}`} onClick={e=>{e.stopPropagation();setLedgerFor(a)}}><ArrowUpRight/></Button> },
       ] as Column<ServerInventoryAlert>[]}
       rows={filteredAlerts} rowKey={(a)=>a.id} onRowActivate={(a)=>setLedgerFor(a)} stickyHeader density={density}
+      mobileTitle={(a)=>a.name} mobileSubtitle={(a)=>a.sku} openLabel="Open ledger"
       empty={<div className="empty-state"><Check/><h3>All stock levels healthy</h3><p>No ingredient is at or below its reorder level.</p></div>}
     />
     <div className="table-foot"><span>{filteredAlerts.length} alerts</span><Link to="/workspace/purchasing">Raise a purchase order in Purchasing →</Link></div>
     </> : <>
     <DataTable
       columns={[
-        { header:'Ingredient', cell:(i)=><><strong className="product-name">{i.name}</strong><small className="cell-sub">{i.sku} · {i.category}</small></> },
-        { header:'On hand', align:'right', cell:(i)=><span className="amount-cell">{i.physicalStock} {i.unit}</span> },
-        { header:'Available', align:'right', cell:(i)=><span className="amount-cell">{i.availableStock ?? i.physicalStock} {i.unit}</span> },
-        { header:'Reorder level', align:'right', cell:(i)=><span className="amount-cell">{i.reorderLevel}</span> },
-        { header:'Unit cost', align:'right', cell:(i)=><span className="amount-cell">{money(i.cost)}</span> },
-        { header:'Status', cell:(i)=><Status value={stockStatus(i)}/> },
-        { header:'', cell:(i)=><Button variant="ghost" size="icon" aria-label={`Ledger for ${i.name}`} onClick={e=>{e.stopPropagation();setLedgerFor(i)}}><ArrowUpRight/></Button> },
+        { header:'Ingredient', mobile:'title', cell:(i)=><><strong className="product-name">{i.name}</strong><small className="cell-sub">{i.sku} · {i.category}</small></> },
+        { header:'On hand', align:'right', mobile:'value', cell:(i)=><span className="amount-cell">{i.physicalStock} {i.unit}</span> },
+        { header:'Available', align:'right', mobile:'meta', cell:(i)=><span className="amount-cell">{i.availableStock ?? i.physicalStock} {i.unit} avail.</span> },
+        { header:'Reorder level', align:'right', mobile:'drawer', cell:(i)=><span className="amount-cell">{i.reorderLevel}</span> },
+        { header:'Unit cost', align:'right', mobile:'meta', cell:(i)=><span className="amount-cell">{money(i.cost)}/unit</span> },
+        { header:'Status', mobile:'badge', cell:(i)=><Status value={stockStatus(i)}/> },
+        { header:'', mobile:'hide', cell:(i)=><Button variant="ghost" size="icon" aria-label={`Ledger for ${i.name}`} onClick={e=>{e.stopPropagation();setLedgerFor(i)}}><ArrowUpRight/></Button> },
       ] as Column<ServerInventoryItem>[]}
       rows={filtered} rowKey={(i)=>i.id} onRowActivate={(i)=>setLedgerFor(i)} stickyHeader density={density}
+      mobileTitle={(i)=>i.name} mobileSubtitle={(i)=>`${i.sku} · ${i.category}`} openLabel="Open ledger"
       empty={<div className="empty-state"><Search/><h3>No ingredients found</h3><p>Inventory appears once ingredients are configured.</p></div>}
     />
     <div className="table-foot"><span>{filtered.length} ingredients</span><span>{ledger.length} ledger entries</span></div>

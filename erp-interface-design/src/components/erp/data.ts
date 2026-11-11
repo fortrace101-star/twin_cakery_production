@@ -7,9 +7,8 @@ export const modules = [
   { id: 'inventory', label: 'Inventory', icon: 'Boxes', group: 'OPERATIONS', tabs: ['Stock', 'Reservations', 'Transactions', 'Adjustments', 'Alerts'] },
   { id: 'purchasing', label: 'Purchasing', icon: 'Truck', group: 'OPERATIONS', tabs: ['Purchase orders', 'Suppliers', 'Requirements', 'Goods received'] },
   { id: 'delivery', label: 'Deliveries', icon: 'MapPin', group: 'OPERATIONS', tabs: ['Upcoming', 'Dispatch', 'Completed'] },
-  { id: 'finance', label: 'Finance', icon: 'Wallet', group: 'BUSINESS', tabs: ['Payments', 'Expenses', 'Profitability', 'Reports'] },
+  { id: 'finance', label: 'Finance', icon: 'Wallet', group: 'BUSINESS', tabs: ['Payments', 'Invoices', 'Approvals', 'Cash-up', 'Period close', 'Expenses', 'Profitability', 'Reports'] },
   { id: 'analytics', label: 'Analytics', icon: 'ChartNoAxesCombined', group: 'BUSINESS', tabs: ['Overview', 'Order history', 'Sales trends', 'Customers', 'Product performance'] },
-  { id: 'administration', label: 'Settings', icon: 'Settings', group: 'BUSINESS', tabs: ['Business settings', 'Users', 'Roles', 'Permissions', 'Audit log'] },
   { id: 'staff', label: 'Staff & Salary', icon: 'UserCog', group: 'PEOPLE', tabs: ['Team', 'Attendance', 'Salary periods', 'Advances', 'Payslips'] },
 ] as const;
 
@@ -29,7 +28,6 @@ export const MODULE_PERMISSIONS: Record<string, string> = {
   delivery: 'deliveries.view',
   finance: 'finance.view',
   analytics: 'sales.analytics',
-  administration: 'users.manage',
   // E7: the module only shows to staff.view holders (Admin + Production by
   // seed); salary tabs inside it re-check remuneration.* on every fetch.
   staff: 'staff.view',
@@ -286,7 +284,11 @@ export function moduleRows(module: string, tab: string, orders: Order[]): GridRo
   if (module === 'inventory') return stock.map((s,i) => ({ id: tab === 'Transactions' ? `TXN-00${i+1}` : s.sku, name: s.name, detail: s.category, secondary: tab === 'Transactions' ? ['Purchase', 'Consumption', 'Adjustment'][i%3] || 'Purchase' : `Reorder at ${s.min} ${s.unit}`, value: `${s.quantity} ${s.unit}`, status: s.status }));
   if (module === 'purchasing') return [{id:'PO-0028',name:'Bakers Supply Co.',detail:'Flour, cocoa powder · 3 items',secondary:'09 Oct 2026',value:money(12400),status:'Sent'}, {id:'PO-0027',name:'Fresh Dairy Uganda',detail:'Unsalted butter, cream · 2 items',secondary:'08 Oct 2026',value:money(9800),status:'Approved'}, {id:'PO-0026',name:'Packaging House',detail:'Cake boxes, boards · 4 items',secondary:'06 Oct 2026',value:money(6400),status:'Completed'}];
   if (module === 'production') return orders.slice(0,5).map((o,i)=>({id:`JOB-00${48-i}`,name:o.product,detail:o.id+' · Recipe v1.2',secondary:o.time,value:tab === 'Production costs' ? money(o.amount * .35) : ['Baking','Decorating','Queued','Baking','Queued'][i] || 'Queued',status:tab==='Quality control' ? (i%2 ? 'Passed':'Pending') : o.status}));
-  if (module === 'delivery') return orders.filter(o=> tab === 'Completed' ? o.delivery==='Completed / Delivered' : tab === 'Dispatch' ? o.status==='In Transit' : o.status==='Awaiting Collection').map(o=>({id:o.id,name:o.customer,detail:o.product,secondary:o.time,value:o.deliveryLocation||o.locationNote||'—',status:tab==='Upcoming'?'Awaiting Collection':tab==='Dispatch'?'In Transit':o.delivery}));
+  if (module === 'delivery') return orders.filter(o=> tab === 'Completed' ? o.delivery==='Completed / Delivered' : tab === 'Dispatch' ? o.status==='In Transit' : o.status==='Awaiting Collection').map(o=>{
+    const bal = Math.max(0, o.amount - (o.paidAmount ?? 0));
+    const loc = o.deliveryLocation||o.locationNote||'—';
+    return {id:o.id,name:o.customer,detail:o.product,secondary:o.time,value: tab !== 'Completed' && bal > 0 ? `${loc} · Due ${money(bal)}` : loc,status:tab==='Upcoming'?'Awaiting Collection':tab==='Dispatch'?'In Transit':o.delivery};
+  });
   if (module === 'finance') return orders.map(o=>({id:tab==='Expenses' ? o.id.replace('TC','EXP'):o.id,name:tab==='Expenses' ? 'Ingredient procurement':o.customer,detail:tab==='Expenses'?'Production · Ingredients':o.product,secondary:'07 Oct 2026',value:money(tab==='Expenses'?o.amount*.3:o.amount),status:tab==='Expenses'?'Paid':o.payment}));
   if (module === 'sales') return orders.map(o=>({id:o.id.replace('TC','QT'),name:o.customer,detail:o.product,secondary:o.date,value:money(o.amount),status:o.status==='Pending confirmation'?'Accepted':'Sent'}));
   return [];

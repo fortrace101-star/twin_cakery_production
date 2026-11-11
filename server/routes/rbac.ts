@@ -1,25 +1,17 @@
 import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
+import { requirePermission } from "../middleware/auth.js";
 
 const router = Router();
+const rbacService = new RbacService()
 const authService = new AuthService();
 
-const required = (perm: string): RequestHandler => async (req, res, next) => {
-  try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
-    await rbacService.requirePermission(session.userId, perm);
-    next();
-  } catch (err) {
-    if (err instanceof Error && err.name === "UnauthorizedError") return res.status(401).json({ error: err.message });
-    if (err instanceof Error && err.name === "ForbiddenError") return res.status(403).json({ error: err.message });
-    next(err);
-  }
-};
+const required = requirePermission;
 
-router.get("/users", required("users.manage"), (req, res) => {
+router.get("/users", required("users.manage"), async (req, res) => {
   const users = store.users();
   const role = req.query.role as string | undefined;
   let list = users;
@@ -38,7 +30,7 @@ router.get("/users", required("users.manage"), (req, res) => {
   })));
 });
 
-router.get("/roles", required("roles.manage"), (req, res) => {
+router.get("/roles", required("roles.manage"), async (req, res) => {
   const roles = store.roles();
   const active = req.query.active;
   let list = roles;
@@ -46,7 +38,7 @@ router.get("/roles", required("roles.manage"), (req, res) => {
   res.json(list);
 });
 
-router.get("/permissions", required("roles.manage"), (req, res) => {
+router.get("/permissions", required("roles.manage"), async (req, res) => {
   res.json(store.permissions());
 });
 
@@ -63,7 +55,7 @@ router.post("/:id/permissions/:permissionId", required("roles.manage"), async (r
   const perm = store.permissions().find((p) => p.id === permissionId);
   if (!perm) throw new NotFoundError("Permission not found");
   await rbacService.assignPermissionToRole(role.id, perm.id);
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   store.createAuditLog({
     actor: session?.userId ?? "", action: "role:permission_changed",
     entityType: "role", entityId: role.id,
@@ -81,7 +73,7 @@ router.delete("/:id/permissions/:permissionId", required("roles.manage"), async 
   const perm = store.permissions().find((p) => p.id === permissionId);
   if (!perm) throw new NotFoundError("Permission not found");
   await rbacService.removePermissionFromRole(role.id, perm.id);
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   store.createAuditLog({
     actor: session?.userId ?? "", action: "role:permission_changed",
     entityType: "role", entityId: role.id,
@@ -91,7 +83,7 @@ router.delete("/:id/permissions/:permissionId", required("roles.manage"), async 
   res.json({ ok: true });
 });
 
-router.get("/audit", required("audit.view"), (req, res) => {
+router.get("/audit", required("audit.view"), async (req, res) => {
   const logs = store.auditLogs();
   const limit = parseInt(req.query.limit as string) || 100;
   const start = logs.length - Math.min(limit, logs.length);

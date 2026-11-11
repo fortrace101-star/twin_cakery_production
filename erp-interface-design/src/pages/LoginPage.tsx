@@ -36,8 +36,8 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
-      <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-8 shadow-lg">
+    <div className="flex min-h-dvh md:min-h-screen items-start md:items-center justify-center bg-background px-4 py-8 pt-[max(2rem,env(safe-area-inset-top))] md:pt-8">
+      <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-5 sm:p-8 shadow-lg">
         <div className="text-center">
           <div className="flex justify-center">
             <img src={logo} alt="Twin Cakery logo" className="h-16 w-16 rounded-xl bg-white object-contain p-2" />
@@ -61,7 +61,7 @@ export function LoginPage() {
               placeholder="e.g. manager"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm max-md:min-h-11 outline-none transition focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50"
             />
           </div>
           <div>
@@ -78,16 +78,16 @@ export function LoginPage() {
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm max-md:min-h-11 outline-none transition focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50"
             />
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
 
           <button
             type="submit"
             disabled={busy}
-            className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+            className="w-full rounded-md bg-primary px-4 py-2 text-base md:text-sm max-md:min-h-11 font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
           >
             {busy ? "Signing in…" : "Sign in"}
           </button>

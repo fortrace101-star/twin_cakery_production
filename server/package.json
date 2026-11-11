@@ -1,37 +1,40 @@
 {
-  "name": "twin-cakery-erp-server",
+  "name": "twincakery-erp-server",
+  "version": "0.1.0",
   "private": true,
-  "version": "1.0.0",
   "type": "module",
-  "description": "Twin Cakery ERP Express API. Run from this folder (server/) or the repo root (erp/).",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "dev": "tsx --tsconfig tsconfig.json index.ts",
-    "dev:api": "tsx --tsconfig tsconfig.json index.ts",
-    "dev:nodemon": "nodemon --config nodemon.json",
-    "start": "node ../dist-server/index.js",
-    "build": "tsc -p tsconfig.json",
-    "build:api": "tsc -p tsconfig.json",
-    "db:migrate": "tsx --tsconfig tsconfig.json database/migrate.ts",
-    "db:seed": "tsx --tsconfig tsconfig.json seeds/seed.ts",
-    "wipe": "tsx --tsconfig tsconfig.json scripts/reset-production.ts",
-    "code:admin": "tsx --tsconfig tsconfig.json scripts/code-admin.ts",
-    "code:staff": "tsx --tsconfig tsconfig.json scripts/code-staff.ts",
-    "test:register": "node scripts/test-register-flow.mjs",
-    "test:claim-admin": "node scripts/test-claim-admin-flow.mjs"
+    "dev": "nodemon",
+    "dev:api": "tsx index.ts",
+    "build": "tsc -p tsconfig.json && node scripts/copy-migrations.mjs",
+    "start": "cd dist && node index.js",
+    "db:migrate": "tsx database/migrate.ts",
+    "db:migrate:prod": "node dist/database/migrate.js",
+    "db:seed": "tsx seeds/seed.ts",
+    "code:admin": "tsx scripts/code-admin.ts",
+    "code:staff": "tsx scripts/code-staff.ts",
+    "wipe": "tsx --tsconfig tsconfig.json scripts/reset-production.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
-    "dotenv": "^18.0.6",
-    "express": "^5.2.1",
-    "pg": "^8.23.1",
-    "uuid": "^14.0.2",
-     "nodemon": "^3.1.14"
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "nodemon": "^3.1.14",
+    "pg": "^8.11.3",
+    "uuid": "^11.1.1",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
-    "@types/express": "^5.0.6",
+    "@types/express": "^4.17.25",
+    "@types/node": "^20.19.43",
     "@types/pg": "^8.23.1",
-    "tsx": "^4.23.15",
-    "typescript": "^5.8.3"
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
   }
 }

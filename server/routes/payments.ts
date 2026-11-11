@@ -1,18 +1,41 @@
 import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { pool } from "../database/db.js";
+import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
-import { NotFoundError } from "../utils/errors.js";
+import { NotFoundError, ConflictError } from "../utils/errors.js";
 import { makeId } from "../utils/make-id.js";
 import { paginate } from "../utils/paginate.js";
 import { businessService } from "../services/business.service.js";
 
+async function recomputePaymentStatusPg(orderId: string) {
+  await pool.query(
+    `UPDATE orders SET payment_status = (
+      SELECT CASE
+        WHEN EXISTS (SELECT 1 FROM payments WHERE order_id=$1 AND status='PENDING') THEN 'PROCESSING'
+        WHEN paid <= 0 AND refunds < 0 THEN 'REFUNDED'
+        WHEN paid <= 0 THEN 'UNPAID'
+        WHEN paid < total THEN 'PARTIALLY_PAID'
+        WHEN paid = total THEN 'PAID'
+        ELSE 'OVERPAID' END
+      FROM (SELECT o.total,
+              COALESCE((SELECT SUM(amount) FROM payments WHERE order_id=o.id AND status='CONFIRMED'),0) AS paid,
+              COALESCE((SELECT SUM(amount) FROM payments WHERE order_id=o.id AND status='CONFIRMED' AND kind='REFUND'),0) AS refunds
+            FROM orders o WHERE o.id=$1) x
+    ), updated_at = NOW() WHERE id=$1`,
+    [orderId],
+  );
+  const r = await pool.query<{ payment_status: string }>(`SELECT payment_status FROM orders WHERE id=$1`, [orderId]);
+  return r.rows[0]?.payment_status ?? null;
+}
+
 const router = Router();
+const rbacService = new RbacService()
 const authService = new AuthService();
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {
   try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
+    const session = await authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
@@ -74,114 +97,191 @@ function buildStkPushResponse(paymentId: string, orderId: string, amount: number
   };
 }
 
-router.post("/", required("payments.record"), (req, res) => {
-  const { orderId, amount, method, reference, receivedBy, notes } = req.body || {};
-  if (!orderId || amount === undefined) return res.status(400).json({ error: "orderId and amount are required" });
+import { paymentsService } from "../services/payments.service.js";
+import { getPaymentProvider } from "../services/payments-provider.service.js";
 
-  let ref = String(reference || "");
-  if (method === "M-Pesa" && !ref) {
-    ref = `MCA-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-  }
-
-  const payment = store.createPayment({
-    orderId,
-    amount: Number(amount),
-    method: method || "Cash",
-    reference: ref,
-    receivedBy: receivedBy || "admin",
-    notes: notes || "",
-  });
-
-  // Spec §14: outstanding balance is derived server-side from the payment
-  // ledger. An M-Pesa push is only *staged* here — the money has not landed
-  // yet — so the order goes PROCESSING (the stub state) until the customer
-  // confirms in the Pasa simulator; every other method is credited at once.
-  if (method === "M-Pesa") {
-    const order = store.db.orders.find((o) => o.id === orderId);
-    if (order) {
-      order.paymentStatus = "PROCESSING";
-      order.updatedAt = new Date().toISOString();
+router.post("/webhooks/:provider", async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const paymentId = body.paymentId || body.CheckoutRequestID;
+    if (paymentId) {
+      // Postgres mandatory for payment state.
+      const r = await pool.query(`SELECT order_id, status FROM payments WHERE id=$1`, [paymentId]);
+      const p = r.rows[0];
+      if (p && p.status === "PENDING") {
+        await pool.query(`UPDATE payments SET status='CONFIRMED', updated_at=NOW() WHERE id=$1 AND status='PENDING'`, [paymentId]);
+        await recomputePaymentStatusPg(p.order_id);
+      }
     }
-  } else {
-    store.recomputePaymentStatus(orderId);
-    // Ensure a production job exists when a paid order is already in the
-    // production pipeline. Mirrors markOrderPaid — every paid pipeline order
-    // surfaces on the Jobs board.
-    try {
-      businessService.prepareOrderForProduction(String(orderId), String(receivedBy || "admin"));
-    } catch {
-      /* Non-fatal — order may not be in a production-ready status yet. */
-    }
+    res.json({ ok: true });
+  } catch (err: any) {
+    if (/connect|ECONN|timeout|database/i.test(err?.message || "")) return res.status(503).json({ error: "Database unavailable" });
+    next(err);
   }
-  store.createAuditLog({
-    actor: String(receivedBy || "admin"), action: "payment:created",
-    entityType: "payment", entityId: payment.id, orderId: String(orderId),
-    reason: `${method || "Cash"}${ref ? ` · ${ref}` : ""} · order ${orderId}`,
-  });
-  store.persist();
-
-  res.status(201).json({
-    ...payment,
-    stagedPush: method === "M-Pesa" ? buildStkPushResponse(payment.id, orderId, Number(amount), receivedBy) : null,
-  });
 });
 
-router.post("/:id/callback", required("payments.record"), (req, res) => {
-  const id = String(req.params.id);
-  const payment = store.db.payments.find((p) => p.id === id);
-  if (!payment) throw new NotFoundError("Payment not found");
+router.post("/", required("payments.record"), async (req, res, next) => {
+  try {
+    const { orderId, amount, method, reference, receivedBy, notes, deliveryId, invoiceId, isOverpaymentOk } = req.body || {};
+    if (!orderId || amount === undefined) return res.status(400).json({ error: "orderId and amount are required" });
+    const amt = Number(amount);
+    if (!Number.isFinite(amt)) return res.status(400).json({ error: "amount must be a valid number" });
+    if (amt !== Math.round(amt)) return res.status(400).json({ error: "amount must be a whole number (UGX)" });
+    if (amt <= 0) return res.status(400).json({ error: "amount must be positive" });
 
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
-  const actor = session?.userId ?? "admin";
-  const body = req.body || {};
-  const resultCode = Number(body.resultCode);
-  const order = store.db.orders.find((o) => o.id === payment.orderId);
+    const key = (req.header("Idempotency-Key") as string | undefined) || (req.body?.idempotencyKey as string | undefined);
+    if (!key) return res.status(400).json({ error: "Idempotency-Key header required" });
 
-  if (resultCode === 0) {
-    // Money landed: the staged payment was already in the ledger at POST, so
-    // the derived status now recomputes to PAID (or OVERPAID when covered).
-    store.recomputePaymentStatus(payment.orderId);
-    // Ensure a production job exists when a paid order is already in the
-    // production pipeline — mirrors the markOrderPaid flow so every paid
-    // pipeline order surfaces on the Jobs board.
-    try {
-      businessService.prepareOrderForProduction(payment.orderId, actor);
-    } catch {
-      /* Non-fatal — order may not be in a production-ready status yet. */
+    const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+    const actor = { userId: session?.userId || String(receivedBy || "admin") };
+
+    const r = await paymentsService.recordPayment({
+      orderId: String(orderId),
+      amount: amt,
+      method: (method || "Cash") as any,
+      reference: reference || "",
+      idempotencyKey: String(key),
+      deliveryId: deliveryId || undefined,
+      notes: notes || "",
+      invoiceId: invoiceId || undefined,
+      isOverpaymentOk: Boolean(isOverpaymentOk),
+    }, actor);
+
+    // Post-commit side effects: payment is already persisted by paymentsService.
+    // Never fail the HTTP response after commit — that would look like "payment
+    // failed" and cause duplicate retries with new idempotency keys.
+    if ((method || "Cash") === "M-Pesa") {
+      try {
+        const order = store.db.orders.find((o) => o.id === orderId);
+        if (order && (r.payment as any).status !== "CONFIRMED") {
+          order.paymentStatus = "PROCESSING";
+          order.updatedAt = new Date().toISOString();
+        }
+      } catch {}
+    } else {
+      try {
+        businessService.prepareOrderForProduction(String(orderId), actor.userId);
+      } catch {}
     }
-    store.createNotification({
-      eventTypeId: "PaymentReceived",
-      title: "Payment received",
-      message: `M-Pesa payment of USh ${Number(payment.amount).toLocaleString("en-UG")} recorded against order ${payment.orderId} (reference ${payment.reference}).`,
-      priority: "HIGH",
-      entityType: "payment",
-      entityId: id,
-      actionUrl: "/workspace/finance#payments",
-      deepLink: null,
-      createdBy: actor,
-    });
-  } else {
-    // Customer aborted / the push failed: the money never landed, so the
-    // staged payment leaves the ledger and the order drops back to whatever
-    // the remaining payments justify (usually UNPAID).
-    const idx = store.db.payments.findIndex((p) => p.id === id);
-    if (idx !== -1) store.db.payments.splice(idx, 1);
-    store.recomputePaymentStatus(payment.orderId);
-    store.createNotification({
-      eventTypeId: "PaymentReceived",
-      title: "M-Pesa payment failed",
-      message: `Stub callback for payment ${id} returned resultCode ${resultCode}: ${body.resultDesc || "unknown reason"}. Check the reference and retry.`,
-      priority: "MEDIUM",
-      entityType: "payment",
-      entityId: id,
-      actionUrl: "/workspace/finance#payments",
-      deepLink: null,
-      createdBy: actor,
-    });
-  }
-  store.persist();
+    try {
+      store.createAuditLog({
+        actor: actor.userId, action: "payment:created",
+        entityType: "payment", entityId: (r.payment as any).id, orderId: String(orderId),
+        reason: `${method || "Cash"}${reference ? ` · ${reference}` : ""} · order ${orderId}`,
+      });
+    } catch (e) { console.warn("[payments] audit log failed (payment recorded):", e); }
+    try { store.persist(); } catch (e) { console.warn("[payments] store.persist failed (payment recorded):", e); }
 
-  res.json({ ok: true, payment: { ...payment, status: resultCode === 0 ? "COMPLETED" : "FAILED" }, orderPaymentStatus: order?.paymentStatus ?? null });
+    let stagedPush: Record<string, unknown> | null = null;
+    if ((method || "Cash") === "M-Pesa") {
+      try {
+        stagedPush = buildStkPushResponse((r.payment as any).id, orderId, amt, actor.userId);
+      } catch (e) {
+        console.warn("[payments] staged push build failed (payment recorded):", e);
+      }
+    }
+    res.status(r.replayed ? 200 : 201).json({ ...(r.payment as any), stagedPush });
+  } catch (err: any) {
+    const statusCode = Number(err?.statusCode || err?.status);
+    if (Number.isFinite(statusCode) && statusCode >= 400 && statusCode < 600) {
+      return res.status(statusCode).json({ error: err.message || "Payment request failed" });
+    }
+    if (err?.code === "23505") {
+      const msg = `${err?.constraint || ""} ${err?.detail || ""} ${err?.message || ""}`.toLowerCase();
+      if (msg.includes("idempotency") || msg.includes("uq_payments_idem")) {
+        return res.status(409).json({ error: "Duplicate payment request (idempotency key already used)" });
+      }
+      if (msg.includes("reference") || msg.includes("uq_payments_ref")) {
+        return res.status(409).json({ error: "A payment with this method and reference already exists" });
+      }
+      return res.status(409).json({ error: "Duplicate payment record" });
+    }
+    if (/connect|ECONN|timeout|database/i.test(err?.message || "")) {
+      return res.status(503).json({ error: "Database unavailable", detail: err?.message });
+    }
+    console.error("[payments] POST / failed:", err);
+    return res.status(500).json({ error: err?.message || "Failed to record payment" });
+  }
+});
+
+router.post("/:id/callback", required("payments.record"), async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+    const pr = await pool.query(`SELECT * FROM payments WHERE id=$1`, [id]);
+    const payment = pr.rows[0];
+    if (!payment) throw new NotFoundError("Payment not found");
+
+    const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+    const actor = session?.userId ?? "admin";
+    const body = req.body || {};
+    const resultCode = Number(body.resultCode);
+
+    if (resultCode === 0) {
+      if (payment.status === "PENDING") {
+        await pool.query(`UPDATE payments SET status='CONFIRMED', updated_at=NOW() WHERE id=$1`, [id]);
+        payment.status = "CONFIRMED";
+      }
+      const orderPaymentStatus = await recomputePaymentStatusPg(payment.order_id);
+      try { businessService.prepareOrderForProduction(payment.order_id, actor); } catch {}
+      try {
+        store.createNotification({
+          eventTypeId: "PaymentReceived", title: "Payment received",
+          message: `M-Pesa payment of USh ${Number(payment.amount).toLocaleString("en-UG")} recorded against order ${payment.order_id} (reference ${payment.reference || ""}).`,
+          priority: "HIGH", entityType: "payment", entityId: id, actionUrl: "/workspace/finance#payments", deepLink: null, createdBy: actor,
+        });
+      } catch {}
+      return res.json({ ok: true, payment: { ...payment, status: payment.status }, orderPaymentStatus });
+    } else {
+      if (payment.status === "PENDING") {
+        await pool.query(`UPDATE payments SET status='FAILED', updated_at=NOW() WHERE id=$1`, [id]);
+        payment.status = "FAILED";
+      }
+      const orderPaymentStatus = await recomputePaymentStatusPg(payment.order_id);
+      try {
+        store.createNotification({
+          eventTypeId: "PaymentReceived", title: "M-Pesa payment failed",
+          message: `Stub callback for payment ${id} returned resultCode ${resultCode}: ${body.resultDesc || "unknown reason"}. Check the reference and retry.`,
+          priority: "MEDIUM", entityType: "payment", entityId: id, actionUrl: "/workspace/finance#payments", deepLink: null, createdBy: actor,
+        });
+      } catch {}
+      return res.json({ ok: true, payment: { ...payment, status: payment.status }, orderPaymentStatus });
+    }
+  } catch (err: any) {
+    if (/connect|ECONN|timeout|database/i.test(err?.message || "")) return res.status(503).json({ error: "Database unavailable" });
+    next(err);
+  }
+});
+
+router.post("/:id/reverse", required("payments.reverse"), async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+    const { reason, kind = "REVERSAL" } = req.body || {};
+    if (!reason?.trim()) return res.status(400).json({ error: "Reason required" });
+    const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+    const actor = { userId: session?.userId ?? "admin" };
+
+    const pr = await pool.query(`SELECT * FROM payments WHERE id=$1`, [id]);
+    const payment = pr.rows[0];
+    if (!payment) throw new NotFoundError("Payment not found");
+    if (payment.kind && payment.kind !== "PAYMENT") throw new ConflictError("Only confirmed payments can be reversed");
+    if (payment.status && payment.status !== "CONFIRMED") throw new ConflictError("Only confirmed payments can be reversed");
+    const existing = await pool.query(`SELECT 1 FROM payments WHERE reverses_payment_id=$1 LIMIT 1`, [id]);
+    if ((existing.rowCount ?? 0) > 0) throw new ConflictError("Already reversed");
+
+    const revId = `pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const now = new Date().toISOString();
+    await pool.query(
+      `INSERT INTO payments (id,order_id,amount,method,reference,received_by,notes,kind,status,reverses_payment_id,reason,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12)`,
+      [revId, payment.order_id, -Number(payment.amount || 0), payment.method, `REV-${id}`, actor.userId, String(reason), kind === "REFUND" ? "REFUND" : "REVERSAL", "CONFIRMED", id, String(reason), now],
+    );
+    const orderPaymentStatus = await recomputePaymentStatusPg(payment.order_id);
+    try { store.createAuditLog({ actor: actor.userId, action: "payment:reversed", entityType: "payment", entityId: revId, orderId: payment.order_id, reason }); } catch {}
+    res.status(201).json({ id: revId, orderId: payment.order_id, amount: -Number(payment.amount || 0), method: payment.method, reference: `REV-${id}`, receivedBy: actor.userId, notes: reason, kind: kind === "REFUND" ? "REFUND" : "REVERSAL", status: "CONFIRMED", reverses_payment_id: id, reason, createdAt: now, orderPaymentStatus });
+  } catch (err) {
+    if (/connect|ECONN|timeout|database/i.test((err as any)?.message || "")) return res.status(503).json({ error: "Database unavailable" });
+    next(err);
+  }
 });
 
 export default router;

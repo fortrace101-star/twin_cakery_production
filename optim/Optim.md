@@ -95,6 +95,9 @@ Rules the skill applies when a step spans modules:
 - **Permissions:** `resource.action` keys, enforced on the server with the shared `requirePermission`, deny by default; UI hiding is convenience only.
 - **Every state change** goes through the state machine and emits a `domain_events` row in the same transaction.
 - **No silent failures:** no empty `catch {}` on business steps.
+- **UI checklist first (Step E mandatory):** For every module, the detailed UI checklist is generated BEFORE any implementation starts. A module cannot be marked In progress or Complete while its UI checklist says "not generated".
+- **Live update required for lists/boards/tables/status views:** Every UI checklist item for a list, board, table or status view includes a sub-task "live update": the view refreshes on status changes without a manual reload (via the realtime channel, or polling as the fallback), and the test covers it.
+- **UI mapping gate:** A step with open mapped UI items cannot be ticked.
 
 ---
 
@@ -180,15 +183,26 @@ Rules the skill applies when a step spans modules:
 - Register ignores `role`/`isAdmin` in body.
 - Maker cannot approve own request.
 
-### UI scope
+### UI features
+The module's UI work, drafted at execution time.
+<!-- UI-PLAN:BEGIN -->
+**Drafted for execution:** no (seeded from catalogue only)
 
-General: 5 UI items are catalogued for this module in the skill (`references/ui-features.md` → `SEC`). The skill expands them into a detailed UI checklist inside `Optim_progress.md`, each mapped to the step above that it supports.
+| ID | Kind | Target | Element / behaviour | Supports | Source |
+|---|---|---|---|---|---|
+| UI-SEC-01 | NEW | `erp-interface-design/src/components/erp/ (new roles-view.tsx)` | Role-permission matrix (roles as columns, `resource.action` rows, toggle with confirm + reason). | SEC-12 | catalogue |
+| UI-SEC-02 | NEW | `erp-interface-design/src/components/erp/ (new users panel)` | User list with role assignment, active session list, 'revoke all sessions'. | SEC-06 | catalogue |
+| UI-SEC-03 | ADJUST | `erp-interface-design/src/components/erp/sidebar.tsx, workspace.tsx` | Hide nav items and actions the user cannot perform via `usePermission()`. | SEC-12 | catalogue |
+| UI-SEC-04 | ADJUST | `erp-interface-design/src/pages/LoginPage.tsx` | Lockout/429 message with countdown; no role hints on failure. | SEC-03 | catalogue |
+| UI-SEC-05 | NEW | `erp-interface-design/src/components/erp/dialogs.tsx` | Reusable `ApprovalRequestDialog` and approvals inbox entry. | SEC-10 | catalogue |
+<!-- UI-PLAN:END -->
+
 
 ### Plan adjustments (maintained by the skill)
 
 | Date | Step | Change | Reason / evidence |
 |---|---|---|---|
-| | | _none yet_ | |
+| 2026-11-02 | SEC-* | UI features section standardized; checklist expanded per new workflow; SEC-06 reopened (UI-SEC-02 not done) | New UI plan workflow applied (Step E revised) |
 
 ---
 
@@ -226,6 +240,7 @@ General: 5 UI items are catalogued for this module in the skill (`references/ui-
 - [ ] **ORD-08** [P5] **Comments, assignee and handoff status on orders.** Order comment thread with @mentions, 'assign to', statuses such as 'Needs info from sales' / 'Design approved'. _Touches: NOT_
 - [ ] **ORD-09** [P5] **Order analytics feeds.** Volume by status and source, amendment rate, cancellation rate and reasons, lead time vs promise via milestones/events. _Touches: ANA_
 - [ ] **ORD-10** [P2] **Order tests.** PATCH field whitelist, transition table, server pricing, override permission, gap-free numbering under concurrency. _Touches: ARC_
+- [ ] **ORD-11** [P2] **Fix order confirmation reverting to pending.** Reproduce failing test, trace Confirm button/API/route/business/store/frontend/refetch; fix all layers; ensure status persists after refresh/restart, job on correct station, clear error on failure. Hotfix by user request. _Touches: PROD, ARC_
 
 ### Inbound touchpoints (owned by other modules, implemented there)
 
@@ -265,15 +280,27 @@ General: 5 UI items are catalogued for this module in the skill (`references/ui-
 - confirm creates job + reservations atomically or fails.
 - Concurrent creates never duplicate order numbers.
 
-### UI scope
+### UI features
+The module's UI work, drafted at execution time.
+<!-- UI-PLAN:BEGIN -->
+**Drafted for execution:** no (seeded from catalogue only)
 
-General: 6 UI items are catalogued for this module in the skill (`references/ui-features.md` → `ORD`). The skill expands them into a detailed UI checklist inside `Optim_progress.md`, each mapped to the step above that it supports.
+| ID | Kind | Target | Element / behaviour | Supports | Source |
+|---|---|---|---|---|---|
+| UI-ORD-01 | ADJUST | `erp-interface-design/src/components/erp/workspace.tsx (order detail)` | Payment badge read-only and derived; remove editable total/payment/status controls. | ORD-01 | catalogue |
+| UI-ORD-02 | NEW | `erp-interface-design/src/components/erp/dialogs.tsx` | Reschedule dialog (new date, reason code, note) and Cancel dialog (reason, refund/forfeit preview). | ORD-05 | catalogue |
+| UI-ORD-03 | NEW | `erp-interface-design/src/components/erp/workspace.tsx` | Amendment dialog showing price delta and resulting balance. | ORD-06 | catalogue |
+| UI-ORD-04 | NEW | `erp-interface-design/src/components/erp/workspace.tsx` | Order timeline (milestones, who/when) and comments panel with @mentions. | ORD-08 | catalogue |
+| UI-ORD-05 | ADJUST | `erp-interface-design/src/components/erp/dialogs.tsx (new order)` | Price display is read-only preview from server; 'Override price' needs permission and reason. | ORD-02 | catalogue |
+| UI-ORD-06 | ADJUST | `erp-interface-design/src/components/erp/module-table.tsx` | Status badge from shared status-colour map; filters for source, assignee, date basis. | ORD-03 | catalogue |
+<!-- UI-PLAN:END -->
+
 
 ### Plan adjustments (maintained by the skill)
 
 | Date | Step | Change | Reason / evidence |
 |---|---|---|---|
-| | | _none yet_ | |
+| 2026-11-09 | DEL-00, UI-DEL-01/02 (rendered path) | Reconciled: deliveries UI renders via `erp-interface-design/src/components/erp/module-table.tsx` (workspace), not only `deliveries-view.tsx`. `api.completeDelivery` lacked the server-required settlement body; server `POST /deliveries/:id/complete` now expects `collected` or `noCollection` (422 otherwise). Implemented settlement confirmation in ModuleTable Dispatch (balance due shown, collect amount/method/reference or no-collection reason required, confirm disabled until valid), uses `completeDelivery(deliveryId, body)` when a delivery record resolves, falls back to order status update with notice if not. `tsc --noEmit` + `npm run build` pass; no runtime/E2E or server tests run. | Code reality differs from older DEL-01/02 narrative; UI wired to current server contract in rendered path. |
 
 ---
 
@@ -327,9 +354,19 @@ General: 6 UI items are catalogued for this module in the skill (`references/ui-
 - Sender without accept cannot accept.
 - Double convert creates one order.
 
-### UI scope
+### UI features
+The module's UI work, drafted at execution time.
+<!-- UI-PLAN:BEGIN -->
+**Drafted for execution:** no (seeded from catalogue only)
 
-General: 4 UI items are catalogued for this module in the skill (`references/ui-features.md` → `QUO`). The skill expands them into a detailed UI checklist inside `Optim_progress.md`, each mapped to the step above that it supports.
+| ID | Kind | Target | Element / behaviour | Supports | Source |
+|---|---|---|---|---|---|
+| UI-QUO-01 | ADJUST | `erp-interface-design/src/components/erp/ (quote editor)` | Edits actually persist; show saved/dirty state and last-saved-by. | QUO-01 | catalogue |
+| UI-QUO-02 | NEW | `erp-interface-design/src/components/erp/ (quote editor)` | Version tabs (v1, v2) with diff and 'revert to version'. | QUO-04 | catalogue |
+| UI-QUO-03 | NEW | `erp-interface-design/src/components/erp/ (quote list)` | Expiry chip, 'Convert to order' button, send dialog (WhatsApp/PDF). | QUO-05 | catalogue |
+| UI-QUO-04 | NEW | `erp-interface-design/src/components/erp/ (inquiries)` | Inquiry SLA badge (age since received) and unanswered filter. | QUO-07 | catalogue |
+<!-- UI-PLAN:END -->
+
 
 ### Plan adjustments (maintained by the skill)
 
@@ -407,9 +444,21 @@ General: 4 UI items are catalogued for this module in the skill (`references/ui-
 - QC FAIL stored as FAIL and blocks ready.
 - Consumption cost = inventory unit cost x qty.
 
-### UI scope
+### UI features
+The module's UI work, drafted at execution time.
+<!-- UI-PLAN:BEGIN -->
+**Drafted for execution:** no (seeded from catalogue only)
 
-General: 6 UI items are catalogued for this module in the skill (`references/ui-features.md` → `PROD`). The skill expands them into a detailed UI checklist inside `Optim_progress.md`, each mapped to the step above that it supports.
+| ID | Kind | Target | Element / behaviour | Supports | Source |
+|---|---|---|---|---|---|
+| UI-PROD-01 | ADJUST | `erp-interface-design/src/components/erp/production-view.tsx` | Job actions enabled only from valid states; clear disabled reasons. | PROD-01 | catalogue |
+| UI-PROD-02 | ADJUST | `erp-interface-design/src/components/erp/production-view.tsx (QC form)` | Real QC form: result, checklist, photo, rework reason; submit persists. | PROD-02 | catalogue |
+| UI-PROD-03 | NEW | `erp-interface-design/src/components/erp/production-view.tsx` | Week calendar with capacity bars, colour-coded status, drag-to-reschedule (uses ORD reschedule). | PROD-06 | catalogue |
+| UI-PROD-04 | NEW | `erp-interface-design/src/components/erp/production-view.tsx` | Printable daily production sheet (size, flavour, inscription, allergies, photos, delivery time); allergies/preferences also need CAT-03 and CRM-06. | PROD-06 | catalogue |
+| UI-PROD-05 | NEW | `erp-interface-design/src/components/erp/production-view.tsx` | Job detail: planned vs actual materials and cost, variance split. | PROD-04 | catalogue |
+| UI-PROD-06 | NEW | `erp-interface-design/src/components/erp/production-view.tsx` | Baker 'my queue' view with large touch targets (needs SEC-09 record-level scoping). | PROD-01 | catalogue |
+<!-- UI-PLAN:END -->
+
 
 ### Plan adjustments (maintained by the skill)
 
@@ -476,9 +525,19 @@ General: 6 UI items are catalogued for this module in the skill (`references/ui-
 - Adjustment below zero rejected.
 - FEFO picks earliest expiry.
 
-### UI scope
+### UI features
+The module's UI work, drafted at execution time.
+<!-- UI-PLAN:BEGIN -->
+**Drafted for execution:** no (seeded from catalogue only)
 
-General: 4 UI items are catalogued for this module in the skill (`references/ui-features.md` → `INV`). The skill expands them into a detailed UI checklist inside `Optim_progress.md`, each mapped to the step above that it supports.
+| ID | Kind | Target | Element / behaviour | Supports | Source |
+|---|---|---|---|---|---|
+| UI-INV-01 | ADJUST | `erp-interface-design/src/components/erp/inventory-view.tsx` | Stock table shows on-hand / reserved / available separately. | INV-01 | catalogue |
+| UI-INV-02 | ADJUST | `erp-interface-design/src/components/erp/dialogs.tsx (adjust)` | Adjust dialog: reason code required, blocks negative result, approval hint for large write-offs. | INV-02 | catalogue |
+| UI-INV-03 | NEW | `erp-interface-design/src/components/erp/inventory-view.tsx` | Batch & expiry columns with near-expiry badge. | INV-03 | catalogue |
+| UI-INV-04 | NEW | `erp-interface-design/src/components/erp/inventory-view.tsx` | Stock-take screen (count sheet, variance, submit for approval). | INV-05 | catalogue |
+<!-- UI-PLAN:END -->
+
 
 ### Plan adjustments (maintained by the skill)
 
@@ -538,9 +597,19 @@ General: 4 UI items are catalogued for this module in the skill (`references/ui-
 - Bad supplier id -> 422.
 - Bill amount mismatch flagged.
 
-### UI scope
+### UI features
+The module's UI work, drafted at execution time.
+<!-- UI-PLAN:BEGIN -->
+**Drafted for execution:** no (seeded from catalogue only)
 
-General: 4 UI items are catalogued for this module in the skill (`references/ui-features.md` → `PUR`). The skill expands them into a detailed UI checklist inside `Optim_progress.md`, each mapped to the step above that it supports.
+| ID | Kind | Target | Element / behaviour | Supports | Source |
+|---|---|---|---|---|---|
+| UI-PUR-01 | ADJUST | `erp-interface-design/src/components/erp/purchasing-view.tsx` | Supplier select required; show validation error instead of silent default. | PUR-02 | catalogue |
+| UI-PUR-02 | NEW | `erp-interface-design/src/components/erp/purchasing-view.tsx` | PO approval banner and receive dialog with partial quantities and discrepancy notes. | PUR-03 | catalogue |
+| UI-PUR-03 | NEW | `erp-interface-design/src/components/erp/purchasing-view.tsx` | Bills tab with due dates and payables ageing card. | PUR-04 | catalogue |
+| UI-PUR-04 | NEW | `erp-interface-design/src/components/erp/purchasing-view.tsx` | Supplier scorecard. | PUR-07 | catalogue |
+<!-- UI-PLAN:END -->
+
 
 ### Plan adjustments (maintained by the skill)
 
@@ -613,9 +682,21 @@ General: 4 UI items are catalogued for this module in the skill (`references/ui-
 - The six audit tests (see step 11).
 - markorder-paid.test.ts updated for the new settlement flow.
 
-### UI scope
+### UI features
+The module's UI work, drafted at execution time.
+<!-- UI-PLAN:BEGIN -->
+**Drafted for execution:** no (seeded from catalogue only)
 
-General: 6 UI items are catalogued for this module in the skill (`references/ui-features.md` → `DEL`). The skill expands them into a detailed UI checklist inside `Optim_progress.md`, each mapped to the step above that it supports.
+| ID | Kind | Target | Element / behaviour | Supports | Source |
+|---|---|---|---|---|---|
+| UI-DEL-01 | ADJUST | `erp-interface-design/src/components/erp/deliveries-view.tsx` | 'Complete delivery/collection' opens a settlement dialog showing 'Collect UGX X' and disables confirm until collected or reason given. | DEL-04 | catalogue |
+| UI-DEL-02 | ADJUST | `erp-interface-design/src/components/erp/deliveries-panels.tsx` | Delivery card shows balance due, payment method chips, cash-with-driver state. | DEL-01 | catalogue |
+| UI-DEL-03 | NEW | `erp-interface-design/src/components/erp/dialogs.tsx` | Failure/cancel dialog with reason codes and reschedule option. | DEL-03 | catalogue |
+| UI-DEL-04 | NEW | `erp-interface-design/src/components/erp/deliveries-view.tsx` | Driver mobile view: my deliveries, big buttons, POD capture (photo/OTP). | DEL-08 | catalogue |
+| UI-DEL-05 | NEW | `erp-interface-design/src/components/erp/ (finance-view.tsx)` | Remittance confirmation list for Finance. | DEL-05 | catalogue |
+| UI-DEL-06 | ADJUST | `erp-interface-design/src/components/erp/deliveries-filters.tsx` | Filters by new statuses, driver, zone, late. | DEL-03 | catalogue |
+<!-- UI-PLAN:END -->
+
 
 ### Plan adjustments (maintained by the skill)
 
@@ -704,9 +785,22 @@ General: 6 UI items are catalogued for this module in the skill (`references/ui-
 - Closed period rejects postings.
 - Reversal links to original.
 
-### UI scope
+### UI features
+The module's UI work, drafted at execution time.
+<!-- UI-PLAN:BEGIN -->
+**Drafted for execution:** no (seeded from catalogue only)
 
-General: 7 UI items are catalogued for this module in the skill (`references/ui-features.md` → `FIN`). The skill expands them into a detailed UI checklist inside `Optim_progress.md`, each mapped to the step above that it supports.
+| ID | Kind | Target | Element / behaviour | Supports | Source |
+|---|---|---|---|---|---|
+| UI-FIN-01 | ADJUST | `erp-interface-design/src/components/erp/finance-view.tsx` | Split into tabs: Overview, Invoices, Payments, Expenses, Reports. | FIN-07 | catalogue |
+| UI-FIN-02 | NEW | `erp-interface-design/src/components/erp/finance-view.tsx` | Receivables ageing card and 'Needs attention' list (overdue balances, unconfirmed mobile payments). | FIN-11 | catalogue |
+| UI-FIN-03 | NEW | `erp-interface-design/src/components/erp/dialogs.tsx` | Reversal/refund dialog with reason and approval status; payment rows show FAILED/REVERSED badges. | FIN-01 | catalogue |
+| UI-FIN-04 | NEW | `erp-interface-design/src/components/erp/finance-view.tsx` | Approvals queue (refunds, discounts, voids, manual journals) with acknowledge. | FIN-07 | catalogue |
+| UI-FIN-05 | NEW | `erp-interface-design/src/components/erp/finance-view.tsx` | Cash-up screen and remittance confirmation. | FIN-08 | catalogue |
+| UI-FIN-06 | NEW | `erp-interface-design/src/components/erp/finance-view.tsx` | Period close control with lock indicator. | FIN-06 | catalogue |
+| UI-FIN-07 | ADJUST | `erp-interface-design/src/components/erp/dashboard.tsx` | Revenue/gross-profit cards use the same period; show date basis. | FIN-03 | catalogue |
+<!-- UI-PLAN:END -->
+
 
 ### Plan adjustments (maintained by the skill)
 
@@ -787,9 +881,20 @@ General: 7 UI items are catalogued for this module in the skill (`references/ui-
 - Snapshot values unchanged after record edit.
 - Baker role receives no margin fields.
 
-### UI scope
+### UI features
+The module's UI work, drafted at execution time.
+<!-- UI-PLAN:BEGIN -->
+**Drafted for execution:** no (seeded from catalogue only)
 
-General: 5 UI items are catalogued for this module in the skill (`references/ui-features.md` → `ANA`). The skill expands them into a detailed UI checklist inside `Optim_progress.md`, each mapped to the step above that it supports.
+| ID | Kind | Target | Element / behaviour | Supports | Source |
+|---|---|---|---|---|---|
+| UI-ANA-01 | ADJUST | `erp-interface-design/src/components/erp/analytics-view.tsx` | Remove invented numbers; empty states; date-range and compare controls on every chart. | ANA-01 | catalogue |
+| UI-ANA-02 | NEW | `erp-interface-design/src/components/erp/analytics-view.tsx` | Date-basis selector (order / delivery / payment). | ANA-03 | catalogue |
+| UI-ANA-03 | NEW | `erp-interface-design/src/components/erp/analytics-view.tsx` | Tabs by audience: Operations, Finance, Customers, Staff (permission-gated). | ANA-08 | catalogue |
+| UI-ANA-04 | ADJUST | `erp-interface-design/src/components/erp/dashboard.tsx` | 6-8 KPI cards, trend chart, needs-attention list; click-through. | ANA-09 | catalogue |
+| UI-ANA-05 | NEW | `erp-interface-design/src/components/erp/analytics-view.tsx` | Export CSV/PDF with applied filters; metric definitions drawer. | ANA-04 | catalogue |
+<!-- UI-PLAN:END -->
+
 
 ### Plan adjustments (maintained by the skill)
 
@@ -883,9 +988,20 @@ General: 5 UI items are catalogued for this module in the skill (`references/ui-
 - One event -> one unread per user.
 - Template variables resolved.
 
-### UI scope
+### UI features
+The module's UI work, drafted at execution time.
+<!-- UI-PLAN:BEGIN -->
+**Drafted for execution:** no (seeded from catalogue only)
 
-General: 5 UI items are catalogued for this module in the skill (`references/ui-features.md` → `NOT`). The skill expands them into a detailed UI checklist inside `Optim_progress.md`, each mapped to the step above that it supports.
+| ID | Kind | Target | Element / behaviour | Supports | Source |
+|---|---|---|---|---|---|
+| UI-NOT-01 | ADJUST | `erp-interface-design/src/components/erp/topbar.tsx` | Bell: correct unread count, live updates, severity styling, acknowledge button. | NOT-07 | catalogue |
+| UI-NOT-02 | NEW | `erp-interface-design/src/components/erp/ (notification centre page)` | Full list with filters, mark all read, why-was-this-sent (event link). | NOT-06 | catalogue |
+| UI-NOT-03 | NEW | `erp-interface-design/src/components/erp/ (settings)` | Per-user channel preferences and quiet hours. | NOT-04 | catalogue |
+| UI-NOT-04 | NEW | `erp-interface-design/src/components/erp/ (audit viewer)` | Audit log viewer with filters and old/new diff. | NOT-05 | catalogue |
+| UI-NOT-05 | NEW | `erp-interface-design/src/components/erp/workspace.tsx` | Comments panel with @mention autocomplete. | NOT-08 | catalogue |
+<!-- UI-PLAN:END -->
+
 
 ### Plan adjustments (maintained by the skill)
 
@@ -949,9 +1065,19 @@ General: 5 UI items are catalogued for this module in the skill (`references/ui-
 - Opted-out customer never gets a send link.
 - Merge preserves orders and events.
 
-### UI scope
+### UI features
+The module's UI work, drafted at execution time.
+<!-- UI-PLAN:BEGIN -->
+**Drafted for execution:** no (seeded from catalogue only)
 
-General: 4 UI items are catalogued for this module in the skill (`references/ui-features.md` → `CRM`). The skill expands them into a detailed UI checklist inside `Optim_progress.md`, each mapped to the step above that it supports.
+| ID | Kind | Target | Element / behaviour | Supports | Source |
+|---|---|---|---|---|---|
+| UI-CRM-01 | NEW | `erp-interface-design/src/components/erp/crm-view.tsx` | Customer timeline tab. | CRM-07 | catalogue |
+| UI-CRM-02 | NEW | `erp-interface-design/src/components/erp/crm-panels.tsx` | Reminder card: template preview, 'Send via WhatsApp', outcome buttons, 'Convert to order'. | CRM-02 | catalogue |
+| UI-CRM-03 | NEW | `erp-interface-design/src/components/erp/crm-view.tsx` | Consent toggles per channel; tags and segment filters. | CRM-03 | catalogue |
+| UI-CRM-04 | NEW | `erp-interface-design/src/components/erp/crm-view.tsx` | Duplicate-detected banner and merge dialog. | CRM-05 | catalogue |
+<!-- UI-PLAN:END -->
+
 
 ### Plan adjustments (maintained by the skill)
 
@@ -1007,9 +1133,18 @@ General: 4 UI items are catalogued for this module in the skill (`references/ui-
 - Recipe cost = sum(item qty x unit cost) / yield.
 - Archived product not orderable.
 
-### UI scope
+### UI features
+The module's UI work, drafted at execution time.
+<!-- UI-PLAN:BEGIN -->
+**Drafted for execution:** no (seeded from catalogue only)
 
-General: 3 UI items are catalogued for this module in the skill (`references/ui-features.md` → `CAT`). The skill expands them into a detailed UI checklist inside `Optim_progress.md`, each mapped to the step above that it supports.
+| ID | Kind | Target | Element / behaviour | Supports | Source |
+|---|---|---|---|---|---|
+| UI-CAT-01 | NEW | `erp-interface-design/src/components/erp/ (recipe editor)` | Recipe editor with ingredient rows, yield, version history and approve action. | CAT-01 | catalogue |
+| UI-CAT-02 | NEW | `erp-interface-design/src/components/erp/ (catalogue)` | Cost vs price margin chip with warning below threshold. | CAT-02 | catalogue |
+| UI-CAT-03 | NEW | `erp-interface-design/src/components/erp/ (catalogue)` | Variant editor (size/flavour) with cost and price. | CAT-04 | catalogue |
+<!-- UI-PLAN:END -->
+
 
 ### Plan adjustments (maintained by the skill)
 
@@ -1062,9 +1197,18 @@ General: 3 UI items are catalogued for this module in the skill (`references/ui-
 - Creator cannot approve own period.
 - Staff A cannot read staff B payslip.
 
-### UI scope
+### UI features
+The module's UI work, drafted at execution time.
+<!-- UI-PLAN:BEGIN -->
+**Drafted for execution:** no (seeded from catalogue only)
 
-General: 3 UI items are catalogued for this module in the skill (`references/ui-features.md` → `STF`). The skill expands them into a detailed UI checklist inside `Optim_progress.md`, each mapped to the step above that it supports.
+| ID | Kind | Target | Element / behaviour | Supports | Source |
+|---|---|---|---|---|---|
+| UI-STF-01 | ADJUST | `erp-interface-design/src/components/erp/staff-view.tsx` | Approve button disabled for the creator with explanation. | STF-01 | catalogue |
+| UI-STF-02 | NEW | `erp-interface-design/src/components/erp/staff-view.tsx` | Payroll posting status column (posted to finance). | STF-02 | catalogue |
+| UI-STF-03 | ADJUST | `erp-interface-design/src/components/erp/staff-view.tsx` | Payslip visible only to Admin and owner. | STF-04 | catalogue |
+<!-- UI-PLAN:END -->
+
 
 ### Plan adjustments (maintained by the skill)
 
@@ -1126,9 +1270,18 @@ General: 3 UI items are catalogued for this module in the skill (`references/ui-
 - Rate limit returns 429.
 - Tracking requires matching phone.
 
-### UI scope
+### UI features
+The module's UI work, drafted at execution time.
+<!-- UI-PLAN:BEGIN -->
+**Drafted for execution:** no (seeded from catalogue only)
 
-General: 3 UI items are catalogued for this module in the skill (`references/ui-features.md` → `WEB`). The skill expands them into a detailed UI checklist inside `Optim_progress.md`, each mapped to the step above that it supports.
+| ID | Kind | Target | Element / behaviour | Supports | Source |
+|---|---|---|---|---|---|
+| UI-WEB-01 | NEW | `sweet-moments-cakery-web/src/pages (new track-order.tsx)` | Order tracking page. | WEB-04 | catalogue |
+| UI-WEB-02 | ADJUST | `sweet-moments-cakery-web/src/pages/contact.tsx` | Honeypot/CAPTCHA, inline validation, success state, source tag. | WEB-01 | catalogue |
+| UI-WEB-03 | NEW | `erp-interface-design/src/components/erp/OrderProposalsView.tsx` | Review queue for proposals/inquiries with accept/reject/mark spam. | WEB-01 | catalogue |
+<!-- UI-PLAN:END -->
+
 
 ### Plan adjustments (maintained by the skill)
 
@@ -1226,9 +1379,18 @@ General: 3 UI items are catalogued for this module in the skill (`references/ui-
 - Transaction rolls back all steps on failure.
 - Events written in same transaction.
 
-### UI scope
+### UI features
+The module's UI work, drafted at execution time.
+<!-- UI-PLAN:BEGIN -->
+**Drafted for execution:** no (seeded from catalogue only)
 
-General: 3 UI items are catalogued for this module in the skill (`references/ui-features.md` → `ARC`). The skill expands them into a detailed UI checklist inside `Optim_progress.md`, each mapped to the step above that it supports.
+| ID | Kind | Target | Element / behaviour | Supports | Source |
+|---|---|---|---|---|---|
+| UI-ARC-01 | NEW | `erp-interface-design/src/components/erp/ (needs-attention page)` | 'Needs attention' queue for failed side effects with retry/resolve. | ARC-07 | catalogue |
+| UI-ARC-02 | ADJUST | `erp-interface-design/src/components/erp/ui.tsx` | Single shared status-colour map used by orders, payments, deliveries, jobs. | ARC-05 | catalogue |
+| UI-ARC-03 | NEW | `erp-interface-design/src/components/erp/ui.tsx` | Standard empty/loading/error state components. | ARC-07 | catalogue |
+<!-- UI-PLAN:END -->
+
 
 ### Plan adjustments (maintained by the skill)
 

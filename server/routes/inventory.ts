@@ -1,17 +1,19 @@
 import { Router, RequestHandler } from "express";
 import { store } from "../database/store.js";
-import { rbacService } from "../services/rbac.service.js";
+import { pool } from "../database/db.js";
+import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { NotFoundError } from "../utils/errors.js";
 import { publishLowStockAlert } from "../services/stock-alerts.js";
 import { paginate } from "../utils/paginate.js";
 
 const router = Router();
+const rbacService = new RbacService()
 const authService = new AuthService();
 
 const required = (perm: string): RequestHandler => async (req, res, next) => {
   try {
-    const session = authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
+    const session = await authService.requireAuth(extractToken(req.headers.authorization as string | undefined));
     await rbacService.requirePermission(session.userId, perm);
     next();
   } catch (err) {
@@ -65,13 +67,22 @@ router.get("/alerts", required("inventory.view"), (req, res) => {
   res.json({ count: alerts.length, alerts });
 });
 
-router.post("/", required("inventory.adjust"), (req, res) => {
+router.post("/", required("inventory.adjust"), async (req, res) => {
   const { name, sku, category, unit, physicalStock, reorderLevel, cost, supplierId } = req.body || {};
   if (!name) return res.status(400).json({ error: "name is required" });
   const item = store.createInventoryItem({ name, sku: sku ?? "", category: category ?? "", unit: unit ?? "unit", physicalStock: physicalStock ?? 0, reorderLevel: reorderLevel ?? 0, cost: cost ?? 0, supplierId: supplierId ?? "" });
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
-  store.createAuditLog({ actor: session?.userId ?? "system", action: "inventory:created", entityType: "inventory_item", entityId: item.id, reason: `Created ${name}` });
-  store.persist();
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  try {
+    await pool.query(
+      `INSERT INTO inventory_items (id,name,sku,category,unit,reorder_level,supplier_id,last_updated,created_at,updated_at,cost)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),$8,$8,$9) ON CONFLICT (id) DO NOTHING`,
+      [item.id, item.name, (item as any).sku || "", (item as any).category || "", (item as any).unit || "unit", Number((item as any).reorderLevel || 0), (item as any).supplierId || null, (item as any).createdAt || new Date().toISOString(), Number((item as any).cost || 0)],
+    );
+  } catch (err: any) {
+    if (/connect|ECONN|timeout|database/i.test(err?.message || "")) return res.status(503).json({ error: "Database unavailable" });
+    return res.status(500).json({ error: err?.message || "Failed to persist inventory item" });
+  }
+  try { store.createAuditLog({ actor: session?.userId ?? "system", action: "inventory:created", entityType: "inventory_item", entityId: item.id, reason: `Created ${name}` }); } catch {}
   res.status(201).json(item);
 });
 
@@ -82,43 +93,59 @@ router.get("/:id", required("inventory.view"), (req, res) => {
   res.json({ ...item, reservedStock: reservations.reduce((s, r) => s + r.quantity, 0) });
 });
 
-router.post("/adjustments", required("inventory.adjust"), (req, res) => {
+router.post("/adjustments", required("inventory.adjust"), async (req, res) => {
   const { itemId, quantity, unit, type, reference, user, unitCost, notes } = req.body || {};
   if (!itemId || quantity === undefined) return res.status(400).json({ error: "itemId and quantity are required" });
-  const session = authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   const previousStock = store.inventoryItems().find((i) => i.id === itemId)?.physicalStock ?? 0;
   const transaction = store.adjustInventory(itemId, quantity, unit || "unit", type || "ADJUSTMENT_IN", reference || "", user || "admin", unitCost || null, notes || "");
   if (!transaction) throw new NotFoundError("Inventory item not found");
-  store.createAuditLog({
-    actor: session?.userId ?? String(user || "admin"), action: "inventory:adjusted",
-    entityType: "inventory_item", entityId: String(itemId),
-    reason: `${type || "ADJUSTMENT"} ${quantity} ${unit || "unit"}${reference ? ` · ${reference}` : ""}`,
-  });
-  store.persist();
-  if (session) publishLowStockAlert(itemId, previousStock, { userId: session.userId, role: session.userId, isAdmin: true });
+  // Postgres mandatory: persist transaction ledger.
+  try {
+    await pool.query(
+      `INSERT INTO inventory_transactions (id,item_id,quantity,unit,type,reference,tx_user,timestamp,unit_cost,notes,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11) ON CONFLICT (id) DO NOTHING`,
+      [transaction.id, itemId, Number((transaction as any).quantity || 0), String((transaction as any).unit || unit || ""), String((transaction as any).type || type || ""), String(reference || ""), String(user || session?.userId || "admin"), (transaction as any).timestamp || new Date().toISOString(), unitCost ?? null, String(notes || ""), (transaction as any).createdAt || new Date().toISOString()],
+    );
+  } catch (err: any) {
+    if (/connect|ECONN|timeout|database/i.test(err?.message || "")) return res.status(503).json({ error: "Database unavailable" });
+    return res.status(500).json({ error: err?.message || "Failed to persist inventory transaction" });
+  }
+  try { store.createAuditLog({ actor: session?.userId ?? String(user || "admin"), action: "inventory:adjusted", entityType: "inventory_item", entityId: String(itemId), reason: `${type || "ADJUSTMENT"} ${quantity} ${unit || "unit"}${reference ? ` · ${reference}` : ""}` }); } catch {}
+  if (session) { try { publishLowStockAlert(itemId, previousStock, { userId: session.userId, role: session.userId, isAdmin: true }); } catch {} }
   res.status(201).json(transaction);
 });
 
-router.post("/reservations", required("inventory.reserve"), (req, res) => {
+router.post("/reservations", required("inventory.reserve"), async (req, res) => {
   const { itemId, quantity, orderId, reference } = req.body || {};
   if (!itemId || quantity === undefined) return res.status(400).json({ error: "itemId and quantity are required" });
   const item = store.inventoryItems().find((i) => i.id === itemId);
   if (!item) throw new NotFoundError("Inventory item not found");
   const available = (item.physicalStock || 0) - (store.stockReservations().filter((r) => r.itemId === item.id).reduce((s, r) => s + r.quantity, 0));
-  if (quantity > available) return res.status(409).json({ error: `Only ${available} ${item.unit} available` });
+  if (Number(quantity) > available) return res.status(409).json({ error: `Only ${available} ${(item as any).unit} available` });
+  const now = new Date().toISOString();
   const reservation: import("../database/types.js").StockReservation = {
     id: `res-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     itemId,
-    quantity,
-    unit: item.unit,
+    quantity: Number(quantity),
+    unit: (item as any).unit,
     orderId: orderId || null,
     reference: reference || null,
-    reservedAt: new Date().toISOString(),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
+    reservedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  } as any;
   store.stockReservations().push(reservation);
-  store.persist();
+  try {
+    await pool.query(
+      `INSERT INTO stock_reservations (id,item_id,quantity,unit,order_id,reference,reserved_at,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8) ON CONFLICT (id) DO NOTHING`,
+      [reservation.id, itemId, Number(quantity), (item as any).unit || "unit", orderId || null, reference || null, now, now],
+    );
+  } catch (err: any) {
+    if (/connect|ECONN|timeout|database/i.test(err?.message || "")) return res.status(503).json({ error: "Database unavailable" });
+    return res.status(500).json({ error: err?.message || "Failed to persist reservation" });
+  }
   res.status(201).json(reservation);
 });
 
