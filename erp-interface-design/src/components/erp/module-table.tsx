@@ -10,12 +10,13 @@ import { money, moduleRows, orderOutstandingAmount, tone, type GridRow, type Ord
 import { ORDER_STAGE_PIPELINE, orderStageIndex } from "@/lib/theme-tokens";
 import { StatusBadge as Status } from "../data-table/StatusBadge";
 import { DataTable, type Column, type SortState } from "../data-table/DataTable";
-import { OrderMobileCard } from "./order-mobile-card";
+import { OrderMobileCard, formatDueDate } from "./order-mobile-card";
 import { useDensity } from "@/lib/density";
 import { IconButton } from "./ui";
 import cake from "@/assets/chocolate-cake.jpg";
 import { CrmView } from "./crm-view";
 import { useWorkspace } from "./store";
+import { RecordPaymentDialog } from "./dialogs";
 import {
   archiveProductApi, createProductApi, listCatalogueCategories, listCatalogueProducts, listCatalogueTypes, updateProductApi,
   type ServerCatalogueCategory, type ServerCatalogueProduct, type ServerCatalogueType,
@@ -68,6 +69,9 @@ export function OrderProgressStepper({ status }: { status: string }) {
 }
 
 export function OrderTable({orders,onSelect,compact=false}: {orders:Order[];onSelect:(o:Order)=>void;compact?:boolean}) {
+  const { updateOrder } = useWorkspace();
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [payOrder, setPayOrder] = useState<Order | null>(null);
 
   const [sort,setSort]=useState<SortState>(null);
   const { density } = useDensity();
@@ -90,7 +94,7 @@ export function OrderTable({orders,onSelect,compact=false}: {orders:Order[];onSe
 
   ];
 
-  if(!compact) columns.push({ header:'Due date', mobile:'meta', cell:(o)=><><strong className="product-name">{o.date}</strong><small className="cell-sub">{o.time}</small></> });
+  if(!compact) columns.push({ header:'Due date', mobile:'meta', cell:(o)=>{ const due = formatDueDate(o.date, o.time); return <><strong className={"product-name" + (due.urgency==='overdue'||due.urgency==='today' ? ' is-urgent' : '')}>{due.label}</strong><small className="cell-sub">{o.delivery || ''}</small></>; } });
 
   // Orders with any payment show the amount collected so far under the total.
   columns.push({ header:'Amount', align:'right', sortKey:'amount', mobile:'value', cell:(o)=><span className="amount-cell">{money(o.amount)}{(o.paidAmount??0)>0&&<small className="paid-bracket" title="Amount paid so far">({money(o.paidAmount??0)} paid)</small>}</span> });
@@ -101,7 +105,40 @@ export function OrderTable({orders,onSelect,compact=false}: {orders:Order[];onSe
 
   columns.push({ header:'', mobile:'hide', cell:(o)=><Button variant="ghost" size="icon" title={`Open order ${o.id}`} aria-label={`Open order ${o.id}`} onClick={e=>{e.stopPropagation();onSelect(o)}}><MoreHorizontal/></Button> });
 
-  return <DataTable columns={columns} rows={sorted} rowKey={(o)=>o.id} rowClassName={(o)=>orderRowTone(o)} sort={sort} onSortChange={setSort} onRowActivate={onSelect} stickyHeader density={density} mobileTitle={(o)=>o.customer} mobileSubtitle={(o)=>`#${o.id}`} openLabel="Open order" {...(!compact ? { renderMobileCard: (o: Order, i: number) => <OrderMobileCard order={o} index={i} /> } : {})} empty={<div className="empty-state"><Search/><h3>No orders found</h3><p>Try a different customer, product, or status.</p></div>}/>;
+  const stageAccent = (s: string) => {
+    const t = tone(s);
+    const map: Record<string,string> = { green:'var(--pending-solid)', blue:'var(--blue-solid)', violet:'var(--violet-solid)', teal:'var(--teal-solid)', amber:'var(--peach-solid)', orange:'var(--orange-solid)', rose:'var(--rose-solid)', red:'var(--red-ink)', gray:'var(--red-ink)' };
+    return map[t] || 'var(--primary)';
+  };
+  const renderDrawerAction = !compact ? (o: Order, _i: number, close: () => void) => {
+    const idx = orderStageIndex(o.status);
+    const next = idx >= 0 && idx < ORDER_STAGE_PIPELINE.length - 1 ? ORDER_STAGE_PIPELINE[idx + 1] : null;
+    const processing = processingId === o.id;
+    const payNorm = (o.payment || '').toLowerCase();
+    const showPay = payNorm !== 'paid';
+    const payIsPartial = payNorm.includes('partial');
+    const payBg = payIsPartial ? 'var(--orange-solid, #f97316)' : 'var(--red-solid, #ef4444)';
+    const payColor = payIsPartial ? '#000' : '#fff';
+    const nextBtn = next ? (() => {
+      const labelMap: Record<string,string> = { 'Confirmed': 'Confirm', 'In production': 'Start Production', 'Completed / Delivered': 'Complete' };
+      const label = processing ? 'Processing...' : (labelMap[next] ?? `Move to ${next}`);
+      const bg = stageAccent(next);
+      const textColor = next === 'Awaiting Collection' ? '#000' : '#fff';
+      return <Button className="dt-next-stage" disabled={processing} style={{ flex: 1, background: bg, color: textColor, borderColor: 'transparent', opacity: processing ? 0.75 : undefined }} onClick={async ()=>{
+        if(processing) return;
+        setProcessingId(o.id);
+        try { await updateOrder(o.id, next); close(); }
+        finally { setProcessingId(null); }
+      }}>{label}</Button>;
+    })() : <Button variant="outline" style={{ flex: 1 }} onClick={() => { close(); onSelect(o); }}>Open order</Button>;
+    const payBtn = showPay ? <Button className="dt-record-payment" style={{ flex: 1, background: payBg, color: payColor, borderColor: 'transparent' }} onClick={() => { close(); setPayOrder(o); }}>Record Payment</Button> : null;
+    if(!payBtn) return nextBtn;
+    return <div style={{ display: 'flex', gap: 8, width: '100%' }}>{payBtn}{nextBtn}</div>;
+  } : undefined;
+  return <>
+    <DataTable columns={columns} rows={sorted} rowKey={(o)=>o.id} rowClassName={(o)=>orderRowTone(o)} sort={sort} onSortChange={setSort} onRowActivate={onSelect} stickyHeader density={density} mobileTitle={(o)=>o.customer} mobileSubtitle={(o)=>`#${o.id}`} openLabel="Open order" {...(!compact ? { renderMobileCard: (o: Order, i: number) => <OrderMobileCard order={o} index={i} /> } : {})} {...(renderDrawerAction ? { renderDrawerAction } : {})} empty={<div className="empty-state"><Search/><h3>No orders found</h3><p>Try a different customer, product, or status.</p></div>}/>
+    {!compact && <RecordPaymentDialog order={payOrder} onClose={() => setPayOrder(null)} />}
+  </>;
 
 
 }
