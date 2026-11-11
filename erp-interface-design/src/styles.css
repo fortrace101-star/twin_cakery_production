@@ -110,7 +110,10 @@
      dark ink on top) and a bright dark-theme ink. Pair contrasts (light ink on
      soft / dark ink on soft): green 5.05, blue 7.72, violet 6.67, teal 5.31,
      amber 5.38, orange 5.26, rose 7.95 (dark: all >= 6.79) — WCAG AA. */
-  --green-solid: #0F9D58; /* Pending confirmation */
+  --pending-solid: #C2410C; /* Pending confirmation (dark orange) */
+  --pending-soft: color-mix(in oklch, #C2410C 20%, white);
+  --pending-ink: color-mix(in oklch, #C2410C 78%, black);
+  --green-solid: #0F9D58; /* Success / positive */
   --green-soft: color-mix(in oklch, #0F9D58 20%, white);
   --green-ink: color-mix(in oklch, #0F9D58 78%, black);
   --blue-solid: #1D4ED8; /* Confirmed */
@@ -189,6 +192,8 @@
   --amber-ink: color-mix(in oklch, #EAB308 40%, white);
   --violet-soft: oklch(0.30 0.048 302);
   --violet-ink: color-mix(in oklch, #9333EA 40%, white);
+  --pending-soft: color-mix(in oklch, #C2410C 32%, black);
+  --pending-ink: color-mix(in oklch, #C2410C 45%, white);
   --green-soft: oklch(0.30 0.048 154);
   --green-ink: color-mix(in oklch, #0F9D58 40%, white);
   --red-soft: oklch(.3 .05 25);
@@ -479,7 +484,8 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .search-box input::placeholder {color:var(--muted-foreground);}
 .filter-select {display:flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:5px;background:var(--card);padding:7px 8px;font-size:11px;white-space:nowrap;}
 .filter-select svg {color:var(--muted-foreground);}
-.filter-select select {background:none;outline:none;max-width:120px;}
+.filter-select select {background:transparent;color:var(--foreground);outline:none;max-width:120px;}
+.filter-select select option {background:var(--card);color:var(--foreground);}
 .table-scroll {overflow:auto;}
 /* L5 — sticky header while register bodies scroll */
 .module-table .table-scroll {max-height:calc(100vh - 340px);overflow:auto;}
@@ -499,7 +505,8 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .orders-table tbody tr.order-row-tint:hover {background:var(--row-tint); filter:brightness(.985);}
 .dark .orders-table tbody tr.order-row-tint:hover {filter:brightness(1.08);}
 .order-card.order-row-tint, .kanban-board .order-card.order-row-tint, .station-board .order-card.order-row-tint {background:var(--row-tint);}
-.order-row-tint.tone-green {--row-tint:var(--green-soft);}
+.dt-card.order-row-tint {background:var(--row-tint);}
+.order-row-tint.tone-green {--row-tint:var(--pending-soft);}
 .order-row-tint.tone-blue {--row-tint:var(--blue-soft);}
 .order-row-tint.tone-violet {--row-tint:var(--violet-soft);}
 .order-row-tint.tone-red {--row-tint:var(--red-soft);}
@@ -508,6 +515,10 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .order-row-tint.tone-teal {--row-tint:var(--teal-soft);}
 .order-row-tint.tone-orange {--row-tint:var(--orange-soft);}
 .order-row-tint.tone-rose {--row-tint:var(--rose-soft);}
+/* Pending confirmation status badge blends with tinted order card/row background */
+.order-row-tint.tone-green .status.status-green,
+.dt-card.order-row-tint.tone-green .status.status-green { background: var(--row-tint); border-color: color-mix(in oklch, var(--pending-ink) 25%, transparent); }
+
 /* Vertical order-progress rail on the left of each order row — graphical only
    (erp_design.md C2: the badge next to it carries the word). Tick = stage
    passed, filled dot = current stage (its hue echoes the row tint via
@@ -520,7 +531,7 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .order-stepper li.step-done {color:var(--step-color);}
 .order-stepper .step-node {width:10px;height:10px;border-radius:50%;border:1.5px solid color-mix(in oklch,var(--muted-foreground) 55%,transparent);box-sizing:border-box;}
 .order-stepper li.step-current .step-node {width:11px;height:11px;border:0;background:var(--step-color);box-shadow:0 0 0 3px color-mix(in oklch,var(--step-color) 18%,transparent);}
-.order-stepper.tone-green {--step-color:var(--green-solid);}
+.order-stepper.tone-green {--step-color:var(--pending-solid);}
 .order-stepper.tone-blue {--step-color:var(--blue-solid);}
 .order-stepper.tone-violet {--step-color:var(--violet-solid);}
 .order-stepper.tone-amber {--step-color:var(--peach-solid);}
@@ -537,7 +548,7 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .order-stage-strip li.is-done {color:var(--foreground);}
 .order-stage-strip li.is-current {background:var(--stage-tone-soft);border-color:var(--stage-tone);color:var(--stage-tone);font-weight:600;}
 .order-stage-strip li.is-target {border-style:dashed;border-color:var(--stage-tone);color:var(--stage-tone);}
-.order-stage-strip li.tone-green {--stage-tone:var(--green-ink);--stage-tone-soft:var(--green-soft);}
+.order-stage-strip li.tone-green {--stage-tone:var(--pending-ink);--stage-tone-soft:var(--pending-soft);}
 .order-stage-strip li.tone-blue {--stage-tone:var(--blue-ink);--stage-tone-soft:var(--blue-soft);}
 .order-stage-strip li.tone-violet {--stage-tone:var(--violet-ink);--stage-tone-soft:var(--violet-soft);}
 .order-stage-strip li.tone-amber {--stage-tone:var(--amber-ink);--stage-tone-soft:var(--peach-soft);}
@@ -549,7 +560,7 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .stage-nav {display:flex;align-items:center;justify-content:space-between;gap:8px;}
 .stage-nav-btn {background:var(--stage-tone-soft);color:var(--stage-tone);border:1px solid color-mix(in oklch,var(--stage-tone) 35%,transparent);}
 .stage-nav-btn:disabled {opacity:.45;}
-.stage-nav-btn.tone-green {--stage-tone:var(--green-ink);--stage-tone-soft:var(--green-soft);}
+.stage-nav-btn.tone-green {--stage-tone:var(--pending-ink);--stage-tone-soft:var(--pending-soft);}
 .stage-nav-btn.tone-blue {--stage-tone:var(--blue-ink);--stage-tone-soft:var(--blue-soft);}
 .stage-nav-btn.tone-violet {--stage-tone:var(--violet-ink);--stage-tone-soft:var(--violet-soft);}
 .stage-nav-btn.tone-amber {--stage-tone:var(--amber-ink);--stage-tone-soft:var(--peach-soft);}
@@ -609,6 +620,15 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .status-teal {background:var(--teal-soft);color:var(--teal-ink);}
 .status-orange {background:var(--orange-soft);color:var(--orange-ink);}
 .status-rose {background:var(--rose-soft);color:var(--rose-ink);}
+/* Sales & Orders: Payment/Delivery entries use theme primary (New Order) orange */
+.status.sales-action-status {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  justify-content: center;
+  text-align: center;
+}
+.status.sales-action-status > span { background: currentColor; }
+
 .sort-button {font-size:11px;height:24px;padding:0 6px;gap:3px;color:var(--muted-foreground);font-weight:500;}
 .table-foot {border-top:1px solid var(--border);padding:13px 24px;display:flex;justify-content:space-between;color:var(--muted-foreground);font-size:11px;}
 .foot-note {display:flex;align-items:center;gap:4px;}
@@ -1038,8 +1058,80 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
     .topbar .breadcrumb { position: relative; }
   }
 
-  /* DataTable cards (F0.7) */
-  .dt-cards { list-style: none; margin: 0; padding: 0; }
+  /* DataTable cards (F0.7, mobile order-card redesign) */
+  .dt-cards { list-style: none; margin: 0; padding: 12px 16px; display: grid; gap: 10px; }
+  .dt-card { border: 1px solid var(--border); border-radius: 12px; background: var(--card); overflow: hidden; }
+  .dt-card-main { display: grid; min-height: var(--tap); padding: 12px 14px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .dt-card-main:active { background: var(--muted); }
+  .dt-card-main:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+  .dt-card .customer-cell strong, .dt-card .product-name, .dt-card .cell-sub { white-space: normal; }
+  .dt-card-title, .dt-card .customer-cell strong { font-size: 15px; font-weight: 600; }
+  .dt-card-meta, .dt-card .cell-sub { font-size: 13px; }
+  .dt-card-badges .status, .dt-card .status { font-size: 12px; }
+  .dt-sort { display: flex; width: 100%; min-height: 44px; padding: 8px 16px 0; }
+  .dt-sort select { width: 100%; min-height: 44px; font-size: 16px; }
+  .dt-drawer-body { padding: 0 16px 16px; }
+  .dt-drawer-list { margin: 0; }
+  .dt-drawer-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .dt-drawer-row dt { font-size: 12px; color: var(--muted-foreground); }
+  .dt-drawer-row dd { margin: 0; font-size: 13px; text-align: right; }
+  .dt-drawer-foot { position: sticky; bottom: 0; background: var(--card); padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .dt-drawer-foot > * { min-height: 44px; width: 100%; }
+
+  /* Order mobile card (Sales → Orders) */
+  .dt-card.order-row-tint { background: var(--card); border-left: 4px solid var(--accent-solid, var(--border)); }
+  .dt-card.order-row-tint.tone-green { --accent-solid: var(--pending-solid); }
+  .dt-card.order-row-tint.tone-blue { --accent-solid: var(--blue-solid); }
+  .dt-card.order-row-tint.tone-violet { --accent-solid: var(--violet-solid); }
+  .dt-card.order-row-tint.tone-teal { --accent-solid: var(--teal-solid); }
+  .dt-card.order-row-tint.tone-amber { --accent-solid: var(--peach-solid); }
+  .dt-card.order-row-tint.tone-orange { --accent-solid: var(--orange-solid); }
+  .dt-card.order-row-tint.tone-rose { --accent-solid: var(--rose-solid); }
+  .dt-card.order-row-tint.tone-red, .dt-card.order-row-tint.tone-gray { --accent-solid: var(--red-ink); }
+  .dt-card.order-row-tint .dt-card-main { padding: 0; min-height: 0; display: block; }
+  .order-mobile-card { display: flex; width: 100%; background: var(--card); }
+  .order-mobile-card .omc-accent { width: 0; flex: 0 0 0; }
+  .order-mobile-card .omc-content { flex: 1; min-width: 0; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .omc-row { display: flex; gap: 10px; }
+  .omc-top { align-items: flex-start; justify-content: space-between; }
+  .omc-customer { display: flex; gap: 10px; align-items: center; min-width: 0; flex: 1; }
+  .omc-customer-text { display: flex; flex-direction: column; min-width: 0; }
+  .omc-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .omc-id { font-size: 12px; color: var(--muted-foreground); }
+  .omc-amount { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
+  .omc-amount strong { font-size: 15px; font-weight: 600; }
+  .omc-paid { font-size: 12px; color: var(--muted-foreground); }
+  .omc-paid.is-due { color: var(--red-ink); font-weight: 500; }
+  .omc-product { font-size: 13px; color: var(--foreground); }
+  .omc-product span { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .omc-meta { justify-content: space-between; font-size: 13px; color: var(--muted-foreground); }
+  .omc-due.is-urgent { color: var(--red-ink); font-weight: 600; }
+  .omc-badges { flex-wrap: wrap; gap: 6px; }
+  .order-progress-bar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 2px; }
+  .order-progress-bar span { height: 4px; border-radius: 999px; background: var(--border); }
+  .order-progress-bar span.is-done, .order-progress-bar span.is-current { background: var(--bar-accent, var(--primary)); }
+  .order-progress-bar span.is-current { filter: saturate(1.2); }
+  .order-progress-bar.tone-green { --bar-accent: var(--pending-solid); }
+  .order-progress-bar.tone-blue { --bar-accent: var(--blue-solid); }
+  .order-progress-bar.tone-violet { --bar-accent: var(--violet-solid); }
+  .order-progress-bar.tone-teal { --bar-accent: var(--teal-solid); }
+  .order-progress-bar.tone-amber { --bar-accent: var(--peach-solid); }
+  .order-progress-bar.tone-orange { --bar-accent: var(--orange-solid); }
+  .order-progress-bar.tone-rose { --bar-accent: var(--rose-solid); }
+  .order-progress-bar.tone-red, .order-progress-bar.tone-gray { --bar-accent: var(--red-ink); }
+
+  /* Kanban order cards: let OrderMobileCard control layout on mobile */
+  .kanban-board .order-card.order-row-tint { background: var(--card); padding: 0; overflow: hidden; }
+  .kanban-board .order-card.order-row-tint { border-left: 4px solid var(--accent-solid, var(--border)); }
+  .kanban-board .order-card.order-row-tint.tone-green { --accent-solid: var(--pending-solid); }
+  .kanban-board .order-card.order-row-tint.tone-blue { --accent-solid: var(--blue-solid); }
+  .kanban-board .order-card.order-row-tint.tone-violet { --accent-solid: var(--violet-solid); }
+  .kanban-board .order-card.order-row-tint.tone-teal { --accent-solid: var(--teal-solid); }
+  .kanban-board .order-card.order-row-tint.tone-amber { --accent-solid: var(--peach-solid); }
+  .kanban-board .order-card.order-row-tint.tone-orange { --accent-solid: var(--orange-solid); }
+  .kanban-board .order-card.order-row-tint.tone-rose { --accent-solid: var(--rose-solid); }
+  .kanban-board .order-card.order-row-tint.tone-red, .kanban-board .order-card.order-row-tint.tone-gray { --accent-solid: var(--red-ink); }
+  .kanban-board .order-card .order-mobile-card .omc-content { padding: 12px 14px; }
 }
 
 
