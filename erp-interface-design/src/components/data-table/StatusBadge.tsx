@@ -6,12 +6,12 @@ import { orderStageTone, type StatusTone } from "@/lib/theme-tokens";
  * legacy `<Status>` wrapper (`span.status.status-<tone>`) so existing CSS in
  * `styles.css` applies unchanged.
  */
-export function StatusBadge({ value, tone }: { value: string; tone?: StatusTone }) {
+export function StatusBadge({ value, tone, className }: { value: string; tone?: StatusTone; className?: string }) {
   // Order-stage words win first (distinct hue per pipeline stage); everything
   // else resolves through the locked toneOf vocabulary unchanged.
   const resolved = tone ?? orderStageTone(value);
   return (
-    <span className={`status status-${resolved}`}>
+    <span className={`status status-${resolved}${className ? ` ${className}` : ""}`}>
       <span aria-hidden="true" />
       {value}
     </span>

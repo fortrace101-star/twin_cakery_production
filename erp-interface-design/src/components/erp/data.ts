@@ -191,7 +191,7 @@ const ORDER_BREAKDOWN_SWATCH: Record<OrderBreakdownStatus, string> = ORDER_STAGE
 
 // Donut arc fill per status. Kept as CSS vars so light/dark themes both work.
 const ORDER_BREAKDOWN_ARC: Record<OrderBreakdownStatus, string> = {
-  "Pending confirmation": "var(--green-solid)",
+  "Pending confirmation": "var(--pending-solid)",
   Confirmed: "var(--blue-solid)",
   "In production": "var(--violet-solid)",
   Ready: "var(--teal-solid)",

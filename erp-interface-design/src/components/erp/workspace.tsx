@@ -22,6 +22,7 @@ import { OrderProposalsView } from "./OrderProposalsView";
 import { NewOrderDialog, OrderDialog, SignInDialog } from "./dialogs";
 import { IconButton } from "./ui";
 import { StageTabs } from "./stage-tabs";
+import { OrderMobileCard } from "./order-mobile-card";
 import { useIsMobile } from "@/hooks/use-mobile"; import { Toaster } from "@/components/ui/toast";
 
 
@@ -85,11 +86,8 @@ export function Workspace({module='dashboard'}: {module?:string}) {
        {SALES_STAGES.map(status=>{const list=visibleOrders.filter(o=>o.status===status);return <div key={status} data-stage={status} className={(!isMobile || kanbanStage===status)?'is-active':''}>
          <h3 className="board-col-title">{status} <span className="inline-count">{list.length}</span></h3>
          {list.length===0 && <p className="board-empty">No orders</p>}
-         {list.map(o=><div key={o.id} className={`order-card order-row-tint tone-${tone(o.status)}`} onClick={() => setSelected(o)}>
-           <div style={{display:'flex',justifyContent:'space-between',marginBottom:'6px'}}><strong>{o.id}</strong></div>
-           <div style={{fontSize:'12px',color:'var(--muted-foreground)',marginBottom:'4px'}}>{o.customer}</div>
-           <div style={{fontSize:'12px'}}>{o.product}</div>
-           <div style={{fontSize:'11px',color:'var(--muted-foreground)',marginTop:'4px'}}>{money(o.amount)}</div>
+         {list.map((o,i)=><div key={o.id} className={`order-card order-row-tint tone-${tone(o.status)}`} role="button" tabIndex={0} onClick={() => setSelected(o)} onKeyDown={(e)=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setSelected(o);}}}>
+           <OrderMobileCard order={o} index={i} showStatusBadge={false} />
          </div>)}
        </div>;})}
      </div>

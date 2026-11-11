@@ -67,6 +67,8 @@ type DataTableProps<T> = {
   mobileDetailTop?: (row: T) => ReactNode;
   cardMode?: "auto" | "table";
   tapAction?: "drawer" | "activate";
+  /** Optional custom mobile card body. Keeps tap-to-drawer/activate and row wrapper behavior. */
+  renderMobileCard?: (row: T, index: number) => ReactNode;
 };
 
 function resolveMobileRole<T>(col: Column<T>, idx: number, cols: Column<T>[], used: Set<MobileRole>): MobileRole {
@@ -108,6 +110,7 @@ export function DataTable<T>({
   mobileDetailTop,
   cardMode = "auto",
   tapAction = "drawer",
+  renderMobileCard,
 }: DataTableProps<T>) {
   const isMobile = useIsMobile();
   const [activeRow, setActiveRow] = useState<T | null>(null);
@@ -174,20 +177,26 @@ export function DataTable<T>({
                   className="dt-card-main"
                   role="button"
                   tabIndex={0}
-                  aria-haspopup="dialog"
+                  aria-haspopup={tapAction === "activate" && onRowActivate ? undefined : "dialog"}
                   onClick={() => open(row, i)}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(row, i); } }}
                 >
-                  {lead && <span className="dt-card-lead">{renderCell(lead.col, row, i)}</span>}
-                  <span className="dt-card-body">
-                    {title && <span className="dt-card-title">{renderCell(title.col, row, i)}</span>}
-                    {metas.map(r => <span className="dt-card-meta" key={r.col.header}>{renderCell(r.col, row, i)}</span>)}
-                    {badges.length > 0 && <span className="dt-card-badges">{badges.map(r => <span key={r.col.header}>{renderCell(r.col, row, i)}</span>)}</span>}
-                  </span>
-                  <span className="dt-card-side">
-                    {value && <span className="dt-card-value">{renderCell(value.col, row, i)}</span>}
-                    <ChevronRight size={18} aria-hidden="true" />
-                  </span>
+                  {renderMobileCard ? (
+                    renderMobileCard(row, i)
+                  ) : (
+                    <>
+                      {lead && <span className="dt-card-lead">{renderCell(lead.col, row, i)}</span>}
+                      <span className="dt-card-body">
+                        {title && <span className="dt-card-title">{renderCell(title.col, row, i)}</span>}
+                        {metas.map(r => <span className="dt-card-meta" key={r.col.header}>{renderCell(r.col, row, i)}</span>)}
+                        {badges.length > 0 && <span className="dt-card-badges">{badges.map(r => <span key={r.col.header}>{renderCell(r.col, row, i)}</span>)}</span>}
+                      </span>
+                      <span className="dt-card-side">
+                        {value && <span className="dt-card-value">{renderCell(value.col, row, i)}</span>}
+                        <ChevronRight size={18} aria-hidden="true" />
+                      </span>
+                    </>
+                  )}
                 </div>
               </li>
             ))}

@@ -10,6 +10,7 @@ import { money, moduleRows, orderOutstandingAmount, tone, type GridRow, type Ord
 import { ORDER_STAGE_PIPELINE, orderStageIndex } from "@/lib/theme-tokens";
 import { StatusBadge as Status } from "../data-table/StatusBadge";
 import { DataTable, type Column, type SortState } from "../data-table/DataTable";
+import { OrderMobileCard } from "./order-mobile-card";
 import { useDensity } from "@/lib/density";
 import { IconButton } from "./ui";
 import cake from "@/assets/chocolate-cake.jpg";
@@ -96,11 +97,11 @@ export function OrderTable({orders,onSelect,compact=false}: {orders:Order[];onSe
 
   columns.push({ header:'Order status', mobile:'badge', cell:(o)=><Status value={o.status}/> });
 
-  if(!compact){ columns.push({ header:'Payment', mobile:'badge', cell:(o)=><Status value={o.payment}/> }); columns.push({ header:'Delivery', mobile:'drawer', cell:(o)=><Status value={o.delivery}/> }); }
+  if(!compact){ columns.push({ header:'Payment', mobile:'badge', cell:(o)=><Status value={o.payment} className="sales-action-status"/> }); columns.push({ header:'Delivery', mobile:'drawer', cell:(o)=><Status value={o.delivery} className="sales-action-status"/> }); }
 
   columns.push({ header:'', mobile:'hide', cell:(o)=><Button variant="ghost" size="icon" title={`Open order ${o.id}`} aria-label={`Open order ${o.id}`} onClick={e=>{e.stopPropagation();onSelect(o)}}><MoreHorizontal/></Button> });
 
-  return <DataTable columns={columns} rows={sorted} rowKey={(o)=>o.id} rowClassName={(o)=>orderRowTone(o)} sort={sort} onSortChange={setSort} onRowActivate={onSelect} stickyHeader density={density} mobileTitle={(o)=>o.customer} mobileSubtitle={(o)=>`#${o.id}`} openLabel="Open order" empty={<div className="empty-state"><Search/><h3>No orders found</h3><p>Try a different customer, product, or status.</p></div>}/>;
+  return <DataTable columns={columns} rows={sorted} rowKey={(o)=>o.id} rowClassName={(o)=>orderRowTone(o)} sort={sort} onSortChange={setSort} onRowActivate={onSelect} stickyHeader density={density} mobileTitle={(o)=>o.customer} mobileSubtitle={(o)=>`#${o.id}`} openLabel="Open order" {...(!compact ? { renderMobileCard: (o: Order, i: number) => <OrderMobileCard order={o} index={i} /> } : {})} empty={<div className="empty-state"><Search/><h3>No orders found</h3><p>Try a different customer, product, or status.</p></div>}/>;
 
 
 }
