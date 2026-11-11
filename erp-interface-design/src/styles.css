@@ -704,7 +704,7 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .form-note svg {flex-shrink:0;}
 /* Outstanding balance on the order dialog: money the customer still owes reads
    RED — the green note tone is for informational notes, not money due. */
-.order-detail-dialog .form-note.balance-due {background:var(--red-soft);color:var(--red-ink);}
+.order-detail-dialog .form-note.balance-due, .payment-record-dialog .form-note.balance-due {background:var(--red-soft);color:var(--red-ink);}
 .dialog-actions {display:flex;justify-content:flex-end;gap:8px;}
 .form-error {color:var(--red-ink);font-size:11px;}
 /* Order dialogs: cap the modal height and scroll the body so long forms

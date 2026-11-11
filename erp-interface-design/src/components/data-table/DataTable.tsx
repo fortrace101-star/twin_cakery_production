@@ -69,6 +69,8 @@ type DataTableProps<T> = {
   tapAction?: "drawer" | "activate";
   /** Optional custom mobile card body. Keeps tap-to-drawer/activate and row wrapper behavior. */
   renderMobileCard?: (row: T, index: number) => ReactNode;
+  /** Optional custom action rendered in the mobile drawer footer (replaces/augments open action). */
+  renderDrawerAction?: (row: T, index: number, close: () => void) => ReactNode;
 };
 
 function resolveMobileRole<T>(col: Column<T>, idx: number, cols: Column<T>[], used: Set<MobileRole>): MobileRole {
@@ -111,6 +113,7 @@ export function DataTable<T>({
   cardMode = "auto",
   tapAction = "drawer",
   renderMobileCard,
+  renderDrawerAction,
 }: DataTableProps<T>) {
   const isMobile = useIsMobile();
   const [activeRow, setActiveRow] = useState<T | null>(null);
@@ -225,8 +228,12 @@ export function DataTable<T>({
             </div>
             <DrawerFooter className="dt-drawer-foot">
               {shown && actionCols.map(r => <div className="dt-drawer-action" key={r.col.header || "action"}>{renderCell(r.col, shown, activeIdx)}</div>)}
-              {onRowActivate && shown && tapAction !== "activate" && !hideOpenAction && (
-                <Button onClick={() => { const row = shown; pending.current = () => onRowActivate(row); setActiveRow(null); }}>{openLabel ?? "Open"}</Button>
+              {shown && renderDrawerAction ? (
+                renderDrawerAction(shown, activeIdx, () => setActiveRow(null))
+              ) : (
+                onRowActivate && shown && tapAction !== "activate" && !hideOpenAction && (
+                  <Button onClick={() => { const row = shown; pending.current = () => onRowActivate(row); setActiveRow(null); }}>{openLabel ?? "Open"}</Button>
+                )
               )}
             </DrawerFooter>
           </DrawerContent>

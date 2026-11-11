@@ -3,7 +3,7 @@ import { ORDER_STAGE_PIPELINE, orderStageIndex } from "@/lib/theme-tokens";
 import { tone } from "./data";
 import { StatusBadge as Status } from "../data-table/StatusBadge";
 
-function formatDueDate(dateStr: string, timeStr?: string): { label: string; urgency: "overdue" | "today" | "soon" | "none" } {
+export function formatDueDate(dateStr: string, timeStr?: string): { label: string; urgency: "overdue" | "today" | "soon" | "none" } {
   const [y, m, d] = (dateStr || "").split("-").map(Number);
   if (!y || !m || !d) return { label: [dateStr, timeStr].filter(Boolean).join(" · ") || "—", urgency: "none" };
   const due = new Date(y, m - 1, d);
