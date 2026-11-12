@@ -620,7 +620,7 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .status-teal {background:var(--teal-soft);color:var(--teal-ink);}
 .status-orange {background:var(--orange-soft);color:var(--orange-ink);}
 .status-rose {background:var(--rose-soft);color:var(--rose-ink);}
-/* Sales & Orders: Payment/Delivery entries use theme primary (New Order) orange */
+/* Sales & Orders: Payment/Delivery entries */
 .status.sales-action-status {
   background: var(--primary);
   color: var(--primary-foreground);
@@ -628,6 +628,23 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
   text-align: center;
 }
 .status.sales-action-status > span { background: currentColor; }
+/* Payment status backgrounds (Sales & Orders) */
+.status.sales-action-status[data-value="Paid"],
+.order-mobile-card .status[data-value="Paid"],
+.dt-card .status[data-value="Paid"] {
+  background: #16a34a;
+  color: #fff;
+}
+.status.sales-action-status[data-value="Partially paid"],
+.status.sales-action-status[data-value="Partial"] {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.status.sales-action-status[data-value="Unpaid"],
+.status.sales-action-status[data-value="Not paid"] {
+  background: #991b1b;
+  color: #fff;
+}
 
 .sort-button {font-size:11px;height:24px;padding:0 6px;gap:3px;color:var(--muted-foreground);font-weight:500;}
 .table-foot {border-top:1px solid var(--border);padding:13px 24px;display:flex;justify-content:space-between;color:var(--muted-foreground);font-size:11px;}
@@ -1221,4 +1238,30 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 @media (max-width: 767.98px) {
   .chart-tap-readout { font-size: 13px; }
   .chart-tap-readout-close { min-width: 44px; min-height: 44px; }
+}
+
+/* Payment status entry (read-only fields) */
+.payment-status-entry { font-weight: 600; border-color: transparent; }
+.payment-status-entry.payment-status-paid { background: #15803d !important; color: #fff !important; }
+.payment-status-entry.payment-status-partial { background: var(--primary) !important; color: var(--primary-foreground) !important; }
+.payment-status-entry.payment-status-unpaid { background: #991b1b !important; color: #fff !important; }
+
+/* Detail modal: keep actions at bottom below content, no overlay */
+.dt-detail-modal { display: flex; flex-direction: column; max-height: min(85vh, 900px); }
+.dt-detail-modal .dt-drawer-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+.dt-detail-modal .dt-detail-actions { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border); background: var(--background); position: sticky; bottom: 0; }
+
+/* Record payment success state */
+.payment-record-success .payment-success-state { display:flex; flex-direction:column; align-items:center; text-align:center; gap:10px; padding: 28px 8px 18px; }
+.payment-success-tick { width:56px; height:56px; border-radius:999px; display:grid; place-items:center; background:#16a34a; color:#fff; margin-bottom:4px; }
+.payment-record-success { min-height: 220px; }
+
+/* Desktop order detail modal: expand details, reduce padding, avoid scrollbar */
+@media (min-width: 768px) {
+  .dt-detail-modal { max-width: min(760px, 96vw); max-height: 94vh; padding: 18px 24px 20px; gap: 10px; }
+  .dt-detail-modal .dt-drawer-head { padding-bottom: 6px; margin-bottom: 2px; }
+  .dt-detail-modal .dt-drawer-body { overflow: visible; }
+  .dt-detail-modal .dt-drawer-list { gap: 12px; }
+  .dt-detail-modal .dt-drawer-row { padding: 8px 0; }
+  .dt-detail-modal .dt-detail-actions { position: static; margin-top: 12px; padding-top: 12px; }
 }

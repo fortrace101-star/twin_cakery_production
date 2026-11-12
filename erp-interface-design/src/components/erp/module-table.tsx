@@ -136,7 +136,7 @@ export function OrderTable({orders,onSelect,compact=false}: {orders:Order[];onSe
     return <div style={{ display: 'flex', gap: 8, width: '100%' }}>{payBtn}{nextBtn}</div>;
   } : undefined;
   return <>
-    <DataTable columns={columns} rows={sorted} rowKey={(o)=>o.id} rowClassName={(o)=>orderRowTone(o)} sort={sort} onSortChange={setSort} onRowActivate={onSelect} stickyHeader density={density} cardMode={!compact ? "cards" : "auto"} mobileTitle={(o)=>o.customer} mobileSubtitle={(o)=>`#${o.id}`} openLabel="Open order" {...(!compact ? { renderMobileCard: (o: Order, i: number) => <OrderMobileCard order={o} index={i} /> } : {})} {...(renderDrawerAction ? { renderDrawerAction } : {})} empty={<div className="empty-state"><Search/><h3>No orders found</h3><p>Try a different customer, product, or status.</p></div>}/>
+    <DataTable columns={columns} rows={sorted} rowKey={(o)=>o.id} rowClassName={(o)=>orderRowTone(o)} sort={sort} onSortChange={setSort} onRowActivate={onSelect} stickyHeader density={density} cardMode={!compact ? "cards" : "auto"} detailVariant={!compact ? "modal" : "drawer"} mobileTitle={(o)=>o.customer} mobileSubtitle={(o)=>`#${o.id}`} openLabel="Open order" {...(!compact ? { renderMobileCard: (o: Order, i: number) => <OrderMobileCard order={o} index={i} /> } : {})} {...(renderDrawerAction ? { renderDrawerAction } : {})} empty={<div className="empty-state"><Search/><h3>No orders found</h3><p>Try a different customer, product, or status.</p></div>}/>
     {!compact && <RecordPaymentDialog order={payOrder} onClose={() => setPayOrder(null)} />}
   </>;
 
