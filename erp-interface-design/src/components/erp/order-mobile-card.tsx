@@ -45,7 +45,7 @@ export function OrderProgressBar({ status }: { status: string }) {
   );
 }
 
-export function OrderMobileCard({ order, index = 0, showStatusBadge = true }: { order: Order; index?: number; showStatusBadge?: boolean }) {
+export function OrderMobileCard({ order, index = 0, showStatusBadge = true, variant = "default" }: { order: Order; index?: number; showStatusBadge?: boolean; variant?: "default" | "kanban" }) {
   const t = tone(order.status);
   const paid = order.paidAmount ?? 0;
   const balance = Math.max(0, (order.amount ?? 0) - paid);
@@ -55,6 +55,31 @@ export function OrderMobileCard({ order, index = 0, showStatusBadge = true }: { 
     .join(" · ");
   const dueClass = due.urgency === "overdue" || due.urgency === "today" ? "is-urgent" : "";
   const initials = order.initials || (order.customer || "?").slice(0, 2).toUpperCase();
+
+  if (variant === "kanban") {
+    return (
+      <div className={`order-mobile-card tone-${t} omc-variant-kanban`}>
+        <div className="omc-accent" aria-hidden="true" />
+        <div className="omc-content">
+          <div className="omc-row omc-kanban-row1">
+            <strong className="omc-name">#{order.id}</strong>
+            <strong className="omc-amount-value">{money(order.amount)}</strong>
+          </div>
+          <div className="omc-row omc-kanban-row2">
+            <span className="omc-product-text">{productLine || "—"}</span>
+            <Status value={order.payment} />
+          </div>
+          <div className="omc-row omc-kanban-row3">
+            <span className={`omc-due ${dueClass}`}>{due.label}</span>
+            <span className="omc-delivery">{order.delivery || "—"}</span>
+          </div>
+          <div className="omc-row omc-kanban-row4">
+            <small className="omc-id">{order.customer}</small>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`order-mobile-card tone-${t}`}>

@@ -620,7 +620,7 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .status-teal {background:var(--teal-soft);color:var(--teal-ink);}
 .status-orange {background:var(--orange-soft);color:var(--orange-ink);}
 .status-rose {background:var(--rose-soft);color:var(--rose-ink);}
-/* Sales & Orders: Payment/Delivery entries use theme primary (New Order) orange */
+/* Sales & Orders: Payment/Delivery entries */
 .status.sales-action-status {
   background: var(--primary);
   color: var(--primary-foreground);
@@ -628,6 +628,23 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
   text-align: center;
 }
 .status.sales-action-status > span { background: currentColor; }
+/* Payment status backgrounds (Sales & Orders) */
+.status.sales-action-status[data-value="Paid"],
+.order-mobile-card .status[data-value="Paid"],
+.dt-card .status[data-value="Paid"] {
+  background: #16a34a;
+  color: #fff;
+}
+.status.sales-action-status[data-value="Partially paid"],
+.status.sales-action-status[data-value="Partial"] {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.status.sales-action-status[data-value="Unpaid"],
+.status.sales-action-status[data-value="Not paid"] {
+  background: #991b1b;
+  color: #fff;
+}
 
 .sort-button {font-size:11px;height:24px;padding:0 6px;gap:3px;color:var(--muted-foreground);font-weight:500;}
 .table-foot {border-top:1px solid var(--border);padding:13px 24px;display:flex;justify-content:space-between;color:var(--muted-foreground);font-size:11px;}
@@ -1058,6 +1075,43 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
     .topbar .breadcrumb { position: relative; }
   }
 
+
+  .stage-tabs button.is-empty { opacity: .55; }
+  .stage-tabs { -webkit-overflow-scrolling: touch; }
+  .kanban-wrap { padding: 0 16px 12px; }
+  .kanban-mobile-search { padding: 8px 0 10px; margin: 0; position: sticky; top: 0; z-index: 2; background: var(--card); }
+  .kanban-mobile-search .search-box { width: 100%; }
+  .kanban-stage-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted-foreground); padding: 2px 0 10px; }
+  .kanban-stage-summary strong { color: var(--foreground); font-weight: 600; }
+  .board-empty-state { display: grid; gap: 8px; justify-items: start; padding: 8px 0 4px; color: var(--muted-foreground); font-size: 13px; }
+  .omc-variant-kanban .omc-content { gap: 6px; }
+  .omc-variant-kanban .omc-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .omc-variant-kanban .omc-kanban-row1 .omc-name { font-size: 13px; font-weight: 600; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .omc-variant-kanban .omc-amount-value { font-size: 15px; font-weight: 600; white-space: nowrap; }
+  .omc-variant-kanban .omc-product-text { font-size: 13px; color: var(--foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .omc-variant-kanban .omc-kanban-row2 .status-badge { flex-shrink: 0; font-size: 11px; padding: 2px 8px; }
+  .omc-variant-kanban .omc-kanban-row3 { font-size: 12px; color: var(--muted-foreground); }
+  .omc-variant-kanban .omc-kanban-row4 { font-size: 11px; color: var(--muted-foreground); }
+  .omc-variant-kanban .omc-due.is-urgent { color: var(--red-ink); font-weight: 600; }
+
+  .kanban-other-matches { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted-foreground); padding: 0 0 8px; }
+  .kanban-jump-link { background: none; border: 0; color: var(--primary); font: inherit; font-weight: 600; padding: 4px 0; cursor: pointer; }
+  .stage-tabs { mask-image: linear-gradient(to right, transparent 0, #000 12px, #000 calc(100% - 28px), transparent 100%); }
+
+/* Kanban order cards: let OrderMobileCard control layout on mobile */
+  .kanban-board .order-card.order-row-tint { background: var(--card); padding: 0; overflow: hidden; }
+  .kanban-board .order-card.order-row-tint { border-left: 4px solid var(--accent-solid, var(--border)); }
+  .kanban-board .order-card.order-row-tint.tone-green { --accent-solid: var(--pending-solid); }
+  .kanban-board .order-card.order-row-tint.tone-blue { --accent-solid: var(--blue-solid); }
+  .kanban-board .order-card.order-row-tint.tone-violet { --accent-solid: var(--violet-solid); }
+  .kanban-board .order-card.order-row-tint.tone-teal { --accent-solid: var(--teal-solid); }
+  .kanban-board .order-card.order-row-tint.tone-amber { --accent-solid: var(--peach-solid); }
+  .kanban-board .order-card.order-row-tint.tone-orange { --accent-solid: var(--orange-solid); }
+  .kanban-board .order-card.order-row-tint.tone-rose { --accent-solid: var(--rose-solid); }
+  .kanban-board .order-card.order-row-tint.tone-red, .kanban-board .order-card.order-row-tint.tone-gray { --accent-solid: var(--red-ink); }
+  .kanban-board .order-card .order-mobile-card .omc-content { padding: 12px 14px; }
+}
+
   /* DataTable cards (F0.7, mobile order-card redesign) */
   .dt-cards { list-style: none; margin: 0; padding: 12px 16px; display: grid; gap: 10px; }
   .dt-card { border: 1px solid var(--border); border-radius: 12px; background: var(--card); overflow: hidden; }
@@ -1100,7 +1154,7 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
   .omc-id { font-size: 12px; color: var(--muted-foreground); }
   .omc-amount { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
   .omc-amount strong { font-size: 15px; font-weight: 600; }
-  .omc-paid { font-size: 12px; color: var(--muted-foreground); }
+  .omc-paid { font-size: 12px; color: #16a34a; font-weight: 600; }
   .omc-paid.is-due { color: var(--red-ink); font-weight: 500; }
   .omc-product { font-size: 13px; color: var(--foreground); }
   .omc-product span { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
@@ -1120,20 +1174,10 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
   .order-progress-bar.tone-rose { --bar-accent: var(--rose-solid); }
   .order-progress-bar.tone-red, .order-progress-bar.tone-gray { --bar-accent: var(--red-ink); }
 
-  /* Kanban order cards: let OrderMobileCard control layout on mobile */
-  .kanban-board .order-card.order-row-tint { background: var(--card); padding: 0; overflow: hidden; }
-  .kanban-board .order-card.order-row-tint { border-left: 4px solid var(--accent-solid, var(--border)); }
-  .kanban-board .order-card.order-row-tint.tone-green { --accent-solid: var(--pending-solid); }
-  .kanban-board .order-card.order-row-tint.tone-blue { --accent-solid: var(--blue-solid); }
-  .kanban-board .order-card.order-row-tint.tone-violet { --accent-solid: var(--violet-solid); }
-  .kanban-board .order-card.order-row-tint.tone-teal { --accent-solid: var(--teal-solid); }
-  .kanban-board .order-card.order-row-tint.tone-amber { --accent-solid: var(--peach-solid); }
-  .kanban-board .order-card.order-row-tint.tone-orange { --accent-solid: var(--orange-solid); }
-  .kanban-board .order-card.order-row-tint.tone-rose { --accent-solid: var(--rose-solid); }
-  .kanban-board .order-card.order-row-tint.tone-red, .kanban-board .order-card.order-row-tint.tone-gray { --accent-solid: var(--red-ink); }
-  .kanban-board .order-card .order-mobile-card .omc-content { padding: 12px 14px; }
-}
 
+
+
+.kanban-wrap { padding: 16px; }
 
 /* DS: mobile breadcrumb = app-level nav trigger. On pressin the breadcrumb, show the
    full icon-and-word menu under the breadcrumb for one open session. */
@@ -1194,4 +1238,30 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 @media (max-width: 767.98px) {
   .chart-tap-readout { font-size: 13px; }
   .chart-tap-readout-close { min-width: 44px; min-height: 44px; }
+}
+
+/* Payment status entry (read-only fields) */
+.payment-status-entry { font-weight: 600; border-color: transparent; }
+.payment-status-entry.payment-status-paid { background: #15803d !important; color: #fff !important; }
+.payment-status-entry.payment-status-partial { background: var(--primary) !important; color: var(--primary-foreground) !important; }
+.payment-status-entry.payment-status-unpaid { background: #991b1b !important; color: #fff !important; }
+
+/* Detail modal: keep actions at bottom below content, no overlay */
+.dt-detail-modal { display: flex; flex-direction: column; max-height: min(85vh, 900px); }
+.dt-detail-modal .dt-drawer-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+.dt-detail-modal .dt-detail-actions { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border); background: var(--background); position: sticky; bottom: 0; }
+
+/* Record payment success state */
+.payment-record-success .payment-success-state { display:flex; flex-direction:column; align-items:center; text-align:center; gap:10px; padding: 28px 8px 18px; }
+.payment-success-tick { width:56px; height:56px; border-radius:999px; display:grid; place-items:center; background:#16a34a; color:#fff; margin-bottom:4px; }
+.payment-record-success { min-height: 220px; }
+
+/* Desktop order detail modal: expand details, reduce padding, avoid scrollbar */
+@media (min-width: 768px) {
+  .dt-detail-modal { max-width: min(760px, 96vw); max-height: 94vh; padding: 18px 24px 20px; gap: 10px; }
+  .dt-detail-modal .dt-drawer-head { padding-bottom: 6px; margin-bottom: 2px; }
+  .dt-detail-modal .dt-drawer-body { overflow: visible; }
+  .dt-detail-modal .dt-drawer-list { gap: 12px; }
+  .dt-detail-modal .dt-drawer-row { padding: 8px 0; }
+  .dt-detail-modal .dt-detail-actions { position: static; margin-top: 12px; padding-top: 12px; }
 }

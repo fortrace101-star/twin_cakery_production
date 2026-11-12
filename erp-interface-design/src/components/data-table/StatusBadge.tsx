@@ -11,7 +11,7 @@ export function StatusBadge({ value, tone, className }: { value: string; tone?: 
   // else resolves through the locked toneOf vocabulary unchanged.
   const resolved = tone ?? orderStageTone(value);
   return (
-    <span className={`status status-${resolved}${className ? ` ${className}` : ""}`}>
+    <span className={`status status-${resolved}${className ? ` ${className}` : ""}`} data-value={value}>
       <span aria-hidden="true" />
       {value}
     </span>

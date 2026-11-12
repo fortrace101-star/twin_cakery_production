@@ -10,6 +10,14 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export type MobileRole = "lead" | "title" | "meta" | "value" | "badge" | "drawer" | "action" | "hide";
 
@@ -65,11 +73,13 @@ type DataTableProps<T> = {
   openLabel?: string;
   hideOpenAction?: boolean;
   mobileDetailTop?: (row: T) => ReactNode;
-  cardMode?: "auto" | "table";
+  cardMode?: "auto" | "table" | "cards";
   tapAction?: "drawer" | "activate";
+  /** Detail presentation in card mode. Modal on desktop when set; mobile keeps drawer. */
+  detailVariant?: "drawer" | "modal";
   /** Optional custom mobile card body. Keeps tap-to-drawer/activate and row wrapper behavior. */
   renderMobileCard?: (row: T, index: number) => ReactNode;
-  /** Optional custom action rendered in the mobile drawer footer (replaces/augments open action). */
+  /** Optional custom action rendered in the detail footer (replaces/augments open action). */
   renderDrawerAction?: (row: T, index: number, close: () => void) => ReactNode;
 };
 
@@ -112,12 +122,14 @@ export function DataTable<T>({
   mobileDetailTop,
   cardMode = "auto",
   tapAction = "drawer",
+  detailVariant = "drawer",
   renderMobileCard,
   renderDrawerAction,
 }: DataTableProps<T>) {
   const isMobile = useIsMobile();
   const [activeRow, setActiveRow] = useState<T | null>(null);
   const [activeIdx, setActiveIdx] = useState<number>(0);
+  const showModal = detailVariant === "modal" && !isMobile;
   const [shown, setShown] = useState<T | null>(null);
   const pending = useRef<null | (() => void)>(null);
 
@@ -132,7 +144,8 @@ export function DataTable<T>({
 
   const renderCell = (col: Column<T>, row: T, i: number) => (col.render ? col.render(row) : col.cell(row, i));
 
-  if (isMobile && cardMode !== "table" && columns.length > 2) {
+  const useCards = cardMode === "cards" || (isMobile && cardMode !== "table" && columns.length > 2);
+  if (useCards) {
     const used = new Set<MobileRole>();
     const resolved = columns.map((c, i) => ({ col: c, role: resolveMobileRole(c, i, columns, used) }));
     const lead = resolved.find(r => r.role === "lead");
@@ -208,36 +221,68 @@ export function DataTable<T>({
           empty ?? <div className="empty-state"><Search /><h3>No records found</h3><p>Try a different search or filter.</p></div>
         )}
         {footer && <div className="table-foot">{footer}</div>}
-        <Drawer open={!!activeRow} onOpenChange={(o) => !o && setActiveRow(null)} shouldScaleBackground={false}
-          onAnimationEnd={() => { if (!activeRow && pending.current) { const f = pending.current; pending.current = null; f(); } }}>
-          <DrawerContent className="dt-drawer">
-            <DrawerHeader>
-              <DrawerTitle>{(shown && mobileTitle?.(shown)) || (shown && title ? String(renderCell(title.col, shown, activeIdx) as any) : "Details")}</DrawerTitle>
-              <DrawerDescription>{shown ? mobileSubtitle?.(shown) : undefined}</DrawerDescription>
-            </DrawerHeader>
-            <div className="dt-drawer-body">
-              {shown && mobileDetailTop?.(shown)}
-              <dl className="dt-drawer-list">
-                {shown && drawerCols.map(r => (
-                  <div className="dt-drawer-row" key={r.col.header || r.col.sortKey || String(r.role)}>
-                    <dt>{r.col.header || " "}</dt>
-                    <dd>{renderCell(r.col, shown, activeIdx)}</dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-            <DrawerFooter className="dt-drawer-foot">
-              {shown && actionCols.map(r => <div className="dt-drawer-action" key={r.col.header || "action"}>{renderCell(r.col, shown, activeIdx)}</div>)}
-              {shown && renderDrawerAction ? (
-                renderDrawerAction(shown, activeIdx, () => setActiveRow(null))
-              ) : (
-                onRowActivate && shown && tapAction !== "activate" && !hideOpenAction && (
-                  <Button onClick={() => { const row = shown; pending.current = () => onRowActivate(row); setActiveRow(null); }}>{openLabel ?? "Open"}</Button>
-                )
-              )}
-            </DrawerFooter>
-          </DrawerContent>
-        </Drawer>
+        {showModal ? (
+          <Dialog open={!!activeRow} onOpenChange={(open) => { if (!open) { setActiveRow(null); if (pending.current) { const f = pending.current; pending.current = null; f(); } } }}>
+            <DialogContent className="dt-drawer dt-detail-modal sm:max-w-xl">
+              <DialogHeader>
+                <DialogTitle>{(shown && mobileTitle?.(shown)) || (shown && title ? String(renderCell(title.col, shown, activeIdx) as any) : "Details")}</DialogTitle>
+                <DialogDescription>{shown ? mobileSubtitle?.(shown) : undefined}</DialogDescription>
+              </DialogHeader>
+              <div className="dt-drawer-body">
+                {shown && mobileDetailTop?.(shown)}
+                <dl className="dt-drawer-list">
+                  {shown && drawerCols.map(rr => (
+                    <div className="dt-drawer-row" key={rr.col.header || rr.col.sortKey || String(rr.role)}>
+                      <dt>{rr.col.header || " "}</dt>
+                      <dd>{renderCell(rr.col, shown, activeIdx)}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <div className="dt-drawer-foot dt-detail-actions">
+                  {shown && actionCols.map(rr => <div className="dt-drawer-action" key={rr.col.header || "action"}>{renderCell(rr.col, shown, activeIdx)}</div>)}
+                  {shown && renderDrawerAction ? (
+                    renderDrawerAction(shown, activeIdx, () => setActiveRow(null))
+                  ) : (
+                    onRowActivate && shown && tapAction !== "activate" && !hideOpenAction && (
+                      <Button onClick={() => { const row = shown; pending.current = () => onRowActivate(row); setActiveRow(null); }}>{openLabel ?? "Open"}</Button>
+                    )
+                  )}
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        ) : (
+          <Drawer open={!!activeRow} onOpenChange={(open) => !open && setActiveRow(null)} shouldScaleBackground={false}
+            onAnimationEnd={() => { if (!activeRow && pending.current) { const f = pending.current; pending.current = null; f(); } }}>
+            <DrawerContent className="dt-drawer">
+              <DrawerHeader>
+                <DrawerTitle>{(shown && mobileTitle?.(shown)) || (shown && title ? String(renderCell(title.col, shown, activeIdx) as any) : "Details")}</DrawerTitle>
+                <DrawerDescription>{shown ? mobileSubtitle?.(shown) : undefined}</DrawerDescription>
+              </DrawerHeader>
+              <div className="dt-drawer-body">
+                {shown && mobileDetailTop?.(shown)}
+                <dl className="dt-drawer-list">
+                  {shown && drawerCols.map(rr => (
+                    <div className="dt-drawer-row" key={rr.col.header || rr.col.sortKey || String(rr.role)}>
+                      <dt>{rr.col.header || " "}</dt>
+                      <dd>{renderCell(rr.col, shown, activeIdx)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+              <DrawerFooter className="dt-drawer-foot">
+                {shown && actionCols.map(rr => <div className="dt-drawer-action" key={rr.col.header || "action"}>{renderCell(rr.col, shown, activeIdx)}</div>)}
+                {shown && renderDrawerAction ? (
+                  renderDrawerAction(shown, activeIdx, () => setActiveRow(null))
+                ) : (
+                  onRowActivate && shown && tapAction !== "activate" && !hideOpenAction && (
+                    <Button onClick={() => { const row = shown; pending.current = () => onRowActivate(row); setActiveRow(null); }}>{openLabel ?? "Open"}</Button>
+                  )
+                )}
+              </DrawerFooter>
+            </DrawerContent>
+          </Drawer>
+        )}
       </div>
     );
   }
