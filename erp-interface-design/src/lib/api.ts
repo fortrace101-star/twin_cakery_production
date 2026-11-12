@@ -337,6 +337,9 @@ export interface UiOrder {
   /** Delivery location + landmark note (persisted since migration 021). */
   deliveryLocation?: string;
   locationNote?: string;
+  /** CRM grouping: server customer id + phone (one entry per customer). */
+  customerId?: string;
+  customerPhone?: string;
 }
 
 function initialsOf(name: string): string {
@@ -397,6 +400,8 @@ export function toUiOrder(
     followUpCompletedAt: order.followUpCompletedAt ?? null,
     deliveryLocation: order.deliveryLocation ?? "",
     locationNote: order.locationNote ?? "",
+    customerId: order.customerId,
+    customerPhone: customersById[order.customerId]?.phone ?? "",
     ...(cappedPaid > 0 ? { paidAmount: cappedPaid } : {}),
   };
 }

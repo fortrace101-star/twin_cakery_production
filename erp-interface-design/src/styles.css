@@ -1265,3 +1265,60 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
   .dt-detail-modal .dt-drawer-row { padding: 8px 0; }
   .dt-detail-modal .dt-detail-actions { position: static; margin-top: 12px; padding-top: 12px; }
 }
+
+/* CRM detail / customer history layout (CRM_Customer_History_Layout) */
+.crm-view .panel-heading p { margin: 2px 0 0; color: var(--muted-foreground); font-size: 13px; }
+.crm-list-controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.crm-sort { display:flex; gap:6px; align-items:center; font-size:12px; color: var(--muted-foreground); }
+.crm-sort select { height:34px; border:1px solid var(--border); border-radius:8px; padding:0 8px; background:var(--card); color:var(--foreground); font-size:13px; }
+.crm-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+.crm-list li button { width:100%; text-align:left; display:flex; gap:10px; align-items:center; padding:10px; border:1px solid var(--border); border-radius:10px; background:var(--card); cursor:pointer; }
+.crm-list li button.selected { border-color: var(--primary); background: color-mix(in oklch, var(--primary) 8%, var(--card)); }
+.crm-contact-meta { display:flex; flex-direction:column; gap:2px; min-width:0; flex:1; }
+.crm-contact-meta strong { font-size:14px; }
+.crm-contact-meta small { font-size:12px; color: var(--muted-foreground); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.crm-detail { min-width:0; border:1px solid var(--border); border-radius:12px; background:var(--card); }
+.crm-detail-inner { padding:14px; display:flex; flex-direction:column; gap:12px; }
+.crm-detail-head, .crm-profile-header { display:flex; flex-direction:column; gap:10px; }
+.crm-profile-main { display:flex; gap:10px; align-items:center; }
+.crm-profile-avatar { width:36px; height:36px; border-radius:999px; display:inline-grid; place-items:center; font-weight:600; }
+.crm-profile-info h3 { margin:0; font-size:18px; }
+.crm-profile-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.crm-kpi-strip { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:8px; }
+.crm-kpi { border:1px solid var(--border); border-radius:10px; padding:8px 10px; background:var(--surface2, var(--muted)); display:flex; flex-direction:column; gap:2px; }
+.crm-kpi span { font-weight:600; font-size:14px; }
+.crm-kpi small { font-size:11px; color: var(--muted-foreground); text-transform:uppercase; letter-spacing:.02em; }
+.crm-tabs { display:flex; gap:6px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+.crm-tabs button { background:transparent; border:0; padding:8px 10px; font-size:13px; cursor:pointer; border-bottom:2px solid transparent; color: var(--muted-foreground); }
+.crm-tabs button.selected { color: var(--foreground); border-bottom-color: var(--primary); font-weight:600; }
+.crm-tab-content { display:flex; flex-direction:column; gap:12px; }
+.crm-section { display:flex; flex-direction:column; gap:8px; }
+.crm-section-title { margin:0; font-size:13px; font-weight:600; }
+.crm-contact-grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:8px; }
+.crm-contact-item { display:flex; gap:8px; align-items:center; font-size:13px; }
+.crm-activity-list, .crm-event-list, .crm-feedback-list, .crm-reminder-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+.crm-activity-list li, .crm-event-list li, .crm-feedback-list li { display:flex; gap:8px; align-items:flex-start; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border); }
+.crm-activity-list li:last-child, .crm-event-list li:last-child, .crm-feedback-list li:last-child { border-bottom:0; }
+.crm-panel-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.link-btn { background:none; border:0; color: var(--primary); font-size:12px; cursor:pointer; padding:0; }
+.crm-sheet-close { position:absolute; top:12px; right:12px; border:0; background:transparent; cursor:pointer; padding:6px; border-radius:8px; }
+@media (max-width: 767.98px) {
+  .crm-kpi-strip { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .crm-list li button { min-height:44px; }
+  .crm-tabs button { min-height:44px; }
+}
+
+/* Sales & Orders register: columns wrap so the table fits its panel (no sideways scroll) */
+.orders-table.order-register { white-space: normal; }
+.orders-table.order-register th { line-height: 1.3; }
+.orders-table.order-register td { vertical-align: middle; }
+.orders-table.order-register .customer-cell,
+.orders-table.order-register .customer-cell > div { min-width: 0; }
+.orders-table.order-register .customer-cell strong,
+.orders-table.order-register .product-name,
+.orders-table.order-register .cell-sub { white-space: normal; overflow-wrap: anywhere; }
+.orders-table.order-register .status { white-space: normal; text-align: center; line-height: 1.25; }
+.orders-table.order-register .amount-cell { white-space: nowrap; }
+.orders-table.order-register .order-stepper,
+.orders-table.order-register th:first-child,
+.orders-table.order-register td:first-child { overflow: hidden; }
