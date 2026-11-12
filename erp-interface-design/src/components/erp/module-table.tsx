@@ -136,7 +136,7 @@ export function OrderTable({orders,onSelect,compact=false}: {orders:Order[];onSe
     return <div style={{ display: 'flex', gap: 8, width: '100%' }}>{payBtn}{nextBtn}</div>;
   } : undefined;
   return <>
-    <DataTable columns={columns} rows={sorted} rowKey={(o)=>o.id} rowClassName={(o)=>orderRowTone(o)} sort={sort} onSortChange={setSort} onRowActivate={onSelect} stickyHeader density={density} cardMode={!compact ? "cards" : "auto"} detailVariant={!compact ? "modal" : "drawer"} mobileTitle={(o)=>o.customer} mobileSubtitle={(o)=>`#${o.id}`} openLabel="Open order" {...(!compact ? { renderMobileCard: (o: Order, i: number) => <OrderMobileCard order={o} index={i} /> } : {})} {...(renderDrawerAction ? { renderDrawerAction } : {})} empty={<div className="empty-state"><Search/><h3>No orders found</h3><p>Try a different customer, product, or status.</p></div>}/>
+    <DataTable columns={columns} rows={sorted} rowKey={(o)=>o.id} rowClassName={(o)=>orderRowTone(o)} sort={sort} onSortChange={setSort} onRowActivate={onSelect} stickyHeader density={density} cardMode={!compact ? "cards" : "auto"} {...(!compact ? { className: "order-register" } : {})} detailVariant={!compact ? "modal" : "drawer"} mobileTitle={(o)=>o.customer} mobileSubtitle={(o)=>`#${o.id}`} openLabel="Open order" {...(!compact ? { renderMobileCard: (o: Order, i: number) => <OrderMobileCard order={o} index={i} /> } : {})} {...(renderDrawerAction ? { renderDrawerAction } : {})} empty={<div className="empty-state"><Search/><h3>No orders found</h3><p>Try a different customer, product, or status.</p></div>}/>
     {!compact && <RecordPaymentDialog order={payOrder} onClose={() => setPayOrder(null)} />}
   </>;
 
@@ -369,7 +369,6 @@ export function ProductDialog({
 export function ModuleTable({module,tab,orders,search,setSearch,onSelect,onNotice,connected,followUps,onCompleteFollowUp}: {module:string;tab:string;orders:Order[];search:string;setSearch:(s:string)=>void;onSelect:(o:Order)=>void;onNotice:(s:string)=>void;connected:boolean;followUps?:{id:string;customer:string}[];onCompleteFollowUp?:((id:string)=>void)}) {
   // Allowed exception (erp-design-system.md §5): CRM renders contact list + conversation,
   // not a table. Data still comes from the same moduleRows() source.
-  const contacts=moduleRows('crm',tab,orders).filter(c=>`${c.id} ${c.name} ${c.detail}`.toLowerCase().includes(search.toLowerCase()));
   const [filter,setFilter] = useState('All records');
 
   const [record,setRecord] = useState<GridRow|null>(null);
@@ -484,7 +483,7 @@ useLiveRefresh(refreshDeliveriesLive);
 
   ];
 
-  if(module==='crm') return <CrmView tab={tab} contacts={contacts} search={search} setSearch={setSearch} connected={connected} followUps={followUps} onCompleteFollowUp={onCompleteFollowUp}/>;
+  if(module==='crm') return <CrmView tab={tab} orders={orders} search={search} setSearch={setSearch} connected={connected} onOpenOrder={(id:string)=>{ const o=orders.find(x=>x.id===id); if(o) onSelect(o); }} {...(followUps ? {followUps} : {})} {...(onCompleteFollowUp ? {onCompleteFollowUp} : {})}/>;
 
   const [productionJob, setProductionJob] = useState<ServerProductionJob | null>(null);
   const [inventoryItems, setInventoryItems] = useState<ServerInventoryItem[]>([]);

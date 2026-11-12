@@ -50,7 +50,7 @@ export function NewOrderDialog({open,onOpenChange,onCreated}: {open:boolean;onOp
     const paid = d.paidAmount ?? 0;
     const orderPayStatus = paid <= 0 ? 'Unpaid' : paid >= d.amount ? 'Paid' : 'Partially paid';
     const fmtTime = (hhmm: string) => { const parts=hhmm.split(':').map(Number); const h=parts[0]??10; const m=parts[1]??0; const hr=((h%12)||12); return `${hr}:${String(m).padStart(2,'0')} ${h>=12?'PM':'AM'}`; };
-    const order:Order={...d,paidAmount:paid,id:`TC-${1049+orders.length-6}`,initials:d.customer.split(' ').map(s=>s[0]).join('').slice(0,2).toUpperCase(),time:fmtTime(d.time),status:'Pending confirmation',payment:orderPayStatus,delivery:'Pending',channel:'Internal'};
+    const order:Order={...d,paidAmount:paid,id:`TC-${1049+orders.length-6}`,initials:d.customer.split(' ').map(s=>s[0]).join('').slice(0,2).toUpperCase(),time:fmtTime(d.time),status:'Pending confirmation',payment:orderPayStatus,delivery:'Pending',channel:'Internal',...(selected?{customerId:selected.id}:{}),...(selected?.phone||phone?{customerPhone:selected?.phone||phone}:{})};
     addOrder(order,phone);
     if (d.isOccasion) {
       const targetName = d.customer.trim();
@@ -82,7 +82,7 @@ export function NewOrderDialog({open,onOpenChange,onCreated}: {open:boolean;onOp
     {isOccasion&&<><div className="form-row"><label>Occasion<input name="occasionType" placeholder="e.g. Birthday, Anniversary" maxLength={80} required/></label><label>Occasion date<input name="occasionDate" type="date" required/></label></div><div className="form-row"><label>Reminder repeats<select name="occasionFrequency" defaultValue="MONTHLY"><option value="WEEKLY">Every week</option><option value="MONTHLY">Every month</option><option value="ANNUAL">Every year</option></select></label></div><p className="form-note"><CircleAlert size={15}/>A reminder is scheduled in CRM Occasions and repeats on this cycle.</p></>}
     <div className="form-row"><label>Delivery location<Input name="deliveryLocation" placeholder="e.g. 12 Gazebo Rd, Kamwokya" maxLength={200}/></label><label>Location note<Input name="locationNote" placeholder="Landmark / access instructions" maxLength={300}/></label></div>
     <div className="form-row"><label>Total amount (UGX)<input name="amount" type="number" min="1" max="10000000" placeholder="4,500" required/></label><label>Paid amount (UGX)<input name="paidAmount" type="number" min="0" max="10000000" placeholder="0" defaultValue="0"/></label></div>
-    <div className="form-row"><label>Due date<input name="date" type="date" defaultValue="2026-10-08" required/></label><label>Due time<input name="time" type="time" defaultValue="10:00" required/></label></div>
+    <div className="form-row"><label>Due date<input name="date" type="date" defaultValue={new Date().toISOString().slice(0,10)} required/></label><label>Due time<input name="time" type="time" defaultValue="10:00" required/></label></div>
     <p className="form-note"><CircleAlert size={15}/>Paid now cannot exceed the total amount — overpayments are blocked.</p>
     <p className="form-note"><CircleAlert size={15}/>Orders require proprietor confirmation before production.</p>
     {error&&<p className="form-error">{error}</p>}

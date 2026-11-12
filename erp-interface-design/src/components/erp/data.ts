@@ -64,21 +64,21 @@ export type Order = {
   delivery: string; 
   channel: string; 
   followUpCompletedAt?: string | null; 
-  /** Amount paid at order creation / last payment record. */ 
   paidAmount?: number; 
-  /** Delivery location fields (Stage 5). */ 
   deliveryLocation?: string; 
   locationNote?: string; 
   station?: "pendingConfirm" | "confirmed" | "baking" | "done"; 
   notes?: string; 
+  customerId?: string;
+  customerPhone?: string;
 };
 export const initialOrders: Order[] = [
-  { id: 'TC-1048', customer: 'Sarah Mwangi', initials: 'SM', product: 'Chocolate celebration cake', options: '2 kg · Chocolate · Birthday', date: '2026-10-07', time: '10:00 AM', amount: 4500, paidAmount: 1500, status: 'In production', payment: 'Partially paid', delivery: 'Pending', channel: 'WhatsApp' },
-  { id: 'TC-1047', customer: 'David Ochieng', initials: 'DO', product: 'Red velvet cake', options: '1.5 kg · Red velvet · Anniversary', date: '2026-10-07', time: '11:30 AM', amount: 3800, status: 'Ready', payment: 'Paid', delivery: 'Awaiting dispatch', channel: 'Website' },
-  { id: 'TC-1046', customer: 'Grace Wanjiku', initials: 'GW', product: 'Vanilla cupcakes', options: '24 pieces · Vanilla · Corporate', date: '2026-10-07', time: '01:00 PM', amount: 2400, status: 'Confirmed', payment: 'Paid', delivery: 'Pending', channel: 'Phone' },
-  { id: 'TC-1045', customer: 'James Kamau', initials: 'JK', product: 'Wedding cake', options: '3 tiers · Vanilla & lemon', date: '2026-10-08', time: '09:00 AM', amount: 18000, status: 'In production', payment: 'Partially paid', delivery: 'Pending', channel: 'Walk-in' },
-  { id: 'TC-1044', customer: 'Faith Akinyi', initials: 'FA', product: 'Carrot cake', options: '1 kg · Cream cheese frosting', date: '2026-10-08', time: '02:00 PM', amount: 3200, status: 'Pending confirmation', payment: 'Unpaid', delivery: 'Pending', channel: 'WhatsApp' },
-  { id: 'TC-1043', customer: 'Peter Njoroge', initials: 'PN', product: 'Chocolate cupcakes', options: '12 pieces · Chocolate', date: '2026-10-09', time: '10:30 AM', amount: 1800, status: 'Completed / Delivered', payment: 'Paid', delivery: 'Completed / Delivered', channel: 'Website' },
+  { id: 'TC-1048', customer: 'Sarah Mwangi', customerId: 'CUST-001', customerPhone: '0772000101', initials: 'SM', product: 'Chocolate celebration cake', options: '2 kg · Chocolate · Birthday', date: '2026-10-07', time: '10:00 AM', amount: 4500, paidAmount: 1500, status: 'In production', payment: 'Partially paid', delivery: 'Pending', channel: 'WhatsApp' },
+  { id: 'TC-1047', customer: 'David Ochieng', customerId: 'CUST-002', customerPhone: '0772000102', initials: 'DO', product: 'Red velvet cake', options: '1.5 kg · Red velvet · Anniversary', date: '2026-10-07', time: '11:30 AM', amount: 3800, status: 'Ready', payment: 'Paid', delivery: 'Awaiting dispatch', channel: 'Website' },
+  { id: 'TC-1046', customer: 'Grace Wanjiku', customerId: 'CUST-003', customerPhone: '0772000103', initials: 'GW', product: 'Vanilla cupcakes', options: '24 pieces · Vanilla · Corporate', date: '2026-10-07', time: '01:00 PM', amount: 2400, status: 'Confirmed', payment: 'Paid', delivery: 'Pending', channel: 'Phone' },
+  { id: 'TC-1045', customer: 'James Kamau', customerId: 'CUST-004', customerPhone: '0772000104', initials: 'JK', product: 'Wedding cake', options: '3 tiers · Vanilla & lemon', date: '2026-10-08', time: '09:00 AM', amount: 18000, status: 'In production', payment: 'Partially paid', delivery: 'Pending', channel: 'Walk-in' },
+  { id: 'TC-1044', customer: 'Faith Akinyi', customerId: 'CUST-005', customerPhone: '0772000105', initials: 'FA', product: 'Carrot cake', options: '1 kg · Cream cheese frosting', date: '2026-10-08', time: '02:00 PM', amount: 3200, status: 'Pending confirmation', payment: 'Unpaid', delivery: 'Pending', channel: 'WhatsApp' },
+  { id: 'TC-1043', customer: 'Peter Njoroge', customerId: 'CUST-006', customerPhone: '0772000106', initials: 'PN', product: 'Chocolate cupcakes', options: '12 pieces · Chocolate', date: '2026-10-09', time: '10:30 AM', amount: 1800, status: 'Completed / Delivered', payment: 'Paid', delivery: 'Completed / Delivered', channel: 'Website' },
 ];
 export const stock = [
   { name: 'All-purpose flour', sku: 'ING-001', category: 'Dry ingredients', quantity: 8, unit: 'kg', min: 15, cost: 120, status: 'Low stock' },
@@ -278,6 +278,83 @@ export function donutGradient(breakdown: OrderBreakdown): string {
   if (angle < 359.9) stops.push(`var(--card) ${round2(angle)}deg 360deg`);
   return `conic-gradient(${stops.join(",")})`;
 }
+/** CRM phone normalisation (Uganda local 07XXXXXXXX). */
+export function normalizePhone(raw?: string | null): string {
+  const d0 = String(raw ?? '').replace(/[^\d+]/g, '').replace(/^\+/, '');
+  if (!d0) return '';
+  let local = '';
+  if (/^0?7\d{8}$/.test(d0)) local = d0.length === 9 ? '0' + d0 : d0;
+  else if (/^2567\d{8}$/.test(d0)) local = '0' + d0.slice(3);
+  else if (/^002567\d{8}$/.test(d0)) local = '0' + d0.slice(5);
+  if (/^07\d{8}$/.test(local)) return local;
+  const plain = String(raw ?? '').replace(/\D/g, '');
+  return plain.length >= 9 ? plain : '';
+}
+export function formatPhoneDisplay(raw?: string | null): string {
+  const n = normalizePhone(raw);
+  if (/^07\d{8}$/.test(n)) return n.slice(0,4) + ' ' + n.slice(4,7) + ' ' + n.slice(7);
+  return String(raw || '').trim();
+}
+export type CustomerRow = {
+  id: string;
+  name: string;
+  phone: string;
+  phoneDisplay: string;
+  orderCount: number;
+  totalSpend: number;
+  lastOrderAt: string;
+  firstOrderAt: string;
+  balanceDue: number;
+  status: string;
+  customerIds: string[];
+  orders: Order[];
+  isWalkIn?: boolean;
+};
+
+function parseDateMs(v?: string): number {
+  if(!v) return 0;
+  const t = Date.parse(v);
+  return Number.isNaN(t) ? 0 : t;
+}
+export function buildCustomerRows(orders: Order[]): CustomerRow[] {
+  const groups = new Map<string, { key: string; orders: Order[]; phone: string; walkIn: boolean }>();
+  for (const o of orders) {
+    const norm = normalizePhone(o.customerPhone);
+    const walkIn = !norm;
+    const key = walkIn ? '__walkin__' : norm;
+    const g = groups.get(key) || { key, orders: [], phone: norm, walkIn };
+    g.orders.push(o);
+    groups.set(key, g);
+  }
+  const rows: CustomerRow[] = [];
+  for (const g of groups.values()) {
+    const sorted = g.orders.slice().sort((a,b)=> parseDateMs(a.date) - parseDateMs(b.date) || String(a.id).localeCompare(String(b.id)));
+    const byRecent = g.orders.slice().sort((a,b)=> parseDateMs(b.date) - parseDateMs(a.date) || String(b.id).localeCompare(String(a.id)));
+    const first = sorted[0];
+    const last = byRecent[0];
+    const customerIds = Array.from(new Set(g.orders.map(o=>o.customerId).filter(Boolean))) as string[];
+    const totalSpend = g.orders.reduce((s,o)=>s + (o.amount||0), 0);
+    const paidAmt = g.orders.reduce((s,o)=>s + Math.min(o.amount||0, o.paidAmount||0), 0);
+    const balanceDue = Math.max(0, totalSpend - paidAmt);
+    rows.push({
+      id: customerIds[0] || (g.walkIn ? 'WALK-IN' : g.key),
+      name: g.walkIn ? 'Walk-in customers' : (first?.customer || 'Customer'),
+      phone: g.phone,
+      phoneDisplay: g.walkIn ? '' : formatPhoneDisplay(g.phone),
+      orderCount: g.orders.length,
+      totalSpend,
+      lastOrderAt: last?.date || '',
+      firstOrderAt: first?.date || '',
+      balanceDue,
+      status: 'Active',
+      customerIds,
+      orders: g.orders,
+      isWalkIn: g.walkIn,
+    });
+  }
+  return rows;
+}
+
 export type GridRow = { id: string; name: string; detail: string; secondary: string; value: string; status: string };
 export function moduleRows(module: string, tab: string, orders: Order[]): GridRow[] {
   if (module === 'crm') return orders.map((o, i) => ({ id: tab === 'Inquiries' ? `INQ-00${i+1}` : `CUS-00${i+1}`, name: o.customer, detail: tab === 'Feedback' ? ['“Beautiful cake and excellent service!”', '“Delivered on time. Thank you!”', '“The cupcakes were a hit.”'][i%3] || '' : o.channel + ' · ' + (i+1) + ' orders', secondary: tab === 'Inquiries' ? o.product : '07 Oct 2026', value: tab === 'Feedback' ? '★★★★★' : money(o.amount), status: tab === 'Inquiries' ? ['New', 'Follow-up', 'Quoted'][i%3] || 'New' : 'Active' }));
