@@ -251,8 +251,8 @@ export interface ProductionJob extends BaseEntity {
   recipeVersion: string;
   requiredBy: string | null;
   requiredAt: string | null;
-  status: "PENDING" | "SCHEDULED" | "READY_FOR_PRODUCTION" | "IN_PRODUCTION" | "READY_FOR_QUALITY" | "QUALITY_CHECK" | "READY_FOR_DELIVERY" | "REWORK_REQUIRED" | "COMPLETED" | "CANCELLED";
-  stage: "PLAN" | "REVIEW" | "CHECK_RECIPE" | "CHECK_INVENTORY" | "RESERVE" | "SHORTAGE" | "PURCHASE" | "PRODUCE" | "QUALITY" | "DELIVER" | "DONE";
+  status: "PENDING" | "SCHEDULED" | "READY_FOR_PRODUCTION" | "IN_PRODUCTION" | "READY_FOR_QUALITY" | "QUALITY_CHECK" | "READY_FOR_DELIVERY" | "DECORATING" | "DONE" | "REWORK_REQUIRED" | "COMPLETED" | "CANCELLED";
+  stage: "PLAN" | "REVIEW" | "CHECK_RECIPE" | "CHECK_INVENTORY" | "RESERVE" | "SHORTAGE" | "PURCHASE" | "PRODUCE" | "DECORATE" | "QC" | "DELIVER" | "DONE";
   progress: number;
   notes: string;
 }

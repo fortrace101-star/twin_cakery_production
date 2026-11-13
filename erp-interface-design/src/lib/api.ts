@@ -942,6 +942,11 @@ export function completeProductionJob(id: string): Promise<ServerProductionJob |
   return safe(() => request<ServerProductionJob>(`/production/jobs/${id}/complete`, { method: "POST" }), null);
 }
 
+/** §1 — Set a Decorating job to Ready for delivery (single guard; requires production.set_ready). */
+export function readyProductionJob(id: string): Promise<ServerProductionJob | null> {
+  return safe(() => request<ServerProductionJob>(`/production/jobs/${id}/ready`, { method: "POST" }), null);
+}
+
 export function recordQualityCheck(
   id: string,
   payload: { result: "PASS" | "FAIL"; issues?: string; notes?: string; reworkRequired?: boolean; reworkCost?: number; wastageCaused?: number },

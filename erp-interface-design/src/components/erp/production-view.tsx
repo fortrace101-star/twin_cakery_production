@@ -28,6 +28,7 @@ import {
   createProductionJob,
   startProductionForOrder,
   completeProductionJob,
+  readyProductionJob,
   recordQualityCheck,
   getProductionConsumption,
   listInventoryItems,
@@ -619,6 +620,29 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
     }
   };
 
+  /** §1 — Single "Set to Ready" guard (decorating jobs). Forwards to
+   * POST /jobs/:id/ready, which requires the production.set_ready permission
+   * (added in migration 024). Decorating jobs roll to READY_FOR_DELIVERY;
+   * produce jobs are not affected by this guard and complete via Mark Production Complete. */
+  const handleSetToReady = async () => {
+    const jobId = productionJob?.id || selectedJob?.id;
+    if (!jobId) return;
+    setBusyAction(true);
+    try {
+      const res = await withActionTimeout(readyProductionJob(jobId), 20000, "Set to Ready");
+      if (res) {
+        void refreshJob();
+        void refreshBoard();
+        if (onNotice) onNotice("Job marked ready for delivery");
+      } else if (onNotice) onNotice("Failed to set to ready");
+    } catch (e) {
+      console.error(e);
+      if (onNotice) onNotice(e instanceof Error ? e.message : "Error setting to ready");
+    } finally {
+      setBusyAction(false);
+    }
+  };
+
   const renderJobCard = (job: any, column: "queued" | "baking" | "decorating" | "ready") => {
     const orderMatch = (uiOrders as any[])?.find((o: any) => o.id === job.orderId || o.orderNumber === job.orderId);
     const serverOrderMatch = serverOrders.find((o: any) => o.id === job.orderId || o.orderNumber === job.orderId);
@@ -730,7 +754,7 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
             <div className="flex flex-wrap gap-2">
               {(jobToShow?.status === 'PENDING' || jobToShow?.status === 'SCHEDULED' || jobToShow?.status === 'READY_FOR_PRODUCTION') && <Button size="sm" onClick={handleStartJob} disabled={busyAction || !connected}>Start Production</Button>}
               {jobToShow?.status === 'IN_PRODUCTION' && <Button size="sm" onClick={handleCompleteJob} disabled={busyAction || !connected}>Mark Production Complete</Button>}
-              {(jobToShow?.status === 'READY_FOR_QUALITY' || jobToShow?.status === 'QUALITY_CHECK') && (<><Button size="sm" onClick={handleQualityPass} disabled={busyAction || !connected}>Pass Quality Check</Button><Button size="sm" variant="outline" onClick={handleQualityFail} disabled={busyAction || !connected}>Fail & Rework</Button></>)}
+              {jobToShow?.status === 'DECORATING' && <Button size="sm" onClick={handleSetToReady} disabled={busyAction || !connected}>Set to Ready</Button>}
               {(jobToShow?.status === 'READY_FOR_DELIVERY' || jobToShow?.status === 'COMPLETED') && (<Button size="sm" onClick={handleMarkAwaitingPickup} disabled={busyAction || !connected}>Mark as Awaiting Pickup</Button>)}
             </div>
           </div>
