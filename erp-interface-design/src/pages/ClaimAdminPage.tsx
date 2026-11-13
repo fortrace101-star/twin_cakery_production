@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { claimAdmin } from "@/lib/api";
 import logo from "@/assets/twin-cakery-logo.png";
+import { PasswordInput } from "@/components/ui/input";
 
 export function ClaimAdminPage() {
   const navigate = useNavigate();
@@ -19,6 +20,21 @@ export function ClaimAdminPage() {
   useEffect(() => {
     document.title = "Create Admin Account — Twin Cakery ERP";
   }, []);
+
+  // Conventional strength cue: length first (it is the rule the form enforces),
+  // then variety. Purely advisory - submit validation is unchanged.
+  const strength = (() => {
+    if (!password) return null;
+    if (password.length < 6) return { label: "Too short", tone: "text-destructive" };
+    let score = 1;
+    if (password.length >= 10) score += 1;
+    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
+    if (/\d/.test(password)) score += 1;
+    if (/[^A-Za-z0-9]/.test(password)) score += 1;
+    if (score >= 4) return { label: "Strong", tone: "text-emerald-600" };
+    if (score === 3) return { label: "Good", tone: "text-amber-600" };
+    return { label: "Weak", tone: "text-destructive" };
+  })();
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -154,10 +170,9 @@ export function ClaimAdminPage() {
               <label htmlFor="password" className="mb-1 block text-xs font-medium text-muted-foreground">
                 Password
               </label>
-              <input
+              <PasswordInput
                 id="password"
                 name="password"
-                type="password"
                 autoComplete="new-password"
                 required
                 disabled={busy}
@@ -166,15 +181,19 @@ export function ClaimAdminPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm max-md:min-h-11 outline-none transition focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50"
               />
+              {strength && (
+                <p className="mt-1 text-xs text-muted-foreground" aria-live="polite">
+                  Strength: <strong className={strength.tone}>{strength.label}</strong> · at least 6 characters
+                </p>
+              )}
             </div>
             <div>
               <label htmlFor="confirmPassword" className="mb-1 block text-xs font-medium text-muted-foreground">
                 Confirm password
               </label>
-              <input
+              <PasswordInput
                 id="confirmPassword"
                 name="confirmPassword"
-                type="password"
                 autoComplete="new-password"
                 required
                 disabled={busy}

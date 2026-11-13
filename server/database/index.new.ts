@@ -1,5 +1,6 @@
 import { query, withTransaction, type TxClient } from "./db.js";
 import { logger } from "../utils/logger.js";
+import { localDay } from "../utils/local-day.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -468,9 +469,18 @@ function coerceRow(cols: Column[], raw: Record<string, unknown>): Record<string,
       case "timestamp without time zone":
         out[col.camel] = v instanceof Date ? v.toISOString() : String(v);
         break;
-      case "date":
-        out[col.camel] = v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10);
+      case "date": {
+        // A DATE has no time zone: read its Y/M/D as parsed (local midnight),
+        // never through toISOString(), which would shift it back a day east of
+        // UTC and let the cache write-back persist the wrong calendar day.
+        if (v instanceof Date) {
+          const pad = (n: number) => String(n).padStart(2, "0");
+          out[col.camel] = `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())}`;
+        } else {
+          out[col.camel] = String(v).slice(0, 10);
+        }
         break;
+      }
       default:
         out[col.camel] = v;
     }
@@ -671,7 +681,10 @@ function serializeValue(value: unknown, type: string): unknown {
   if (value === undefined || value === null) return value;
   switch (type) {
     case "date":
-      return value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10);
+      // A DATE has no time zone: write back the day it already represents
+      // instead of shifting it to UTC (which is a day earlier in East Africa).
+      if (value instanceof Date) return localDay(value);
+      return String(value).slice(0, 10);
     case "timestamp with time zone":
     case "timestamp without time zone":
       return value instanceof Date ? value.toISOString() : String(value);

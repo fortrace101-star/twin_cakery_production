@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "@/components/erp/store";
+import { hasExistingUser } from "@/lib/api";
 import logo from "@/assets/twin-cakery-logo.png";
+import { PasswordInput } from "@/components/ui/input";
 
 export function LoginPage() {
   const { signIn, authError, connected, user } = useWorkspace();
@@ -24,6 +26,21 @@ export function LoginPage() {
     }
     return undefined;
   }, [connected, user]);
+
+  // A brand-new workspace (no staff accounts) has nothing to sign in to, so
+  // send the guest to the first-admin claim page instead of a dead login form.
+  // This also covers a stale token left behind after a database wipe: that
+  // token makes App skip its own user-count redirect.
+  useEffect(() => {
+    if (!connected || user) return undefined;
+    let cancelled = false;
+    void hasExistingUser().then((hasHistory) => {
+      if (!cancelled && !hasHistory) navigate("/claim-admin", { replace: true });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [connected, user, navigate]);
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -68,10 +85,9 @@ export function LoginPage() {
             <label htmlFor="password" className="mb-1 block text-xs font-medium text-muted-foreground">
               Password
             </label>
-            <input
+            <PasswordInput
               id="password"
               name="password"
-              type="password"
               autoComplete="current-password"
               required
               disabled={busy}
@@ -93,10 +109,6 @@ export function LoginPage() {
           </button>
         </form>
 
-        <p className="mt-4 text-xs text-muted-foreground text-center">
-          Demo credentials: <code className="text-foreground">placeholder</code> /{" "}
-          <code className="text-foreground">TwinCakery123!</code>
-        </p>
 
         <p className="mt-4 text-center text-xs text-muted-foreground">
           New here?{" "}
