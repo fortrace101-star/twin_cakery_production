@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "@/components/erp/store";
+import { hasExistingUser } from "@/lib/api";
 import logo from "@/assets/twin-cakery-logo.png";
 
 export function LoginPage() {
@@ -24,6 +25,21 @@ export function LoginPage() {
     }
     return undefined;
   }, [connected, user]);
+
+  // A brand-new workspace (no staff accounts) has nothing to sign in to, so
+  // send the guest to the first-admin claim page instead of a dead login form.
+  // This also covers a stale token left behind after a database wipe: that
+  // token makes App skip its own user-count redirect.
+  useEffect(() => {
+    if (!connected || user) return undefined;
+    let cancelled = false;
+    void hasExistingUser().then((hasHistory) => {
+      if (!cancelled && !hasHistory) navigate("/claim-admin", { replace: true });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [connected, user, navigate]);
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

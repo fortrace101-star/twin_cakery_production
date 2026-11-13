@@ -1672,6 +1672,10 @@ export interface ServerDashboardAnalytics {
     pendingInquiries: number;
     pendingQuotations: number;
     outstandingPayments: number;
+    /** Money actually collected, bucketed by each payment's own date. */
+    paidToday: number;
+    paidThisWeek: number;
+    paidThisMonth: number;
     lowStockItems: number;
     todayRevenue: number;
     monthlyRevenue: number;

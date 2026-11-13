@@ -45,6 +45,28 @@ router.get("/dashboard", required("sales.analytics"), (_req, res) => {
     const paid = payments.filter((p) => p.orderId === o.id).reduce((s, p) => s + (p.amount || 0), 0);
     outstandingPayments += Math.max(0, (o.total || 0) - paid);
   }
+  // Revenue = money actually collected, bucketed by each payment's own date
+  // (not the order's). A deposit taken yesterday is this week's revenue even
+  // when the order was placed last month, and the unpaid remainder of an order
+  // is never revenue until it is received.
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const weekStartKey = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    return d.toISOString().slice(0, 10);
+  })();
+  const monthKey = todayKey.slice(0, 7);
+  let paidToday = 0;
+  let paidThisWeek = 0;
+  let paidThisMonth = 0;
+  for (const p of payments) {
+    const day = String(p.date || p.createdAt || "").slice(0, 10);
+    if (!day) continue;
+    const amount = Number(p.amount) || 0;
+    if (day === todayKey) paidToday += amount;
+    if (day >= weekStartKey && day <= todayKey) paidThisWeek += amount;
+    if (day.slice(0, 7) === monthKey) paidThisMonth += amount;
+  }
   const lowStockItems = inventoryItems.filter((i) => (i.physicalStock || 0) <= (i.reorderLevel || 0)).length;
   const todayRevenue = orders.filter((o) => isToday(o.createdAt) && o.status !== "CANCELLED").reduce((s, o) => s + (o.total || 0), 0);
   const now = new Date();
@@ -137,6 +159,9 @@ router.get("/dashboard", required("sales.analytics"), (_req, res) => {
       pendingInquiries,
       pendingQuotations,
       outstandingPayments,
+      paidToday,
+      paidThisWeek,
+      paidThisMonth,
       lowStockItems,
       todayRevenue,
       monthlyRevenue,
