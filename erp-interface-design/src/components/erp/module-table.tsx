@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { money, moduleRows, orderOutstandingAmount, tone, type GridRow, type Order } from "./data";
 import { ORDER_STAGE_PIPELINE, orderStageIndex } from "@/lib/theme-tokens";
+import { orderStage, stageLabel } from "@/lib/production-stage";
 import { StatusBadge as Status } from "../data-table/StatusBadge";
 import { DataTable, type Column, type SortState } from "../data-table/DataTable";
 import { OrderMobileCard, formatDueDate } from "./order-mobile-card";
@@ -445,30 +446,19 @@ useLiveRefresh(refreshDeliveriesLive);
       const order = orders.find((o) => o.id === job.orderId);
       const productName = order?.product || job.variantOptions || job.orderId;
       const customerName = order?.customer || job.orderId;
-      let status = job.status;
-      if (tab === 'Quality control') {
-        if (job.status === 'READY_FOR_DELIVERY') status = 'Passed';
-        else if (job.status === 'REWORK_REQUIRED') status = 'Pending';
-        else if (job.status === 'QUALITY_CHECK') status = 'In Review';
-        else if (job.status === 'READY_FOR_QUALITY') status = 'Pending';
-        else status = job.status;
-      } else if (tab === 'Production costs') {
-        status = job.status;
-      } else {
-        if (job.status === 'IN_PRODUCTION') status = 'Baking';
-        else if (job.status === 'READY_FOR_PRODUCTION' || job.status === 'PENDING' || job.status === 'SCHEDULED') status = 'Queued';
-        else if (job.status === 'READY_FOR_QUALITY') status = 'Decorating';
-        else if (job.status === 'QUALITY_CHECK' || job.status === 'REWORK_REQUIRED') status = 'Quality';
-        else if (job.status === 'READY_FOR_DELIVERY') status = 'Ready';
-        else status = job.status;
-      }
+      const stage = orderStage(order, job) ?? 'queued';
+      const stageLabelTxt = stageLabel(stage);
+      // Real production costs (ingredient / labour / overhead / total) — a plain
+      // string so the table cell stays synchronous.
+      const productionTotal = tab === 'Production costs' ? (costCache[job.id] ?? 0) : 0;
+      const value = productionTotal ? money(productionTotal) : (job.progress ? `${job.progress}%` : '—');
       return {
         id: job.id,
         name: productName,
         detail: `${job.orderId}${order?.customer ? ' · ' + order.customer : ''}`,
-        secondary: job.requiredBy ? new Date(job.requiredBy).toLocaleDateString('en-GB') : (order?.time || '—'),
-        value: tab === 'Production costs' ? money((order?.amount || 0) * 0.35) : job.progress ? `${job.progress}%` : '—',
-        status: status.replace(/_/g, ' '),
+        secondary: job.recipeVersion || job.requiredBy ? (job.requiredBy ? new Date(job.requiredBy).toLocaleDateString('en-GB') : order?.time || '—') : (order?.time || '—'),
+        value,
+        status: stageLabelTxt.replace(/_/g, ' '),
       };
     });
     rows = jobRows.filter(r=>`${r.id} ${r.name} ${r.detail}`.toLowerCase().includes(search.toLowerCase())&&(filter==='All records'||r.status===filter));
@@ -479,6 +469,10 @@ useLiveRefresh(refreshDeliveriesLive);
   const labels:Record<string,string[]> = {crm:['Customer / reference','Last activity','Total spend'],inventory:['Ingredient / SKU','Reorder level','On hand'],purchasing:['Supplier / reference','Expected date','Total amount'],production:['Product / job','Due/Created','Stage/Progress'],delivery:['Customer / order','Due time','Destination'],finance:['Customer / reference','Date','Amount'],sales:['Customer / quote','Due date','Total amount']};
 
   const headings = labels[module]||['Record','Date','Value'];
+
+  // Production module: unified jobs table (no QC / schedule / costs split).
+  // Rows are keyed by production job; the stage label comes from the shared
+  // production-stage helper so the QC / schedule / costs tabs never fragment.
 
   const columns: Column<GridRow>[] = [
 
@@ -511,6 +505,26 @@ useLiveRefresh(refreshDeliveriesLive);
   const [inventoryItems, setInventoryItems] = useState<ServerInventoryItem[]>([]);
   const [consumption, setConsumption] = useState<ServerProductionConsumption[]>([]);
   const [materialEntries, setMaterialEntries] = useState<Array<{ itemId: string; quantity: number; notes: string }>>([{ itemId: "", quantity: 0, notes: "" }]);
+  // Production costs (real ingredient + labour + overhead + total) cached at
+  // mount so the production table cell is a plain string, not a Promise.
+  const [costCache, setCostCache] = useState<Record<string, number>>({});
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const fetched = await Promise.all((jobs ?? []).map((j) => getProductionCosts(j.id)));
+        const map = Object.fromEntries(
+          fetched.map((c, i) => [String((jobs ?? [])[i]?.id), c.reduce((s, x) => s + (Number(x.ingredientCost) || 0) + (Number(x.labourCost) || 0) + (Number(x.overheadCost) || 0), 0)]),
+        );
+        if (alive) setCostCache(map);
+      } catch {
+        /* non-fatal */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [jobs]);
   const [busyAction, setBusyAction] = useState(false);
 
   useEffect(() => {

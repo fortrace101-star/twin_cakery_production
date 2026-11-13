@@ -1183,40 +1183,11 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
    full icon-and-word menu under the breadcrumb for one open session. */
 .breadcrumb.is-ds-open > button { visibility: visible !important; }
 
-/* DS: production kanban boards revert to the desktop multi-column rails on PCs. */
+/* Production stations: desktop multi-column rails on PCs; single scrolling column on phones. */
 .kanban-board { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 14px; }
 .station-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
 .kanban-board > [data-stage], .station-board > [data-stage] { display: block; width: 100%; min-width: 0; }
-.board-col-title { display: block !important;} /* R3/R6 mobile overrides (appended) */
-
-/* Mobile order/job card containers: rectangle entries per board */
-
-  .kanban-board .order-card,.station-board .order-card {
-    flex: 1 1 auto; width: 100%; min-width: 0; box-sizing: border-box;
-    display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
-    border: 1px solid var(--border); background: var(--card); border-radius: 6px;
-    padding: 12px 14px; margin: 0 0 10px; cursor: pointer;
-  }
-  .order-card .order-card { border-radius: 6px; padding: 12px 14px; margin: 0 0 10px; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; border: 1px solid var(--border); background: var(--card); cursor: pointer; text-decoration: none; font-size: inherit; color: inherit; min-height: 0; }
-  .station-board .order-card .order-card { background: transparent; border-color: var(--border); padding: 12px 14px; margin-bottom: 10px; }
-  .kanban-board .order-card .order-card { background: var(--card); }
-  .order-card .order-card strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; font-weight: 600; }
-  .order-card .order-card div { font-size: 12px; white-space: normal; }
-  .station-board .order-card,.kanban-board .order-card,.order-card .order-card { border-radius: 6px; }
-  .station-board .order-card { border-radius: 8px; }
-  .station-board .board-col-title { font-size: 15px !important; margin: 0 0 10px !important; padding-bottom: 6px !important; border-bottom: 1px solid var(--border); }
-  .station-board .board-empty { font-size: 13px !important; margin: 0 0 10px !important; color: var(--muted-foreground); }
-  .station-board .station { display: flex; flex-direction: column; min-height: 0; width: 100%; }
-  .station-board .station > * { min-width: 0; width: 100%; }
-  .station-board .station .board-col-title { margin-bottom: 10px !important; }
-  .station-board .station .board-empty { margin: 0 0 10px !important; }
-  .station-board .station .order-card { margin-bottom: 10px; }
-  .station-board .station:last-child .order-card { margin-bottom: 0; }
-  .kanban-board .order-card { border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
-  .kanban-board .station .order-card { display: block; width: 100%; border-radius: 8px; padding: 12px; margin-bottom: 8px; border: 1px solid var(--border); background: var(--card); cursor: pointer; text-decoration: none; font-size: inherit; color: inherit; }
-  .kanban-board .order-card .order-card { border-radius: 10px; border-color: var(--border); background: var(--card); margin-bottom: 10px; padding: 12px 14px; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; text-decoration: none; font-size: inherit; color: inherit; min-height: 0; cursor: pointer; }
-  .kanban-board .order-card .order-card strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; font-weight: 600; }
-  .kanban-board .order-card .order-card div { font-size: 12px; white-space: normal; overflow-wrap: anywhere; word-break: normal; }
+.board-col-title { display: block; }
 
 @media (max-width: 767.98px) {
   .crm-body { grid-template-columns: 1fr; padding: 0 12px 16px; }
@@ -1238,6 +1209,16 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 @media (max-width: 767.98px) {
   .chart-tap-readout { font-size: 13px; }
   .chart-tap-readout-close { min-width: 44px; min-height: 44px; }
+
+  /* Production stations: single vertical scrolling column on phones. */
+  .station-board { display: flex; flex-direction: column; min-height: 0; }
+  .station-board > [data-stage] { display: block; width: 100%; min-width: 0; }
+  .station-board > [data-stage] .board-col-title { font-size: 14px; margin: 0 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+  .station-board > [data-stage] .board-col-title .inline-count { margin-left: 6px; }
+  .station-board .order-card { border-radius: 8px; margin-bottom: 10px; }
+  .station-board .order-card:last-child { margin-bottom: 0; }
+  .station-board .order-card, .kanban-board .order-card { cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
+  .station-board .board-empty { color: var(--muted-foreground); font-size: 13px; margin: 0 0 10px; }
 }
 
 /* Payment status entry (read-only fields) */

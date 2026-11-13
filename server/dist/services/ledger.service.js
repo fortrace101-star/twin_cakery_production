@@ -1,3 +1,4 @@
+import { localDay } from "../utils/local-day.js";
 function sum(lines, key) {
     return lines.reduce((s, l) => s + Number(l[key] || 0), 0);
 }
@@ -8,7 +9,8 @@ export const ledgerService = {
         if (d !== c) {
             throw new Error(`Unbalanced journal ${e.type}:${e.id} (${d} ≠ ${c})`);
         }
-        const date = e.date || new Date().toISOString().slice(0, 10);
+        // A journal entry belongs to the day it was posted locally, not to the UTC day.
+        const date = e.date || localDay();
         const period = date.slice(0, 7);
         await tx.query(`INSERT INTO accounting_periods (period) VALUES ($1) ON CONFLICT DO NOTHING`, [period]);
         const jeRes = await tx.query(`INSERT INTO journal_entries (entry_date, period, source_event_id, source_type, source_id, memo)

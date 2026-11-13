@@ -3,6 +3,7 @@ import { store } from "../database/store.js";
 import { RbacService } from "../services/rbac.service.js";
 import { AuthService, extractToken } from "../services/auth.service.js";
 import { paymentsService } from "../services/payments.service.js";
+import { localDay } from "../utils/local-day.js";
 const router = Router();
 const rbacService = new RbacService();
 const authService = new AuthService();
@@ -239,8 +240,9 @@ router.get("/reports/pnl", required("finance.view_reports"), async (req, res) =>
     try {
         const { pool } = await import("../database/db.js");
         const { from, to } = req.query;
-        const f = from || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
-        const t = to || new Date().toISOString().slice(0, 10);
+        const now = new Date();
+        const f = from || localDay(new Date(now.getFullYear(), now.getMonth(), 1));
+        const t = to || localDay(now);
         const result = await pool.query(`SELECT a.type, a.code, a.name,
               SUM(l.credit - l.debit) FILTER (WHERE a.type='REVENUE') AS revenue,
               SUM(l.debit - l.credit) FILTER (WHERE a.type IN ('COGS','EXPENSE')) AS cost

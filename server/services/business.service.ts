@@ -334,21 +334,56 @@ export class BusinessService {
     }
   }
 
+  /**
+   * Complete a run. An IN_PRODUCTION job becomes its terminal state on the
+   * production board:
+   *   - Decorating (deck/finish) jobs roll forward to the QC station;
+   *   - everything else (mix, bench, bake, pack) rolls forward to the stock
+   *     bench / Done (DONE) station.
+   */
   completeProduction(jobId: string, userId: string): ProductionJob {
     const job = store.productionJobs().find((j) => j.id === jobId);
     if (!job) throw new NotFoundError("Production job not found");
     if (job.status !== "IN_PRODUCTION") {
       throw new ConflictError(`Cannot complete from status ${job.status}`);
     }
-    job.status = "READY_FOR_QUALITY";
-    job.stage = "QUALITY";
-    job.progress = 80;
+    if (job.stage === "DECORATE") {
+      job.status = "DECORATING";
+      job.stage = "QC";
+      job.progress = 80;
+      store.createAuditLog({
+        orderId: job.orderId,
+        actor: userId,
+        action: "production:completed",
+        entityType: "production_job",
+        entityId: job.id,
+        previousStatus: "IN_PRODUCTION",
+        newStatus: "DECORATING",
+        reason: `Production complete for job ${jobId} — ready for QC pickup`,
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      job.status = "DONE";
+      job.stage = "DONE";
+      job.progress = 100;
+      store.createAuditLog({
+        orderId: job.orderId,
+        actor: userId,
+        action: "production:completed",
+        entityType: "production_job",
+        entityId: job.id,
+        previousStatus: "IN_PRODUCTION",
+        newStatus: "DONE",
+        reason: `Production complete for job ${jobId} — finished goods`,
+        timestamp: new Date().toISOString(),
+      });
+    }
     store.updateProductionJob(jobId, job as unknown as Patch);
 
     const notificationEvent = {
       eventTypeId: "ProductionCompleted" as const,
       title: "Production completed",
-      message: `Production job #${jobId} is complete and ready for quality check.`,
+      message: `Production job #${jobId} is complete and ready for the next station.`,
       priority: "MEDIUM" as NotificationPriority,
       entityType: "production_job",
       entityId: jobId,
@@ -361,9 +396,15 @@ export class BusinessService {
     return job;
   }
 
+  /**
+   * Quality gate (single "Set to Ready" path). A PASS on a Decorating job
+   * moves it to READY_FOR_DELIVERY; a fail keeps the job at DECORATING and
+   * records the failure so the operator can rework. There is no rework /
+   * fail status transition — the QC result simply records itself.
+   */
   recordQualityCheck(
     jobId: string,
-    result: "PASS" | "FAIL",
+    result: "PASS" | "FAIL" | "N/A",
     checkedBy: string,
     issues: string,
     notes: string,
@@ -384,9 +425,37 @@ export class BusinessService {
       wastageCaused,
     });
     if (result === "PASS") {
-      job.status = "READY_FOR_DELIVERY";
-      job.stage = "DELIVER";
-      job.progress = 100;
+      if (job.stage === "DECORATE") {
+        job.status = "READY_FOR_DELIVERY";
+        job.stage = "DELIVER";
+        job.progress = 100;
+        store.createAuditLog({
+          orderId: job.orderId,
+          actor: checkedBy,
+          action: "production:ready",
+          entityType: "production_job",
+          entityId: job.id,
+          previousStatus: "DECORATING",
+          newStatus: "READY_FOR_DELIVERY",
+          reason: `Quality check passed for job ${jobId} — order ready for delivery`,
+          timestamp: new Date().toISOString(),
+        });
+      } else {
+        job.status = "DONE";
+        job.stage = "DONE";
+        job.progress = 100;
+        store.createAuditLog({
+          orderId: job.orderId,
+          actor: checkedBy,
+          action: "production:completed",
+          entityType: "production_job",
+          entityId: job.id,
+          previousStatus: "DONE",
+          newStatus: "DONE",
+          reason: `Quality check passed for job ${jobId} — finished goods to stock bench`,
+          timestamp: new Date().toISOString(),
+        });
+      }
       store.updateProductionJob(jobId, job as unknown as Patch);
       notificationService.publishEvent({
         eventTypeId: "QualityPassed" as const,
@@ -407,8 +476,10 @@ export class BusinessService {
         /* Non-fatal: the quality check + job write above already persisted. */
       }
     } else {
-      job.status = "REWORK_REQUIRED";
-      job.stage = "QUALITY";
+      // QC fail keeps the job at DECORATING (the single "Set to Ready" guard
+      // still applies) but records the failure so the operator can rework.
+      job.status = "DECORATING";
+      job.stage = "QC";
       job.progress = 50;
       store.updateProductionJob(jobId, job as unknown as Patch);
       notificationService.publishEvent({
@@ -422,22 +493,32 @@ export class BusinessService {
         deepLink: `/workspace/production/jobs/${jobId}`,
         createdBy: checkedBy,
       }, { userId: checkedBy, role: checkedBy, isAdmin: true });
+      store.createAuditLog({
+        orderId: job.orderId,
+        actor: checkedBy,
+        action: "production:quality_check",
+        entityType: "production_job",
+        entityId: job.id,
+        previousStatus: "DECORATING",
+        newStatus: "DECORATING",
+        reason: notes ? String(notes) : `QC fail for job ${jobId}`,
+        timestamp: new Date().toISOString(),
+      });
     }
     return { job, check };
   }
 
   /**
    * Production → Orders sync: the moment a job is marked Ready for delivery
-   * (quality check passed), its order must switch to Ready for delivery too —
-   * otherwise Orders keeps reading "In production" while Production says the
-   * job is ready. The order walks FORWARD through the legal status graph
-   * (CONFIRMED → PRODUCTION_REVIEW → READY_FOR_PRODUCTION → IN_PRODUCTION →
-   * QUALITY_CHECK → READY_FOR_DELIVERY; a rework order re-enters at
-   * QUALITY_CHECK), writing one history row per hop so every jump is one
-   * validateOrderStatusTransition would accept, plus a single audit row for
-   * the final move. Idempotent and non-fatal: orders already at/past Ready,
-   * cancelled, or not yet in the production leg are left untouched, and a
-   * missing order never fails the quality check that triggered this.
+   * (quality check passed or "Set to Ready"), its order must switch to Ready
+   * for delivery too — otherwise Orders keeps reading the old status while
+   * Production says the job is ready. The order walks FORWARD through the
+   * legal production-leg statuses (PRODUCTION_REVIEW, READY_FOR_PRODUCTION,
+   * IN_PRODUCTION, QUALITY_CHECK), writing one history row per hop so every
+   * jump is one validateOrderStatusTransition would accept, plus a single
+   * audit row for the final move. Idempotent and non-fatal: orders already
+   * at/past Ready, cancelled, or not yet in the production leg are left
+   * untouched, and a missing order never fails the hand-off.
    */
   advanceOrderToReadyForDelivery(job: ProductionJob, changedBy: string): Order | undefined {
     const order = store.orders().find((o) => o.id === job.orderId);
@@ -466,16 +547,18 @@ export class BusinessService {
       }
       return store.orders().find((o) => o.id === job.orderId);
     }
-    // Only the confirmed production leg walks forward; pre-confirm states
-    // (inquiry/quotation/awaiting) are never invented by production.
-    if (order.status !== "REWORK_REQUIRED" && !chain.includes(order.status)) return order;
+    // The order walks FORWARD through the legal status graph. PRODUCTION_REVIEW,
+    // READY_FOR_PRODUCTION, IN_PRODUCTION and QUALITY_CHECK all advance one hop
+    // toward READY_FOR_DELIVERY; anything already at or past Ready is a no-op.
+    // (REWORK_REQUIRED is dropped — rework no longer exists in the production
+    // workflow; a QC fail leaves the job at DECORATING so "Set to Ready" still applies.)
+    const forwardChain: OrderStatus[] = ["CONFIRMED", "PRODUCTION_REVIEW", "READY_FOR_PRODUCTION", "IN_PRODUCTION", "QUALITY_CHECK", "READY_FOR_DELIVERY"];
     const originalStatus = order.status;
     let current = order.status;
-    for (let hops = 0; current !== "READY_FOR_DELIVERY" && hops <= chain.length; hops++) {
-      const idx = chain.indexOf(current);
+    for (let hops = 0; current !== "READY_FOR_DELIVERY" && hops <= forwardChain.length; hops++) {
+      const idx = forwardChain.indexOf(current);
       const next: OrderStatus | undefined =
-        current === "REWORK_REQUIRED" ? "QUALITY_CHECK"
-        : idx >= 0 && idx < chain.length - 1 ? chain[idx + 1]
+        idx >= 0 && idx < chain.length - 1 ? chain[idx + 1]
         : undefined;
       if (!next) break;
       try { this.validateOrderStatusTransition(current, next); } catch { break; } // only legal hops ship
@@ -808,7 +891,7 @@ export class BusinessService {
       });
     }
     job.status = "QUALITY_CHECK";
-    job.stage = "QUALITY";
+    job.stage = "QC";
     job.progress = 60;
     store.updateProductionJob(jobId, job as unknown as Patch);
 

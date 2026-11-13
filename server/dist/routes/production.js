@@ -30,8 +30,8 @@ router.get("/jobs", required("production.view"), async (req, res) => {
     // an empty board (backstop for data stranded by pre-fix writes).
     const created = businessService.reconcileProductionJobs("system");
     try {
-        // Order advancement is handled at mutation time (start/complete/quality). Avoid
-        // scanning all jobs on every board read/poll to keep response times fast.
+        // Order advancement is handled at mutation time (start/complete/ready).
+        // Avoid scanning all jobs on every board read/poll to keep response times fast.
         // Avoid a full DB write-back+flush on every read; persist when reconcile
         // actually created jobs (it also persists internally), not on each poll.
         if (created > 0) {
@@ -150,7 +150,33 @@ router.post("/jobs/:id/complete", required("production.complete"), async (req, r
     if (String(existing.status) !== "IN_PRODUCTION") {
         return res.status(409).json({ error: "Job must be IN_PRODUCTION to complete" });
     }
-    const job = store.updateProductionJob(id, { status: "READY_FOR_QUALITY", stage: "QUALITY", progress: 80, updatedAt: new Date().toISOString() });
+    const job = businessService.completeProduction(id, session.userId);
+    if (!job)
+        throw new NotFoundError("Production job not found");
+    try {
+        store.persist();
+        await flush();
+    }
+    catch (err) {
+        return res.status(503).json({ error: "Database unavailable: " + (err?.message || "persist failed") });
+    }
+    res.json(job);
+});
+// §1 — Set to Ready (single guard). Only the Production Manager role may use it.
+// Decorating jobs move to READY_FOR_DELIVERY on QC-pass; every other job type
+// (Produce) moves straight to READY_FOR_DELIVERY. Rework/fail no longer exist.
+router.post("/jobs/:id/ready", required("production.set_ready"), async (req, res) => {
+    const id = String(req.params.id);
+    const session = await authService.getCurrentSession(extractToken(req.headers.authorization));
+    if (!session)
+        return res.status(401).json({ error: "Not authenticated" });
+    const existing = store.productionJobs().find((j) => j.id === id);
+    if (!existing)
+        throw new NotFoundError("Production job not found");
+    if (String(existing.status) !== "DECORATING") {
+        return res.status(409).json({ error: "Only Decorating jobs can be set to Ready" });
+    }
+    const job = store.updateProductionJob(id, { status: "READY_FOR_DELIVERY", stage: "DELIVER", progress: 100, updatedAt: new Date().toISOString() });
     if (!job)
         throw new NotFoundError("Production job not found");
     try {
@@ -161,12 +187,14 @@ router.post("/jobs/:id/complete", required("production.complete"), async (req, r
     }
     catch { }
     store.createAuditLog({
-        actor: session.userId, action: "production:completed",
+        actor: session.userId, action: "production:ready",
         entityType: "production_job", entityId: job.id, orderId: job.orderId,
-        newStatus: "READY_FOR_QUALITY", reason: `Job ${id} marked complete`,
+        newStatus: "READY_FOR_DELIVERY", reason: `Job ${id} set to ready`,
     });
     try {
-        businessService.advanceOrderToReadyForDelivery({ ...job, status: "READY_FOR_DELIVERY" }, session.userId);
+        // Orders must follow Production: job Ready for delivery ⇒ the order
+        // switches to Ready (walks the legal status graph, writes history rows).
+        businessService.advanceOrderToReadyForDelivery(job, session.userId);
     }
     catch { }
     try {
@@ -183,56 +211,50 @@ router.post("/jobs/:id/quality-check", required("production.quality_check"), asy
     const session = await authService.getCurrentSession(extractToken(req.headers.authorization));
     if (!session)
         return res.status(401).json({ error: "Not authenticated" });
-    const { result, issues, notes, reworkRequired, reworkCost, wastageCaused } = req.body || {};
     const job = store.productionJobs().find((j) => j.id === id);
     if (!job)
         throw new NotFoundError("Production job not found");
+    const { result, issues, notes, reworkRequired, reworkCost, wastageCaused } = req.body || {};
     const check = store.createQualityCheck({
         jobId: job.id,
         checkedBy: session.userId,
         checkedAt: new Date().toISOString(),
         issues: issues || "",
         notes: notes || "",
-        reworkRequired: reworkRequired || false,
-        reworkCost: reworkCost || 0,
-        wastageCaused: wastageCaused || 0,
+        reworkRequired: Boolean(reworkRequired),
+        reworkCost: Number(reworkCost) || 0,
+        wastageCaused: Number(wastageCaused) || 0,
     });
     let updated = { ...job };
     if (result === "PASS") {
         updated = { ...job, status: "READY_FOR_DELIVERY", stage: "DELIVER", progress: 100, updatedAt: new Date().toISOString() };
-    }
-    else {
-        updated = { ...job, status: "PENDING", stage: "PLAN", progress: 10, updatedAt: new Date().toISOString(), notes: (job.notes ? job.notes + ' | ' : '') + 'REWORK_REQUIRED' };
         try {
             const order = store.orders().find((o) => o.id === job.orderId);
-            if (order) {
-                store.updateOrder(order.id, { station: "baking" });
-                try {
-                    businessService.advanceOrderToInProduction({ ...updated, orderId: order.id }, session.userId);
-                }
-                catch { }
-            }
+            if (order)
+                store.updateOrder(order.id, { station: "decorating" });
         }
         catch { }
-    }
-    store.updateProductionJob(id, updated);
-    if (result === "PASS") {
-        // Orders must follow Production: job Ready for delivery ⇒ the order
-        // switches to Ready (walks the legal status graph, writes history rows).
-        // Non-fatal — the quality check + job write above already persisted.
+        store.createAuditLog({
+            actor: session.userId, action: "production:completed",
+            entityType: "production_job", entityId: job.id, orderId: job.orderId,
+            newStatus: "READY_FOR_DELIVERY", reason: `Job ${id} marked complete`,
+        });
         try {
             businessService.advanceOrderToReadyForDelivery(job, session.userId);
         }
-        catch {
-            /* Non-fatal: the quality check write above already succeeded. */
-        }
+        catch { }
     }
-    store.createAuditLog({
-        actor: session.userId, action: "production:quality_check",
-        entityType: "production_job", entityId: id, orderId: job.orderId,
-        newStatus: result === "PASS" ? "PASS" : "REWORK_REQUIRED",
-        reason: issues ? String(issues) : `QC ${result || "checked"} for job ${id}`,
-    });
+    else {
+        // QC fail keeps the job at DECORATING (the single "Set to Ready" guard
+        // still applies) but records the failure so the operator can rework.
+        updated = { ...job, status: "DECORATING", stage: "QC", progress: 50, notes: (job.notes ? job.notes + ' | ' : '') + 'QC_FAILED' };
+        store.createAuditLog({
+            actor: session.userId, action: "production:quality_check",
+            entityType: "production_job", entityId: job.id, orderId: job.orderId,
+            newStatus: "DECORATING", reason: notes ? String(notes) : `QC fail for job ${id}`,
+        });
+    }
+    store.updateProductionJob(id, updated);
     try {
         store.persist();
         await flush();
@@ -274,12 +296,9 @@ router.post("/jobs/:id/wastage", required("production.record_wastage"), async (r
     }
     res.json({ ok: true });
 });
-/**
- * Manual material usage entry — deducts used ingredients from inventory,
- * writes production_consumption rows + an ACTUAL cost roll-up (service does
- * all validation: item exists, qty > 0 and <= physical stock, job in
- * IN_PRODUCTION/REWORK_REQUIRED; errors map to 400/404/409).
- */
+/** Manual material usage entry — deducts used ingredients from inventory,
+ * writes production_consumption rows + an ACTUAL cost roll-up. Job must be
+ * IN_PRODUCTION (Decorating jobs are at QC and cannot consume materials). */
 router.post("/jobs/:id/materials", required("production.record_consumption"), async (req, res) => {
     const id = String(req.params.id);
     const session = await authService.getCurrentSession(extractToken(req.headers.authorization));
@@ -288,6 +307,12 @@ router.post("/jobs/:id/materials", required("production.record_consumption"), as
     const { items } = req.body || {};
     if (!Array.isArray(items) || items.length === 0)
         return res.status(400).json({ error: "items must be a non-empty array" });
+    const job = store.productionJobs().find((j) => j.id === id);
+    if (!job)
+        throw new NotFoundError("Production job not found");
+    if (String(job.status) !== "IN_PRODUCTION") {
+        return res.status(409).json({ error: "Materials can only be recorded while IN_PRODUCTION" });
+    }
     const consumption = businessService.recordMaterialsUsed(id, session.userId, items.map((it) => ({
         itemId: String(it?.itemId ?? ""),
         quantity: Number(it?.quantity ?? 0),
