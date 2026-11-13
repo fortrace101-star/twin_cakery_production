@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "@/components/erp/store";
 import { hasExistingUser } from "@/lib/api";
 import logo from "@/assets/twin-cakery-logo.png";
+import { PasswordInput } from "@/components/ui/input";
 
 export function LoginPage() {
   const { signIn, authError, connected, user } = useWorkspace();
@@ -84,10 +85,9 @@ export function LoginPage() {
             <label htmlFor="password" className="mb-1 block text-xs font-medium text-muted-foreground">
               Password
             </label>
-            <input
+            <PasswordInput
               id="password"
               name="password"
-              type="password"
               autoComplete="current-password"
               required
               disabled={busy}

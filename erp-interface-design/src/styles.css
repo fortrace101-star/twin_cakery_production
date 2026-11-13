@@ -1255,6 +1255,10 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .payment-record-success .payment-success-state { display:flex; flex-direction:column; align-items:center; text-align:center; gap:10px; padding: 28px 8px 18px; }
 .payment-success-tick { width:56px; height:56px; border-radius:999px; display:grid; place-items:center; background:#16a34a; color:#fff; margin-bottom:4px; }
 .payment-record-success { min-height: 220px; }
+/* Failure receipt: same layout, red alert in place of the green tick */
+.payment-error-tick { width:56px; height:56px; border-radius:999px; display:grid; place-items:center; background:#dc2626; color:#fff; margin-bottom:4px; }
+.payment-record-success .payment-success-state .payment-success-tick ~ button,
+.payment-record-success .payment-success-state .payment-error-tick ~ button { margin-top: 6px; }
 
 /* Desktop order detail modal: expand details, reduce padding, avoid scrollbar */
 @media (min-width: 768px) {

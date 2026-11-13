@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { claimAdmin } from "@/lib/api";
 import logo from "@/assets/twin-cakery-logo.png";
+import { PasswordInput } from "@/components/ui/input";
 
 export function ClaimAdminPage() {
   const navigate = useNavigate();
@@ -154,10 +155,9 @@ export function ClaimAdminPage() {
               <label htmlFor="password" className="mb-1 block text-xs font-medium text-muted-foreground">
                 Password
               </label>
-              <input
+              <PasswordInput
                 id="password"
                 name="password"
-                type="password"
                 autoComplete="new-password"
                 required
                 disabled={busy}
@@ -171,10 +171,9 @@ export function ClaimAdminPage() {
               <label htmlFor="confirmPassword" className="mb-1 block text-xs font-medium text-muted-foreground">
                 Confirm password
               </label>
-              <input
+              <PasswordInput
                 id="confirmPassword"
                 name="confirmPassword"
-                type="password"
                 autoComplete="new-password"
                 required
                 disabled={busy}

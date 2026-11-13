@@ -95,7 +95,24 @@ export function OrderDialog({order,onClose,onNotice}: {order:Order|null;onClose:
   const [override,setOverride]=useState<{key:string;value:string}|null>(null);
   // Record-a-payment form state (a hook — hoisted above the early return).
   const [payForm,setPayForm]=useState({amount:'',method:'Cash',reference:''});
+  // Status-change receipt (same green-tick confirmation as a recorded payment).
+  const [stageSuccess,setStageSuccess]=useState<{id:string;status:string;previous?:string}|null>(null);
+  const [stageError,setStageError]=useState<{id:string;message:string}|null>(null);
+  // Undo puts the order back on the stage it came from; a rejected revert is
+  // surfaced in the failure dialog rather than dropping the click silently.
+  async function undoStage():Promise<boolean>{
+    const done=stageSuccess;
+    const target=done?.previous;
+    if(!done||!target)return false;
+    const res=await updateOrder(done.id,target);
+    if(!res.ok){setStageError({id:done.id,message:res.error||`Could not move ${done.id} back to ${target}.`});return false;}
+    onNotice(`${done.id} moved back to ${target}`);
+    setStageSuccess(null);
+    return true;
+  }
   if(!current)return null;
+  if(stageError)return <OrderStatusErrorDialog error={stageError} onClose={()=>setStageError(null)}/>;
+  if(stageSuccess)return <OrderStatusSuccessDialog result={stageSuccess} {...(stageSuccess.previous?{onUndo:undoStage}:{})} onClose={()=>{setStageSuccess(null);onClose()}}/>;
   const outstandingAmount=orderOutstandingAmount(current);
   // Payment status is CALCULATED from the amount paid against the order total —
   // nothing on this dialog lets you set it by hand.
@@ -122,7 +139,9 @@ export function OrderDialog({order,onClose,onNotice}: {order:Order|null;onClose:
     if(res.ok){
       onNotice(statusChanged&&paymentChanged?`${current.id} updated to ${nextStatus} · payment ${resolvedPayment}`:paymentChanged?`${current.id} payment resolved to ${resolvedPayment}`:`${current.id} updated to ${nextStatus}`);
       setOverride(null);
+      if(statusChanged)setStageSuccess({id:current.id,status:nextStatus,previous:current.status});
     }else{
+      setStageError({id:current.id,message:res.error||`Failed to update ${current.id}. The server may have rejected the change or the database is unavailable.`});
       onNotice(res.error||`Failed to update ${current.id}. The server may have rejected the change or the database is unavailable — refreshed to the current state.`);
     }
   }
@@ -141,6 +160,28 @@ export function OrderDialog({order,onClose,onNotice}: {order:Order|null;onClose:
     }
   }
   return <Dialog open={Boolean(order)} onOpenChange={v=>{if(!v)onClose()}}><DialogContent className="order-detail-dialog"><div className="dialog-head"><div><DialogTitle>Order #{current.id}</DialogTitle><DialogDescription>{current.customer} · {current.channel}</DialogDescription></div><span className="dialog-head-loc" aria-label="Delivery location"><span className="dialog-head-loc-main"><MapPin size={14}/>{current.deliveryLocation||'No delivery location'}</span>{current.locationNote&&<small className="dialog-head-note">{current.locationNote}</small>}</span></div><div className="order-form-scroll"><div className="order-detail-product"><img src={cake} alt="Chocolate celebration cake sample" width={1024} height={768}/><div><h3>{current.product}</h3><p>{current.options}</p><strong>{money(current.amount)}{paidOnPartial>0&&<span className="amount-paid" title="Amount paid so far"> ({money(paidOnPartial)})</span>}</strong></div></div><div className="order-status-grid"><div className={`tone-${orderStageTone(current.status)}`}><small>ORDER</small><Status value={current.status}/></div><div className={`tone-${orderStageTone(resolvedPayment)}`}><small>PAYMENT</small><Status value={resolvedPayment}/></div><div className={`tone-${orderStageTone(current.delivery)}`}><small>DELIVERY</small><Status value={current.delivery}/></div></div><div className="detail-meta"><span><CalendarDays size={15}/>{current.date} · {current.time}</span><span>Recipe v1.2 · Price snapshot retained</span></div><form className="erp-form" onSubmit={update}><ol className="order-stage-strip" aria-label="Order pipeline stages">{ORDER_STAGE_PIPELINE.map((s,i)=><li key={s} className={`tone-${orderStageTone(s)}${s===current.status?' is-current':''}${s===nextStatus&&s!==current.status?' is-target':''}${i<stageIdx?' is-done':''}`} aria-current={s===current.status?'step':undefined}>{i<stageIdx&&<Check size={12}/>}{s}</li>)}</ol>{stageIdx<0&&<p className="text-xs text-muted-foreground">This order sits outside the production pipeline — stage navigation is unavailable.</p>}<div className="stage-nav"><Button type="button" variant="outline" className={`stage-nav-btn tone-${orderStageTone(prevStage||current.status)}`} disabled={!prevStage} onClick={()=>prevStage&&setOverride({key:stageKey,value:prevStage})}><ChevronLeft size={14}/>Previous{prevStage?`: ${prevStage}`:''}</Button><Button type="button" variant="outline" className={`stage-nav-btn tone-${orderStageTone(nextStage||current.status)}`} disabled={!nextStage} onClick={()=>nextStage&&setOverride({key:stageKey,value:nextStage})}>Next{nextStage?`: ${nextStage}`:''}<ChevronRight size={14}/></Button></div><label>Payment status<Input value={resolvedPayment} readOnly aria-label="Payment status" className={resolvedPayment==='Paid'?'payment-status-entry payment-status-paid':(resolvedPayment==='Unpaid'||resolvedPayment==='Not paid')?'payment-status-entry payment-status-unpaid':'payment-status-entry payment-status-partial'} /></label>{paymentChanged&&<p className="form-note"><CircleAlert size={15}/>Calculated from the amount paid — will be saved as “{resolvedPayment}”.</p>}{outstandingAmount>0&&<p className="form-note balance-due"><CircleAlert size={15}/>Outstanding balance: <strong>{money(outstandingAmount)}</strong></p>}{resolvedPayment!=='Paid'&&<div className="payment-recorder"><p className="recorder-head"><Wallet size={15}/>Record a payment for this order</p><div className="recorder-fields"><label>Amount<Input type="number" min={0} step={1} value={payForm.amount} onChange={e=>setPayForm({...payForm,amount:e.target.value})}/></label><label>Method<Input value={payForm.method} onChange={e=>setPayForm({...payForm,method:e.target.value})}/></label>{(payForm.method||'Cash').trim().toLowerCase()!=='cash'&&<label>Reference<Input value={payForm.reference} onChange={e=>setPayForm({...payForm,reference:e.target.value})} placeholder="Transaction/reference"/></label>}</div></div>}<div className="dialog-actions">{resolvedPayment!=='Paid'&&<Button type="button" variant="outline" onClick={recordPayment} disabled={!payForm.amount || ((payForm.method||'Cash').trim().toLowerCase()!=='cash' && !payForm.reference.trim())}><Wallet size={14}/>Record payment</Button>}<Button type="submit" disabled={!statusChanged&&!paymentChanged}><Check/>Update status</Button></div></form></div></DialogContent></Dialog>
+}
+
+/**
+ * Stage-change receipt — the same green-tick confirmation a recorded payment
+ * gets. Shown after an order moves stage so PC (modal footer / order dialog) and
+ * mobile (drawer footer) end on a confirmation instead of just closing.
+ * A known previous stage turns the receipt into an undo point.
+ */
+export function OrderStatusSuccessDialog({result,onUndo,onClose}:{result:{id:string;status:string;previous?:string}|null;onUndo?:()=>Promise<boolean>;onClose:()=>void}) {
+  const [undoing,setUndoing]=useState(false);
+  if(!result)return null;
+  const headline=result.status==='In production'?'Order in production':`Order ${result.status}`;
+  return <Dialog open onOpenChange={v=>{if(!v&&!undoing)onClose()}}><DialogContent className="payment-record-dialog payment-record-success"><div className="payment-success-state" role="status" aria-live="polite"><span className="payment-success-tick" aria-hidden="true"><Check size={28} strokeWidth={3}/></span><DialogTitle>{headline}</DialogTitle><DialogDescription>Order #{result.id} is now “{result.status}”.</DialogDescription>{onUndo&&<Button type="button" variant="outline" disabled={undoing} onClick={async()=>{setUndoing(true);const reverted=await onUndo();setUndoing(false);if(reverted)onClose()}}>{undoing?'Undoing…':`Undo — back to ${result.previous??'previous stage'}`}</Button>}</div></DialogContent></Dialog>;
+}
+
+/**
+ * Failure receipt for a rejected stage/delivery move: the reason stays on
+ * screen instead of a toast the user can miss while a dialog is still open.
+ */
+export function OrderStatusErrorDialog({error,onClose}:{error:{id:string;message:string}|null;onClose:()=>void}) {
+  if(!error)return null;
+  return <Dialog open onOpenChange={v=>{if(!v)onClose()}}><DialogContent className="payment-record-dialog payment-record-success"><div className="payment-success-state" role="alert"><span className="payment-error-tick" aria-hidden="true"><CircleAlert size={26} strokeWidth={2.5}/></span><DialogTitle>Status change failed</DialogTitle><DialogDescription>{error.message}</DialogDescription><Button type="button" variant="outline" onClick={onClose}>Close</Button></div></DialogContent></Dialog>;
 }
 
 export function RecordPaymentDialog({order,onClose,onNotice}: {order:Order|null;onClose:()=>void;onNotice?: (s:string)=>void}) {

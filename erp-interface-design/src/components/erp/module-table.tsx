@@ -16,7 +16,7 @@ import { IconButton } from "./ui";
 import cake from "@/assets/chocolate-cake.jpg";
 import { CrmView } from "./crm-view";
 import { useWorkspace } from "./store";
-import { RecordPaymentDialog } from "./dialogs";
+import { OrderStatusErrorDialog, OrderStatusSuccessDialog, RecordPaymentDialog } from "./dialogs";
 import {
   archiveProductApi, createProductApi, listCatalogueCategories, listCatalogueProducts, listCatalogueTypes, updateProductApi,
   type ServerCatalogueCategory, type ServerCatalogueProduct, type ServerCatalogueType,
@@ -72,6 +72,9 @@ export function OrderTable({orders,onSelect,compact=false}: {orders:Order[];onSe
   const { updateOrder } = useWorkspace();
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [payOrder, setPayOrder] = useState<Order | null>(null);
+  // Stage-move receipt (with undo) + failure dialog for the row actions.
+  const [statusSuccess, setStatusSuccess] = useState<{ id: string; status: string; previous?: string } | null>(null);
+  const [statusError, setStatusError] = useState<{ id: string; message: string } | null>(null);
 
   const [sort,setSort]=useState<SortState>(null);
   const { density } = useDensity();
@@ -127,7 +130,11 @@ export function OrderTable({orders,onSelect,compact=false}: {orders:Order[];onSe
       return <Button className="dt-next-stage" disabled={processing} style={{ flex: 1, background: bg, color: textColor, borderColor: 'transparent', opacity: processing ? 0.75 : undefined }} onClick={async ()=>{
         if(processing) return;
         setProcessingId(o.id);
-        try { await updateOrder(o.id, next); close(); }
+        try {
+          const res = await updateOrder(o.id, next);
+          if (res.ok) { close(); setStatusSuccess({ id: o.id, status: next, previous: o.status }); }
+          else { setStatusError({ id: o.id, message: res.error || `Could not move ${o.id} to ${next}.` }); }
+        }
         finally { setProcessingId(null); }
       }}>{label}</Button>;
     })() : <Button variant="outline" style={{ flex: 1 }} onClick={() => { close(); onSelect(o); }}>Open order</Button>;
@@ -135,9 +142,21 @@ export function OrderTable({orders,onSelect,compact=false}: {orders:Order[];onSe
     if(!payBtn) return nextBtn;
     return <div style={{ display: 'flex', gap: 8, width: '100%' }}>{payBtn}{nextBtn}</div>;
   } : undefined;
+  // Revert a stage move from the receipt; a rejected revert opens the failure dialog.
+  async function undoStageChange(): Promise<boolean> {
+    const done = statusSuccess;
+    const target = done?.previous;
+    if (!done || !target) return false;
+    const res = await updateOrder(done.id, target);
+    if (!res.ok) { setStatusError({ id: done.id, message: res.error || `Could not move ${done.id} back to ${target}.` }); return false; }
+    setStatusSuccess(null);
+    return true;
+  }
   return <>
     <DataTable columns={columns} rows={sorted} rowKey={(o)=>o.id} rowClassName={(o)=>orderRowTone(o)} sort={sort} onSortChange={setSort} onRowActivate={onSelect} stickyHeader density={density} cardMode={!compact ? "cards" : "auto"} {...(!compact ? { className: "order-register" } : {})} detailVariant={!compact ? "modal" : "drawer"} mobileTitle={(o)=>o.customer} mobileSubtitle={(o)=>`#${o.id}`} openLabel="Open order" {...(!compact ? { renderMobileCard: (o: Order, i: number) => <OrderMobileCard order={o} index={i} /> } : {})} {...(renderDrawerAction ? { renderDrawerAction } : {})} empty={<div className="empty-state"><Search/><h3>No orders found</h3><p>Try a different customer, product, or status.</p></div>}/>
     {!compact && <RecordPaymentDialog order={payOrder} onClose={() => setPayOrder(null)} />}
+    {!compact && <OrderStatusSuccessDialog result={statusSuccess} {...(statusSuccess?.previous ? { onUndo: undoStageChange } : {})} onClose={() => setStatusSuccess(null)} />}
+    {!compact && <OrderStatusErrorDialog error={statusError} onClose={() => setStatusError(null)} />}
   </>;
 
 
@@ -389,6 +408,9 @@ useLiveRefresh(refreshDeliveriesLive);
   const [collectMethod, setCollectMethod] = useState('Cash');
   const [collectRef, setCollectRef] = useState('');
   const [noCollectionReason, setNoCollectionReason] = useState('');
+  // Delivery stage receipts: green tick on success, reason on rejection.
+  const [statusSuccess, setStatusSuccess] = useState<{ id: string; status: string; previous?: string } | null>(null);
+  const [statusError, setStatusError] = useState<{ id: string; message: string } | null>(null);
 
   // Deliveries modal: the Upcoming/Dispatch record dialog shows the order's
   // location note + the customer's contact details, so we need the CRM list.
@@ -594,12 +616,27 @@ useLiveRefresh(refreshDeliveriesLive);
   async function handleSetInTransitFor(row: GridRow) {
     setBusyAction(true);
     try {
-      updateOrder(row.id, 'In Transit');
+      const previous = orders.find((o) => o.id === row.id)?.status;
+      const res = await updateOrder(row.id, 'In Transit');
+      if (!res.ok) { setStatusError({ id: row.id, message: res.error || 'Could not move this order to In Transit.' }); return; }
       onNotice('Order set to In Transit — it now shows under Dispatch');
       setRecord(null);
+      setStatusSuccess({ id: row.id, status: 'In Transit', ...(previous ? { previous } : {}) });
     } finally {
       setBusyAction(false);
     }
+  }
+
+  // Revert an In-Transit move from the receipt.
+  async function undoStageChange(): Promise<boolean> {
+    const done = statusSuccess;
+    const target = done?.previous;
+    if (!done || !target) return false;
+    const res = await updateOrder(done.id, target);
+    if (!res.ok) { setStatusError({ id: done.id, message: res.error || `Could not move ${done.id} back to ${target}.` }); return false; }
+    onNotice(`${done.id} moved back to ${target}`);
+    setStatusSuccess(null);
+    return true;
   }
 
   async function handleSetInTransit() {
@@ -634,14 +671,21 @@ useLiveRefresh(refreshDeliveriesLive);
           ? { collected: { amount: Math.round(Number(collectAmount) || 0), method: collectMethod, ...(collectRef.trim() ? { reference: collectRef.trim() } : {}) } }
           : { noCollection: { reason: noCollectionReason.trim() } };
         const res = await completeDelivery(delivery.id, body as any);
-        if (!res) { onNotice('Could not complete delivery. Check settlement details and try again.'); return; }
+        if (!res) {
+          setStatusError({ id: record.id, message: 'Could not complete delivery. Check settlement details and try again.' });
+          onNotice('Could not complete delivery. Check settlement details and try again.');
+          return;
+        }
         await refreshStore();
         const collectedMsg = settleMode === 'collect' && Number(collectAmount) > 0 ? ` Collected ${money(Math.round(Number(collectAmount) || 0))} (${collectMethod}).` : settleMode === 'no_collection' ? ' No collection recorded.' : '';
         onNotice(`Delivery completed.${collectedMsg}`);
+        setStatusSuccess({ id: record.id, status: 'Completed / Delivered' });
         void listDeliveries().then((list) => setDeliveries(list || [])).catch(() => {});
       } else {
-        updateOrder(record.id, 'Completed / Delivered');
+        const res = await updateOrder(record.id, 'Completed / Delivered');
+        if (!res.ok) { setStatusError({ id: record.id, message: res.error || 'Could not mark this order completed.' }); return; }
         onNotice(balance > 0 ? 'Order marked completed. No delivery record found to settle — record payment separately if needed.' : 'Order completed.');
+        setStatusSuccess({ id: record.id, status: 'Completed / Delivered', ...(order ? { previous: order.status } : {}) });
       }
       setRecord(null);
     } finally {
@@ -712,7 +756,10 @@ useLiveRefresh(refreshDeliveriesLive);
     </div>
     <div className="dialog-actions"><Button onClick={handleCompleteOrder} disabled={busyAction || !canComplete}><Check size={16}/>Complete delivery</Button></div>
   </div>;
-})()}</DialogContent></Dialog></section>
+})()}</DialogContent></Dialog>
+<OrderStatusSuccessDialog result={statusSuccess} {...(statusSuccess?.previous ? { onUndo: undoStageChange } : {})} onClose={() => setStatusSuccess(null)} />
+<OrderStatusErrorDialog error={statusError} onClose={() => setStatusError(null)} />
+</section>
 }
 
 export function Administration({tab,audit,onNotice,connected=false}: {tab:string;audit:string[];onNotice:(s:string)=>void;connected?:boolean}){
