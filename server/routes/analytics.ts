@@ -45,27 +45,58 @@ router.get("/dashboard", required("sales.analytics"), (_req, res) => {
     const paid = payments.filter((p) => p.orderId === o.id).reduce((s, p) => s + (p.amount || 0), 0);
     outstandingPayments += Math.max(0, (o.total || 0) - paid);
   }
-  // Revenue = money actually collected, bucketed by each payment's own date
-  // (not the order's). A deposit taken yesterday is this week's revenue even
-  // when the order was placed last month, and the unpaid remainder of an order
-  // is never revenue until it is received.
-  const todayKey = new Date().toISOString().slice(0, 10);
+  // Revenue = money actually collected, bucketed by the local calendar day it
+  // was recorded (the order's date is irrelevant: a deposit taken today is
+  // today's revenue even when the order was placed last month, and an unpaid
+  // remainder is never revenue until it is received). Payments are timed by
+  // createdAt - a full timestamp - because the DATE column is day-granular and
+  // can be written back shifted; slicing an ISO timestamp as UTC also pushed
+  // anything received before 03:00 EAT onto the previous day.
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const dayKeyOf = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const dateKeyOf = (value: string | null | undefined): string => {
+    const raw = String(value ?? "");
+    if (!raw) return "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? raw.slice(0, 10) : dayKeyOf(parsed);
+  };
+  const todayKey = dayKeyOf(new Date());
   const weekStartKey = (() => {
     const d = new Date();
     d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-    return d.toISOString().slice(0, 10);
+    return dayKeyOf(d);
   })();
   const monthKey = todayKey.slice(0, 7);
   let paidToday = 0;
   let paidThisWeek = 0;
   let paidThisMonth = 0;
   for (const p of payments) {
-    const day = String(p.date || p.createdAt || "").slice(0, 10);
+    const day = dateKeyOf(p.createdAt || p.date);
     if (!day) continue;
     const amount = Number(p.amount) || 0;
     if (day === todayKey) paidToday += amount;
     if (day >= weekStartKey && day <= todayKey) paidThisWeek += amount;
     if (day.slice(0, 7) === monthKey) paidThisMonth += amount;
+  }
+  // The other half of the revenue card: what is still owed on the orders this
+  // period covers (placed in it), so "collected vs outstanding" compares one
+  // basket of work. A cancelled or fully paid order contributes nothing.
+  const balanceOf = (o: { total?: number; id: string }) => {
+    const paid = payments.filter((p) => p.orderId === o.id).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    return Math.max(0, (Number(o.total) || 0) - paid);
+  };
+  let outstandingToday = 0;
+  let outstandingThisWeek = 0;
+  let outstandingThisMonth = 0;
+  for (const o of orders) {
+    if (o.status === "CANCELLED" || o.paymentStatus === "REFUNDED") continue;
+    const placed = dateKeyOf(o.createdAt);
+    const balance = balanceOf(o);
+    if (!placed || balance <= 0) continue;
+    if (placed === todayKey) outstandingToday += balance;
+    if (placed >= weekStartKey && placed <= todayKey) outstandingThisWeek += balance;
+    if (placed.slice(0, 7) === monthKey) outstandingThisMonth += balance;
   }
   const lowStockItems = inventoryItems.filter((i) => (i.physicalStock || 0) <= (i.reorderLevel || 0)).length;
   const todayRevenue = orders.filter((o) => isToday(o.createdAt) && o.status !== "CANCELLED").reduce((s, o) => s + (o.total || 0), 0);
@@ -160,6 +191,9 @@ router.get("/dashboard", required("sales.analytics"), (_req, res) => {
       pendingQuotations,
       outstandingPayments,
       paidToday,
+      outstandingToday,
+      outstandingThisWeek,
+      outstandingThisMonth,
       paidThisWeek,
       paidThisMonth,
       lowStockItems,

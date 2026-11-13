@@ -109,10 +109,6 @@ export function LoginPage() {
           </button>
         </form>
 
-        <p className="mt-4 text-xs text-muted-foreground text-center">
-          Demo credentials: <code className="text-foreground">placeholder</code> /{" "}
-          <code className="text-foreground">TwinCakery123!</code>
-        </p>
 
         <p className="mt-4 text-center text-xs text-muted-foreground">
           New here?{" "}

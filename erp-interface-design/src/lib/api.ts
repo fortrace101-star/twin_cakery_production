@@ -1676,6 +1676,10 @@ export interface ServerDashboardAnalytics {
     paidToday: number;
     paidThisWeek: number;
     paidThisMonth: number;
+    /** Balance still owed on the orders placed in each period. */
+    outstandingToday: number;
+    outstandingThisWeek: number;
+    outstandingThisMonth: number;
     lowStockItems: number;
     todayRevenue: number;
     monthlyRevenue: number;

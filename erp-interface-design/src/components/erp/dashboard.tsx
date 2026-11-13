@@ -87,23 +87,36 @@ export function DashboardView({period,setPeriod,orders,filtered,search,setSearch
       .catch(() => {});
     return () => { alive = false; };
   }, []);
-  const todayISO = new Date().toISOString().slice(0, 10);
-  const weekStartISO = (() => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toISOString().slice(0, 10); })();
+  // Local calendar day keys: "today" has to be the day the user is living in.
+  // Reading a timestamp with toISOString() takes the UTC day, which put every
+  // payment recorded before 03:00 East Africa Time on the previous day.
+  const pad2 = (n: number) => String(n).padStart(2, '0');
+  const dayKeyOf = (d: Date) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  const dateKey = (value: string | null | undefined): string => {
+    const raw = String(value ?? '');
+    if (!raw) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? raw.slice(0, 10) : dayKeyOf(parsed);
+  };
+  const todayISO = dayKeyOf(new Date());
+  const weekStartISO = (() => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return dayKeyOf(d); })();
   // "Total orders" = every order in the workspace, at every stage.
   const periodOrders = orders;
   // "Total revenue" = money actually collected in the selected period, from the
-  // payment ledger and bucketed by each payment's own date, so a deposit taken
-  // yesterday counts this week. Partial payments count when recorded; the
-  // unpaid remainder never does.
+  // payment ledger and bucketed by the day each payment was recorded, so a
+  // deposit taken yesterday counts this week. Partial payments count when
+  // recorded; the unpaid remainder never does. Payments are timed by createdAt
+  // (a full timestamp) because the ledger's DATE column is day-granular.
   const inPeriodDate = (iso: string | null | undefined): boolean => {
-    const d = String(iso ?? '').slice(0, 10);
+    const d = dateKey(iso);
     if (!d) return false;
     if (period === 'Today') return d === todayISO;
     if (period === 'This week') return d >= weekStartISO && d <= todayISO;
     return d.slice(0, 7) === todayISO.slice(0, 7);
   };
   const ledgerRevenue = payments
-    .filter((p) => inPeriodDate(p.date || p.createdAt))
+    .filter((p) => inPeriodDate(p.createdAt || p.date))
     .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
   const serverPaid = dash
     ? period === 'Today'
@@ -122,6 +135,18 @@ export function DashboardView({period,setPeriod,orders,filtered,search,setSearch
       : payments.length > 0
         ? ledgerRevenue
         : collectedOnOrders;
+  // The other half of the revenue card: what is still owed on the orders placed
+  // in the selected period, so both figures describe the same basket of work.
+  // Without the server figure, fall back to the workspace-wide balance.
+  const serverOutstanding = dash
+    ? period === 'Today'
+      ? dash.metrics.outstandingToday
+      : period === 'This week'
+        ? dash.metrics.outstandingThisWeek
+        : dash.metrics.outstandingThisMonth
+    : undefined;
+  const periodOutstanding =
+    typeof serverOutstanding === 'number' ? serverOutstanding : (dash?.metrics.outstandingPayments ?? 0);
   const trend = dash?.revenueTrend ?? [];
   const monthDelta = (() => {
     if (period !== 'This month' || trend.length < 2) return '';
@@ -135,7 +160,7 @@ export function DashboardView({period,setPeriod,orders,filtered,search,setSearch
      <div className="overview-label"><h2><span className="overview-title">Business overview</span> <span className="live-label"><span/> Live overview</span></h2><select aria-label="Overview period" value={period} onChange={e=>setPeriod(e.target.value)}><option>Today</option><option>This week</option><option>This month</option></select></div>
      <div className="metrics-grid">{!loaded
        ? <div className="metrics-grid is-fresh">{[1,2,3,4].map(i=><div key={i} className="metric"><Skeleton className="metric-skeleton" aria-hidden="true"/><Skeleton className="metric-value-skeleton" aria-hidden="true"/><Skeleton className="metric-foot-skeleton" aria-hidden="true"/></div>)}</div>
-       : <><Metric label="Total revenue" value={money(periodRevenue)} trend={monthDelta} foot={period==='Today'?'received today':period==='This week'?'received this week':'received this month'} icon={Wallet} color="lime" module="finance"/><Metric label="Total orders" value={String(periodOrders.length)} trend="" foot="all stages" icon={ShoppingBag} color="blue" module="sales"/><Metric label="In production" value={String(dash?.metrics.ordersInProduction ?? orders.filter(o=>o.status==='In production').length).padStart(2,'0')} trend={dash?`${dash.metrics.ordersDueToday} due today`:'across the board'} foot={dash?.metrics.deliveryStatus ?? 'live from production'} icon={ChefHat} color="peach" module="production"/><Metric label="Outstanding payments" value={money(dash?.metrics.outstandingPayments ?? 0)} trend="" foot={dash?`${dash.metrics.pendingQuotations} quotations · ${dash.metrics.pendingInquiries} inquiries pending`:'from the order ledger'} icon={Receipt} color="violet" module="finance"/></>}</div>
+       : <><Metric label="Total revenue" value={money(periodRevenue)} trend={monthDelta} foot={(period==='Today'?'received today':period==='This week'?'received this week':'received this month')+' · '+money(periodOutstanding)+' outstanding'} icon={Wallet} color="lime" module="finance"/><Metric label="Total orders" value={String(periodOrders.length)} trend="" foot="all stages" icon={ShoppingBag} color="blue" module="sales"/><Metric label="In production" value={String(dash?.metrics.ordersInProduction ?? orders.filter(o=>o.status==='In production').length).padStart(2,'0')} trend={dash?`${dash.metrics.ordersDueToday} due today`:'across the board'} foot={dash?.metrics.deliveryStatus ?? 'live from production'} icon={ChefHat} color="peach" module="production"/><Metric label="Outstanding payments" value={money(dash?.metrics.outstandingPayments ?? 0)} trend="" foot={dash?`${dash.metrics.pendingQuotations} quotations · ${dash.metrics.pendingInquiries} inquiries pending`:'from the order ledger'} icon={Receipt} color="violet" module="finance"/></>}</div>
      <div className="charts-grid">{!loaded
        ? <div className="charts-grid is-fresh"><section className="panel production-panel is-fresh"><div className="panel-heading"><Skeleton className="h-5 w-28" aria-hidden="true"/><Skeleton className="h-3 w-44" aria-hidden="true"/></div><div className="donut-area"><Skeleton className="donut-skeleton" aria-hidden="true"/><Skeleton className="h-3 w-44 mx-auto" aria-hidden="true"/></div><div className="donut-legend">{[1,2,3].map(i=><Skeleton key={i} className="h-9 w-1/2" aria-hidden="true"/>)}</div></section><section className="panel revenue-panel is-fresh"><div className="panel-heading"><Skeleton className="h-5 w-28" aria-hidden="true"/><Skeleton className="h-6 w-24" aria-hidden="true"/></div><div className="chart-legend"><Skeleton className="h-3 w-16" aria-hidden="true"/><Skeleton className="h-3 w-20" aria-hidden="true"/></div><Skeleton className="revenue-chart-skeleton" aria-hidden="true"/></section></div>
        : <><section className="panel production-panel is-fresh"><div className="panel-heading"><div><h2>Order breakdown</h2><p>Every order, one step closer</p></div><Button variant="ghost" size="icon" asChild title="View production"><Link to="/workspace/production"><ArrowUpRight/></Link></Button></div><div className="donut-area"><div className="donut" style={{background:donutGradient(breakdown)}}><div><strong>{breakdown.total}</strong><span>Total orders</span></div></div><span className="donut-caption">{breakdown.total>0?'Every order, one step closer.':'No orders right now.'}</span></div><div className="donut-legend">{breakdown.segments.map(s=><div key={s.status}><span><i className={`legend-${breakdownSwatchClass(s.status)}`}/>{breakdownLabel(s.status)}</span><strong>{String(s.count).padStart(2,'0')}</strong>{s.outstandingAmount>0&&<span className="outstanding-badge">{money(s.outstandingAmount)}</span>}</div>)}</div></section><section className="panel revenue-panel is-fresh"><div className="panel-heading"><div><h2>Revenue overview</h2><p>Your bakery’s performance over time</p></div><div className="segmented"><Button variant="ghost" className={period==='This week'?'selected':''} onClick={()=>setPeriod('This week')}>Week</Button><Button variant="ghost" className={period==='This month'?'selected':''} onClick={()=>setPeriod('This month')}>Month</Button></div></div><div className="chart-legend"><span><i className="legend-revenue"/>Revenue</span><span><i className="legend-expenses"/>Expenses</span>{monthDelta?<strong>{monthDelta} <TrendingUp size={13}/></strong>:null}</div><RevenueChart period={period} values={dash?.revenueTrend} labels={dash?.trendLabels} expenseValues={dash?.expensesTrend}/></section></>}</div>
