@@ -6,6 +6,7 @@ import type { ServerOrder } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { StatusBadge as Status } from "@/components/data-table/StatusBadge";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from "@/components/ui/drawer";
 
 async function withActionTimeout<T>(promise: Promise<T>, ms = 20000, label = "Action"): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -161,8 +162,155 @@ export function JobsView({ onSelect }: { onSelect?: (job: any) => void } = {}) {
   );
 }
 
-export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } = {}) {
+function OrderDetailContent({
+  confirmedDialogOrder,
+  customerDisplayConfirmed,
+  starting,
+  connected,
+  onNotice,
+  confirmedJobId,
+}: {
+  confirmedDialogOrder: ServerOrder | null;
+  customerDisplayConfirmed: string;
+  starting: boolean;
+  connected: boolean;
+  onNotice: (s: string) => void;
+  confirmedJobId?: string;
+}) {
+  if (onNotice == null) onNotice = (() => {}) as (s: string) => void;
+  // Consumption is attached to the *job* the confirmed order drives, so read
+  // its rows from the resolved job id supplied by BakeryStation.
+  const confirmedJobIdLocal = confirmedJobId ?? undefined;
+  const [materialEntries, setMaterialEntries] = useState<Array<{ itemId: string; quantity: number; notes: string }>>([
+    { itemId: "", quantity: 0, notes: "" },
+  ]);
+  const [inventoryItems, setInventoryItems] = useState<any[]>([]);
+  const [consumption, setConsumption] = useState<any[]>([]);
+  const [busyAction, setBusyAction] = useState(false);
+
+  // Consumption is attached to the *job* the confirmed order drives, so read
+  // its rows from the prop supplied by BakeryStation (resolved from jobsRef).
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const items = await listInventoryItems();
+        if (alive) setInventoryItems(items || []);
+      } catch {
+        if (alive) setInventoryItems([]);
+      }
+      try {
+        const cons = confirmedJobIdLocal ? await getProductionConsumption(confirmedJobIdLocal) : [];
+        if (alive) setConsumption(cons || []);
+      } catch {
+        if (alive) setConsumption([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, [confirmedJobId]);
+
+  async function handleRecordMaterials() {
+    const items = materialEntries.filter(m => m.itemId && Number(m.quantity) > 0).map(m => ({ itemId: m.itemId, quantity: Number(m.quantity), notes: m.notes || '' }));
+    if (items.length === 0) { if (onNotice) onNotice('Add at least one material with quantity'); return; }
+    setBusyAction(true);
+    try {
+      const res = await recordJobMaterials(confirmedDialogOrder?.id || '', items);
+      if (res) {
+        if (onNotice) onNotice('Materials recorded and inventory updated');
+        setMaterialEntries([{ itemId: "", quantity: 0, notes: "" }]);
+        const cons = await getProductionConsumption(confirmedDialogOrder?.id || '');
+        setConsumption(cons || []);
+      } else if (onNotice) onNotice('Failed to record materials');
+    } finally {
+      setBusyAction(false);
+    }
+  }
+
+  const formatMoney = (v: unknown) => {
+    if (typeof v === "number") return v.toLocaleString("en-UG");
+    if (typeof v === "string") {
+      const n = Number(v);
+      return Number.isFinite(n) ? n.toLocaleString("en-UG") : v;
+    }
+    return v;
+  };
+
+  const noteText = (v: unknown): string => {
+    if (typeof v === "string") return v;
+    if (v === null || v === undefined) return "";
+    return String(v);
+  };
+
+  return (
+    <div className="order-detail-dialog">
+      {/* Summary */}
+      <div className="configuration-list">
+        <p><span>Customer</span><strong>{customerDisplayConfirmed}</strong></p>
+        <p><span>Order ID</span><strong>{confirmedDialogOrder?.orderNumber}</strong></p>
+        <p><span>Status</span><strong>{String(confirmedDialogOrder?.status ?? "—")}</strong></p>
+        <p><span>Notes</span><strong>{noteText(confirmedDialogOrder?.notes)}</strong></p>
+        <p><span>Total</span><strong>{String(confirmedDialogOrder?.total ?? "—")}</strong></p>
+      </div>
+
+      {/* Materials section — job materials entry + recorded consumption, same on PC and Mobile */}
+      <div className="mt-4">
+        <h3 className="text-sm font-semibold mb-2">Materials / Ingredients Used</h3>
+
+        {consumption.length === 0 ? (
+          <p className="text-xs text-muted-foreground mb-2">No materials recorded yet.</p>
+        ) : (
+          <div className="space-y-1 mb-2">
+            {consumption.map(c => {
+              const item = inventoryItems.find(it => it.id === c.itemId);
+              const name = item?.name || c.itemId;
+              return (
+                <div key={c.id} className="flex justify-between text-xs">
+                  <span>{name} × {Number(c.quantity).toLocaleString()} {c.unit}</span>
+                  <span className="text-muted-foreground">{c.notes || ""}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="mt-2 space-y-2">
+          {materialEntries.map((m, idx) => (
+            <div key={idx} className="flex gap-2 items-center">
+              <select className="input flex-1" value={m.itemId} onChange={e => {
+                const next = [...materialEntries];
+                next[idx] = { itemId: e.target.value, quantity: next[idx]?.quantity ?? 0, notes: next[idx]?.notes ?? '' };
+                setMaterialEntries(next);
+              }}>
+                <option value="">Select item...</option>
+                {inventoryItems.map(it => (
+                  <option key={it.id} value={it.id}>{it.name} - {Number(it.physicalStock || 0).toLocaleString()} {it.unit}</option>
+                ))}
+              </select>
+              <input className="input w-24" type="number" placeholder="Qty" value={m.quantity || ''} onChange={e => {
+                const next = [...materialEntries];
+                next[idx] = { itemId: next[idx]?.itemId ?? '', quantity: Number(e.target.value), notes: next[idx]?.notes ?? '' };
+                setMaterialEntries(next);
+              }} />
+              <input className="input flex-1" placeholder="Notes" value={m.notes} onChange={e => {
+                const next = [...materialEntries];
+                next[idx] = { itemId: next[idx]?.itemId ?? '', quantity: next[idx]?.quantity ?? 0, notes: e.target.value };
+                setMaterialEntries(next);
+              }} />
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => setMaterialEntries([...materialEntries, { itemId: "", quantity: 0, notes: "" }])}>Add Row</Button>
+            <Button size="sm" onClick={handleRecordMaterials} disabled={busyAction || !connected}>Record Items Used</Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function BakeryStation({ onSelect, onNotice }: { onSelect?: (order: any) => void; onNotice?: (s: string) => void } = {}) {
   const { connected, orders: uiOrders } = useWorkspace();
+  const handleNotice = (m: string) => onNotice?.(m);
   const { notes, setNotes, clearNotes } = useNotes();
   const [boardLoading, setBoardLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -273,11 +421,17 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
     }
   };
 
+  const handleOpenOrder = (order: ServerOrder) => {
+    if (!isMobile) return;
+    setConfirmedDialogOrder(order);
+  };
+
   const renderOrderCard = (order: ServerOrder, station: "confirmed" | "baking" | "decorating" | "ready") => {
     const status = String(order.status || "").toUpperCase().replace(/\s+/g, "_");
     const isAwaitingPickup = status === "AWAITING_COLLECTION" || status === "AWAITING_PICKUP";
-    // Schedule cards are display-only.
-    const isClickable = false;
+    // Schedule cards are display-only on desktop; on mobile the card tap
+    // opens the order detail drawer (PC uses the modal Dialog).
+    const isClickable = isMobile;
     const badgeValue = station === "confirmed" ? "" : station === "baking" ? "Baking" : station === "decorating" ? "Decorating" : isAwaitingPickup ? "Pick Up" : "Ready";
     const uiMatch = (uiOrders as any[])?.find((o: any) => o.id === order.orderNumber || o.id === order.id);
     const customerDisplay = uiMatch?.customer || order.customerId || "—";
@@ -294,7 +448,14 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
         }
       : orderCardStyle(station, isClickable);
     return (
-      <div key={order.id} className="order-card" style={cardStyle}>
+      <div
+        key={order.id}
+        className={`order-card ${isAwaitingPickup ? "u-awaiting-pickup" : ""}`}
+        style={cardStyle}
+        onClick={() => handleOpenOrder(order)}
+        role="button"
+        tabIndex={isClickable ? 0 : -1}
+      >
         <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
           <strong>{order.orderNumber}</strong>
           {badgeValue ? <Status value={badgeValue} /> : null}
@@ -306,17 +467,43 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
     );
   };
 
+  // The confirmed order carries an order id, not the job id directly, so the
+  // matching production job resolves from the same board refresh that feeds the
+  // schedule cards. A live job status drives which action this order wants.
+  const confirmedJob = jobsRef.current.find(
+    (j: any) => j.orderId === confirmedDialogOrder?.orderNumber || j.id === confirmedDialogOrder?.id
+  );
+  const confirmedJobId = confirmedJob?.id;
+  const confirmedJobStatus = (confirmedJob?.status || "").toUpperCase();
+  const getActionLabel = (): string => {
+    if (confirmedJobStatus === "IN_PRODUCTION") return "Mark Production Complete";
+    if (confirmedJobStatus === "READY_FOR_DELIVERY" || confirmedJobStatus === "COMPLETED") {
+      return "Mark as Awaiting Pickup";
+    }
+    return "Start Production";
+  };
+
+  const getActionOnClick = (): (() => void) => {
+    return () => void handleStartProductionFromConfirmed();
+  };
+
   const handleStartProductionFromConfirmed = async () => {
     if (!confirmedDialogOrder || !connected) return;
     setStarting(true);
     try {
-      const res = await withActionTimeout(startProductionForOrder(confirmedDialogOrder.id), 20000, "Start production");
-      if (res) {
-        setConfirmedDialogOrder(null);
-        // Optimistic: the board re-reads the affected orders from listOrders on
-        // the next live-driven / fallback refresh, before the next SSE event.
-        void refreshBoard();
+      if (confirmedJobStatus === "IN_PRODUCTION") {
+        await completeProductionJob(confirmedJob.id);
+      } else if (confirmedJobStatus === "READY_FOR_DELIVERY" || confirmedJobStatus === "COMPLETED") {
+        // Await pickup moves the order off the production board via the order
+        // status (server contract: AWAITING_PICKUP → AWAITING_COLLECTION), not the job.
+        await updateOrderApi(confirmedDialogOrder.id, { status: "AWAITING_COLLECTION" });
+      } else {
+        await startProductionForOrder(confirmedDialogOrder.id);
       }
+      setConfirmedDialogOrder(null);
+      // Optimistic: the board re-reads the affected orders/jobs from listOrders
+      // on the next live-driven / fallback refresh, before the next SSE event.
+      void refreshBoard();
     } catch (e) {
       console.error(e);
     } finally {
@@ -357,29 +544,52 @@ export function BakeryStation({ onSelect }: { onSelect?: (order: any) => void } 
           </div>
         </>);
       })()}
-      <Dialog open={!!confirmedDialogOrder} onOpenChange={(v) => { if (!v) setConfirmedDialogOrder(null); }}>
-        <DialogContent className="order-detail-dialog">
-          <DialogTitle>{confirmedDialogOrder?.orderNumber}</DialogTitle>
-          <DialogDescription>Order details</DialogDescription>
-          <div className="configuration-list">
-            <p><span>Customer</span><strong>{customerDisplayConfirmed}</strong></p>
-            <p><span>Order ID</span><strong>{confirmedDialogOrder?.orderNumber}</strong></p>
-            <p><span>Status</span><strong>{confirmedDialogOrder?.status}</strong></p>
-            <p><span>Notes</span><strong>{confirmedDialogOrder?.notes || "—"}</strong></p>
-            <p><span>Total</span><strong>{confirmedDialogOrder?.total}</strong></p>
-          </div>
-          <div className="dialog-actions">
-            <Button onClick={() => void handleStartProductionFromConfirmed()} disabled={starting || !connected}>Start Production</Button>
-            <Button variant="ghost" onClick={() => setConfirmedDialogOrder(null)}>Cancel</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <>
+        {isMobile ? (
+          <Drawer open={!!confirmedDialogOrder} onOpenChange={(v) => { if (!v) setConfirmedDialogOrder(null); }}>
+            <DrawerContent className="order-detail-dialog">
+              <DrawerTitle>{confirmedDialogOrder?.orderNumber}</DrawerTitle>
+              <DrawerDescription>Order details</DrawerDescription>
+              <OrderDetailContent
+                confirmedDialogOrder={confirmedDialogOrder}
+                customerDisplayConfirmed={customerDisplayConfirmed}
+                starting={starting}
+                connected={connected}
+                confirmedJobId={confirmedJobId}
+                onNotice={handleNotice}
+              />              <div className="dialog-actions">
+                <Button onClick={() => void handleStartProductionFromConfirmed()} disabled={starting || !connected}>{getActionLabel()}</Button>
+                <Button variant="ghost" onClick={() => setConfirmedDialogOrder(null)}>Cancel</Button>
+              </div>
+            </DrawerContent>
+          </Drawer>
+        ) : (
+          <Dialog open={!!confirmedDialogOrder} onOpenChange={(v) => { if (!v) setConfirmedDialogOrder(null); }}>
+            <DialogContent className="order-detail-dialog">
+              <DialogTitle>{confirmedDialogOrder?.orderNumber}</DialogTitle>
+              <DialogDescription>Order details</DialogDescription>
+              <OrderDetailContent
+                confirmedDialogOrder={confirmedDialogOrder}
+                customerDisplayConfirmed={customerDisplayConfirmed}
+                starting={starting}
+                connected={connected}
+                confirmedJobId={confirmedJobId}
+                onNotice={handleNotice}
+              />
+              <div className="dialog-actions">
+                <Button onClick={() => void handleStartProductionFromConfirmed()} disabled={starting || !connected}>{getActionLabel()}</Button>
+                <Button variant="ghost" onClick={() => setConfirmedDialogOrder(null)}>Cancel</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}</>
     </div>
   );
 }
 
 export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => void; onNotice?: (s: string) => void } = {}) {
   const { connected, orders: uiOrders } = useWorkspace();
+  const handleNotice = (m: string) => onNotice?.(m);
   const [boardLoading, setBoardLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [jobs, setJobs] = useState<any[]>([]);
@@ -436,7 +646,16 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
     if (status === "IN_PRODUCTION") {
       return "baking";
     }
-    if (status === "READY_FOR_QUALITY" || status === "QUALITY_CHECK" || status === "REWORK_REQUIRED") {
+    // DECORATING is the status the server sets when baking completes; the
+    // READY_FOR_* names are the older decorating/quality spellings.
+    if (
+      status === "DECORATING" ||
+      status === "IN_DECORATION" ||
+      status === "READY_FOR_DECORATION" ||
+      status === "READY_FOR_QUALITY" ||
+      status === "QUALITY_CHECK" ||
+      status === "REWORK_REQUIRED"
+    ) {
       return "decorating";
     }
     if (status === "PENDING" || status === "SCHEDULED" || status === "READY_FOR_PRODUCTION") {
@@ -445,7 +664,19 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
     if (status === "READY_FOR_DELIVERY" || status === "READY") {
       return "ready";
     }
-    return "queued";
+    // DONE is finished goods (stock jobs) or a job the server parked there.
+    // Never call it Queued: while its order is still in production the job
+    // belongs beside that order, otherwise it is finished.
+    if (status === "DONE") {
+      if (!linkedOrder) return "ready";
+      if (orderStatus === "IN_PRODUCTION" || orderStatus === "PRODUCTION_REVIEW") return "baking";
+      return "ready";
+    }
+    // Cancelled jobs are known but belong to no column on the board.
+    if (status === "CANCELLED") return null;
+    // Any other unknown status is a data problem, not a queued job — leave it
+    // out of the columns and surface it in the "needs attention" notice.
+    return null;
   };
 
   // An order that moved to In Transit (or was delivered / cancelled) has left
@@ -460,6 +691,10 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
   const bakingJobs = jobs.filter((j) => getColumnForJob(j) === "baking" && !orderLeftProduction(j));
   const decoratingJobs = jobs.filter((j) => getColumnForJob(j) === "decorating" && !orderLeftProduction(j));
   const readyJobs = jobs.filter((j) => getColumnForJob(j) === "ready" && !orderLeftProduction(j));
+  // Jobs whose status no column recognises: shown as a notice, never as Queued.
+  const unattachedJobs = jobs.filter((j) =>
+    getColumnForJob(j) === null && !orderLeftProduction(j) && String(j.status || "").toUpperCase() !== "CANCELLED",
+  );
 
   useEffect(() => {
     if (!selectedJob) { setProductionJob(null); setConsumption([]); setMaterialEntries([{ itemId: "", quantity: 0, notes: "" }]); return; }
@@ -687,6 +922,10 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
   const jobToShow = productionJob || selectedJob;
   const displayIdSel = orderMatchSel?.orderNumber || orderMatchSel?.id || (selectedJob?.orderId ? `TC-${String(selectedJob.orderId).replace(/^.*-/, '')}` : selectedJob?.id);
   const jobDisplayIdSel = displayIdSel && displayIdSel.startsWith('TC-') && !String(displayIdSel).startsWith('TC-Job') ? String(displayIdSel).replace('TC-', 'TC-Job-') : displayIdSel;
+  // Every status the job dialog can act on; anything else shows a message
+  // instead of an empty footer.
+  const jobHasAction = ['PENDING', 'SCHEDULED', 'READY_FOR_PRODUCTION', 'IN_PRODUCTION', 'DECORATING', 'READY_FOR_DELIVERY', 'COMPLETED']
+    .includes(String(jobToShow?.status || '').toUpperCase());
 
   const showCardSkeletons = boardLoading && !loaded;
   return (
@@ -700,6 +939,12 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
         ];
         const activeJobs = jobStages.some(st => st.id === jobsStage && st.count > 0) ? jobsStage : (jobStages.find(st => st.count > 0)?.id || "queued");
         return (<>
+          {unattachedJobs.length > 0 && (
+            <p className="board-empty" role="status">
+              {unattachedJobs.length} job{unattachedJobs.length === 1 ? "" : "s"} with a status the board does not recognise
+              {` (${[...new Set(unattachedJobs.map((j: any) => String(j.status || "unknown")))].join(", ")})`} — check it on the server.
+            </p>
+          )}
           {isMobile && <StageTabs stages={jobStages.map(st => ({id:st.id,label:st.label,count:st.count}))} active={activeJobs} onChange={setJobsStage} />}
           <div className="station-board">
             {jobStages.map(st => {
@@ -756,6 +1001,11 @@ export function JobsBoard({ onSelect, onNotice }: { onSelect?: (job: any) => voi
               {jobToShow?.status === 'IN_PRODUCTION' && <Button size="sm" onClick={handleCompleteJob} disabled={busyAction || !connected}>Mark Production Complete</Button>}
               {jobToShow?.status === 'DECORATING' && <Button size="sm" onClick={handleSetToReady} disabled={busyAction || !connected}>Set to Ready</Button>}
               {(jobToShow?.status === 'READY_FOR_DELIVERY' || jobToShow?.status === 'COMPLETED') && (<Button size="sm" onClick={handleMarkAwaitingPickup} disabled={busyAction || !connected}>Mark as Awaiting Pickup</Button>)}
+              {jobToShow && !jobHasAction && (
+                <p className="text-xs text-muted-foreground">
+                  No action is available for status {String(jobToShow.status || "unknown").replace(/_/g, ' ')}. Check the job on the server.
+                </p>
+              )}
             </div>
           </div>
         </DialogContent>

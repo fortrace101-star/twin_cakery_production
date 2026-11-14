@@ -578,6 +578,57 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .payments-processing.tone-violet {border-color:color-mix(in oklch,var(--violet-ink) 30%,var(--border));background:var(--violet-soft);color:var(--violet-ink);}
 .payments-processing.tone-violet strong {color:var(--violet-ink);}
 
+/* Finance → Payments filter bar (Payments_Table_Filters_Layout.md §4).
+   Scoped under .finance-view on purpose: .table-controls/.search-box/.filter-select
+   are shared with Sales, Inventory and Deliveries and stay untouched. */
+.finance-view .filter-bar {display:flex;flex-direction:column;gap:8px;padding:3px 0 8px;margin-bottom:6px;}
+.finance-view .filter-bar-row {display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.finance-view .filter-bar-row--chips {justify-content:space-between;}
+.finance-view .filter-search {position:relative;display:flex;align-items:center;gap:8px;flex:1 1 240px;max-width:420px;height:36px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--muted-foreground);transition:border-color .12s ease,box-shadow .12s ease;}
+.finance-view .filter-search:focus-within {border-color:var(--primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 16%,transparent);}
+.finance-view .filter-search svg {flex-shrink:0;}
+.finance-view .filter-search input {flex:1;min-width:0;height:100%;border:0;background:transparent;outline:none;font-size:13px;color:var(--foreground);padding:0;}
+.finance-view .filter-search-clear {display:grid;place-items:center;flex-shrink:0;width:22px;height:22px;border:0;border-radius:999px;background:var(--muted);color:var(--foreground);font-size:15px;line-height:1;cursor:pointer;}
+.finance-view .filter-search-clear:hover {background:var(--border);}
+.finance-view .filter-range {display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted-foreground);}
+.finance-view .filter-range select {height:36px;padding:0 8px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--foreground);font-size:13px;}
+.finance-view .filter-chips, .filters-sheet .filter-chips {display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;}
+.finance-view .filter-chip, .filters-sheet .filter-chip {display:inline-flex;align-items:center;height:32px;padding:0 12px;border:1px solid var(--border);border-radius:999px;background:var(--card);color:var(--muted-foreground);font-size:12px;font-weight:500;white-space:nowrap;cursor:pointer;transition:background-color .12s ease,color .12s ease,border-color .12s ease;}
+.finance-view .filter-chip:hover, .filters-sheet .filter-chip:hover {color:var(--foreground);background:var(--muted);}
+.finance-view .filter-chip--active, .finance-view .filter-chip--active:hover, .filters-sheet .filter-chip--active, .filters-sheet .filter-chip--active:hover {background:var(--primary);border-color:var(--primary);color:var(--primary-foreground);}
+.finance-view .filter-more {position:relative;}
+.finance-view .filter-more>summary {display:inline-flex;align-items:center;height:32px;padding:0 12px;border:1px dashed var(--border);border-radius:999px;font-size:12px;color:var(--muted-foreground);cursor:pointer;list-style:none;}
+.finance-view .filter-more>summary::-webkit-details-marker {display:none;}
+.finance-view .filter-more[open]>summary {color:var(--foreground);border-color:var(--primary);}
+.finance-view .filter-more-list {position:absolute;top:calc(100% + 6px);left:0;z-index:20;display:flex;flex-direction:column;gap:6px;padding:8px;border:1px solid var(--border);border-radius:10px;background:var(--card);box-shadow:0 12px 28px color-mix(in srgb,var(--foreground) 14%,transparent);}
+.finance-view .filter-summary {margin:2px 0 0;font-size:12px;line-height:1.4;color:var(--muted-foreground);}
+.finance-view .filter-active {display:flex;flex-wrap:wrap;gap:6px;}
+.finance-view .filter-active .filter-chip {height:26px;font-size:11px;}
+.finance-view .pay-filter-trigger {flex:0 0 auto;white-space:nowrap;}
+.finance-view .filter-badge {display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;margin-left:4px;border-radius:999px;background:var(--primary);color:var(--primary-foreground);font-size:11px;font-weight:600;line-height:1;}
+.finance-view .pay-card {border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin:12px 0;background:var(--muted);}
+.finance-view .pay-card-head {display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+.finance-view .pay-card-head h3 {margin:0;font-size:13px;font-weight:600;color:var(--foreground);}
+.finance-view .pay-record-form {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:12px;}
+.filters-sheet .filters-sheet-body {display:grid;gap:14px;margin:12px 0;}
+.filters-sheet .filters-sheet-group {margin:0;padding:0;border:0;}
+.filters-sheet .filters-sheet-group legend {padding:0;margin-bottom:7px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted-foreground);}
+@media(max-width:767.98px){
+  .finance-view .filter-bar--mobile {position:sticky;top:var(--topbar-h);z-index:15;flex-direction:row;flex-wrap:wrap;gap:8px;padding:8px 0;margin:0;background:var(--card);border-bottom:1px solid var(--border);}
+  .finance-view .filter-bar--mobile .filter-search {flex:1 1 180px;max-width:none;height:44px;}
+  .finance-view .filter-bar--mobile .filter-search input {font-size:16px;}
+  .finance-view .filter-bar--mobile .filter-search-clear {width:26px;height:26px;}
+  .finance-view .filter-bar--mobile .filter-summary {flex:1 1 100%;font-size:11px;}
+  .finance-view .filter-chips {flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+  .finance-view .filter-chips::-webkit-scrollbar {display:none;}
+  .finance-view .filter-chip {height:36px;font-size:12px;}
+  .filters-sheet .filter-chips {flex-wrap:wrap;}
+  .filters-sheet .filter-chip {height:40px;font-size:13px;}
+  .finance-view .pay-card {padding:10px 12px;margin:10px 0;}
+  .finance-view .pay-record .pay-record-cta {position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:30;height:44px;justify-content:center;box-shadow:0 10px 24px color-mix(in srgb,var(--foreground) 22%,transparent);}
+  .finance-view {padding-bottom:76px;}
+}
+
 /* Phase E5 — CRM Occasions tab: cross-customer grouped occasion lists. */
 .occasions-panel {display:flex;flex-direction:column;gap:14px;}
 .occasions-toolbar {display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
@@ -1219,6 +1270,35 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
   .station-board .order-card:last-child { margin-bottom: 0; }
   .station-board .order-card, .kanban-board .order-card { cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
   .station-board .board-empty { color: var(--muted-foreground); font-size: 13px; margin: 0 0 10px; }
+
+  /* Production order cards: drawer (mobile) vs dialog (PC). */
+  /* Orders picked up from a station leave the board as a bottom sheet. */
+  .order-card.u-awaiting-pickup { border-color: #C2703A; background: color-mix(in srgb, #C2703A 22%, transparent); box-shadow: 0 0 0 1px rgba(194,112,58,0.3); }
+  .order-card.u-awaiting-pickup strong, .order-card.u-awaiting-pickup h3 { color: #7A4A1E; }
+
+  /* Detail drawer trigger row (per-station card header, tap to open). */
+  .station-board .order-card .drawer-trigger,
+  .station-board .order-card .job-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .station-board .order-card .drawer-trigger .order-no,
+  .station-board .order-card .job-row strong { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .station-board .order-card .drawer-trigger:focus-visible,
+  .station-board .order-card .job-row:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+  /* Mobile detail drawer: full-width bottom sheet attached to the bottom, hop over the keyboard. */
+  .order-detail-dialog { --drawer-max-h: 86dvh; margin: auto; position: fixed; inset: auto 0 0 0; width: 100%; }
+  .order-detail-dialog .dialog-head { padding-top: 12px; }
+  .order-detail-dialog .dialog-head h2 { font-size: 18px; }
+  .order-detail-dialog .dialog-head p { font-size: 12px; }
+  .order-detail-dialog .dialog-body { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px 14px 4px; }
+  .order-detail-dialog .dialog-actions { flex-direction: row; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); gap: 10px; }
+  .order-detail-dialog .dialog-actions > button { flex: 1 1 0; min-height: 48px; }
+  .order-detail-dialog .configuration-list p { gap: 4px; }
+  .order-detail-dialog .configuration-list p span { font-size: 11px; }
+  .order-detail-dialog .configuration-list p strong { font-size: 13px; }
+  .order-detail-dialog .dialog-title { font-size: 18px; }
+  .order-detail-dialog .dialog-description { font-size: 12px; color: var(--muted-foreground); }
+
+  /* PC keeps the centered dialog (no override). */
 }
 
 /* Payment status entry (read-only fields) */

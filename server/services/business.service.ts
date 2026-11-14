@@ -4,6 +4,7 @@ import type { Patch } from "../database/store.js";
 import { notificationService } from "../services/notification.service.js";
 import { publishLowStockAlert } from "./stock-alerts.js";
 import { invoiceService } from "./invoice.service.js";
+import { completionTarget } from "./production-completion.js";
 import type { Order, OrderStatus, User, OrderItem, Payment, ProductionJob, ProductionConsumption, OrderStatusHistory, NotificationPriority, OrderStation } from "../database/types.js";
 
 /**
@@ -335,11 +336,11 @@ export class BusinessService {
   }
 
   /**
-   * Complete a run. An IN_PRODUCTION job becomes its terminal state on the
-   * production board:
-   *   - Decorating (deck/finish) jobs roll forward to the QC station;
-   *   - everything else (mix, bench, bake, pack) rolls forward to the stock
-   *     bench / Done (DONE) station.
+   * Complete a run. Baking finished means the job and its order move to the
+   * Decorating station together: the job keeps status DECORATING, stage QC and
+   * progress 80, and "Set to Ready" then takes it to READY_FOR_DELIVERY. The
+   * order's status stays IN_PRODUCTION — only its station moves. A job with no
+   * linked order is a stock job and goes straight to finished goods (DONE).
    */
   completeProduction(jobId: string, userId: string): ProductionJob {
     const job = store.productionJobs().find((j) => j.id === jobId);
@@ -347,37 +348,28 @@ export class BusinessService {
     if (job.status !== "IN_PRODUCTION") {
       throw new ConflictError(`Cannot complete from status ${job.status}`);
     }
-    if (job.stage === "DECORATE") {
-      job.status = "DECORATING";
-      job.stage = "QC";
-      job.progress = 80;
-      store.createAuditLog({
-        orderId: job.orderId,
-        actor: userId,
-        action: "production:completed",
-        entityType: "production_job",
-        entityId: job.id,
-        previousStatus: "IN_PRODUCTION",
-        newStatus: "DECORATING",
-        reason: `Production complete for job ${jobId} — ready for QC pickup`,
-        timestamp: new Date().toISOString(),
-      });
-    } else {
-      job.status = "DONE";
-      job.stage = "DONE";
-      job.progress = 100;
-      store.createAuditLog({
-        orderId: job.orderId,
-        actor: userId,
-        action: "production:completed",
-        entityType: "production_job",
-        entityId: job.id,
-        previousStatus: "IN_PRODUCTION",
-        newStatus: "DONE",
-        reason: `Production complete for job ${jobId} — finished goods`,
-        timestamp: new Date().toISOString(),
-      });
+    const order = store.orders().find((o) => o.id === job.orderId);
+    const target = completionTarget(Boolean(order));
+    job.status = target.status;
+    job.stage = target.stage;
+    job.progress = target.progress;
+    if (order) {
+      // Baking finished: job and order move to the Decorating station together.
+      store.updateOrder(order.id, { station: "decorating" } as any);
     }
+    store.createAuditLog({
+      orderId: job.orderId,
+      actor: userId,
+      action: "production:completed",
+      entityType: "production_job",
+      entityId: job.id,
+      previousStatus: "IN_PRODUCTION",
+      newStatus: target.status,
+      reason: order
+        ? `Production complete for job ${jobId} — moved to decorating`
+        : `Production complete for job ${jobId} — finished goods`,
+      timestamp: new Date().toISOString(),
+    });
     store.updateProductionJob(jobId, job as unknown as Patch);
 
     const notificationEvent = {
