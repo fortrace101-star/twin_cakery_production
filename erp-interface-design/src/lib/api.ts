@@ -1396,6 +1396,8 @@ export interface ServerExpense {
 
 export interface ServerNotification {
   id: string;
+  /** Present when the inbox item is scoped to the signed-in user's recipient row. */
+  recipientId?: string;
   eventTypeId: string;
   title: string;
   message: string;
@@ -1407,8 +1409,8 @@ export interface ServerNotification {
   createdAt: string;
   createdBy: string | null;
   readAt: string | null;
-  deliveryStatus: "PENDING" | "DELIVERED" | "FAILED" | "SKIPPED";
-  failureReason: string | null;
+  deliveryStatus?: "PENDING" | "DELIVERED" | "FAILED" | "SKIPPED";
+  failureReason?: string | null;
 }
 
 export interface ServerNotificationPreference {
@@ -1616,36 +1618,44 @@ export async function listNotifications(limit = 50): Promise<ServerNotification[
   return safe(() => request<ServerNotification[]>(`/notifications?limit=${limit}`), []);
 }
 
+/** @deprecated prefer deleteNotification (ack). Kept for compatibility. */
 export async function markAsRead(notificationId: string, userId?: string): Promise<boolean> {
   const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
-  // Server route is PATCH /notifications/:id/read → { ok: true }.
   return safe(async () => {
-    const r = await request<{ ok: boolean }>(`/notifications/${notificationId}/read${q}`, { method: "PATCH" });
+    const r = await request<{ ok: boolean }>(`/notifications/${encodeURIComponent(notificationId)}/read${q}`, { method: "PATCH" });
     return r?.ok === true;
   }, false);
 }
 
+/** Acknowledge/remove a single inbox item for the signed-in user. */
 export async function deleteNotification(notificationId: string, userId?: string): Promise<boolean> {
   const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
-  // Server route is DELETE /notifications/:id → { ok: true }.
   return safe(async () => {
-    const r = await request<{ ok: boolean }>(`/notifications/${notificationId}${q}`, { method: "DELETE" });
-    return r?.ok === true;
+    const r = await request<{ ok?: boolean; removed?: boolean }>(`/notifications/${encodeURIComponent(notificationId)}${q}`, { method: "DELETE" });
+    return r?.ok === true || r?.removed === true || r?.removed === false;
   }, false);
 }
 
+/** Clear all inbox items for the signed-in user. */
+export async function clearNotifications(userId?: string): Promise<number> {
+  const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+  return safe(async () => {
+    const r = await request<{ ok?: boolean; removed?: number }>(`/notifications${q}`, { method: "DELETE" });
+    return r?.removed ?? 0;
+  }, 0);
+}
+
+/** @deprecated prefer clearNotifications. Kept for compatibility. */
 export async function markAllAsRead(userId?: string): Promise<number> {
   const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
-  // Server route is POST /notifications/mark-all-read → { ok, count }.
   return safe(async () => {
-    const r = await request<{ ok: boolean; count: number }>(`/notifications/mark-all-read${q}`, { method: "POST" });
-    return r?.count ?? 0;
+    const r = await request<{ ok: boolean; updated?: number; count?: number }>(`/notifications/mark-all-read${q}`, { method: "POST" });
+    return r?.updated ?? r?.count ?? 0;
   }, 0);
 }
 
 export async function getUnreadCount(userId?: string): Promise<number> {
   const q = userId ? `?userId=${encodeURIComponent(userId)}` : "";
-  // Server responds { count } — unwrap it (a raw object would break `> 0`).
   return safe(async () => {
     const r = await request<number | { count: number }>(`/notifications/unread-count${q}`);
     return typeof r === "number" ? r : (r?.count ?? 0);
@@ -1662,9 +1672,35 @@ export async function updateNotificationPreferences(
   payload: { eventTypeId: string; channel: string; enabled: boolean },
 ): Promise<ServerNotificationPreference | null> {
   return safe(() =>
-    request<ServerNotificationPreference>("/notifications/preferences", { method: "PATCH", body: { userId, eventTypeId: payload.eventTypeId, channel: payload.channel } }),
+    request<ServerNotificationPreference>(`/notifications/preferences/${encodeURIComponent(payload.eventTypeId)}`, {
+      method: "PUT",
+      body: { enabled: payload.enabled },
+    }),
     null,
   );
+}
+
+/* -- Web push -------------------------------------------------------------- */
+
+export async function getVapidPublicKey(): Promise<string | null> {
+  return safe(async () => {
+    const r = await request<{ publicKey: string }>("/push/vapid-public-key");
+    return r?.publicKey || null;
+  }, null);
+}
+
+export async function subscribePush(subscription: PushSubscriptionJSON & { userAgent?: string }): Promise<boolean> {
+  return safe(async () => {
+    const r = await request<{ ok: boolean }>("/push/subscribe", { method: "POST", body: subscription });
+    return r?.ok === true;
+  }, false);
+}
+
+export async function unsubscribePush(endpoint: string): Promise<boolean> {
+  return safe(async () => {
+    const r = await request<{ ok: boolean }>("/push/unsubscribe", { method: "POST", body: { endpoint } });
+    return r?.ok === true;
+  }, false);
 }
 
 /* -- E4/E5: live analytics dashboards ------------------------------------ */

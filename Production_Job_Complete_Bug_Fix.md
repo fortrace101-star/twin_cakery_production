@@ -85,6 +85,30 @@ In `production-view.tsx`:
 4. **Stop the server before running SQL and start it again after.** The app keeps its data in memory and writes it to the database, so a change made while it runs can be overwritten.
 5. After the repair the job shows in Decorating on both boards, and **Set to Ready** appears in the dialog.
 
+### 5.1 Repair script (use this, including on the remote database)
+
+`server/scripts/repair-stuck-production-jobs.ts` implements section 5 as one guarded command, so the same repair can be applied to production data without hand-writing SQL. The job only changes status/stage/progress; the order's station is derived from the job status, so it follows on its own.
+
+```bash
+cd server
+# 1. dry run: prints the target host/database and every job it would repair
+npx tsx scripts/repair-stuck-production-jobs.ts
+# 2. dry run for one order
+npx tsx scripts/repair-stuck-production-jobs.ts --order TC-MWEHOR64-6X32
+# 3. write it
+npx tsx scripts/repair-stuck-production-jobs.ts --apply --order TC-MWEHOR64-6X32   # or --all
+```
+
+Safety built in:
+- prints `Target DB: host:port/database (REMOTE|local)` before doing anything, and never shows credentials;
+- writes nothing without `--apply`, and `--apply` without `--order`/`--all` is rejected;
+- refuses to write while the API is listening on `PORT` (the in-memory cache flushes back over the tables); `--force` overrides it;
+- takes a `pg_dump` snapshot into `server/backups/pre-repair-*.sql` when the target is remote and `pg_dump` is on PATH (a failed dump only warns);
+- one transaction, and each row is re-checked (`orders.status = 'IN_PRODUCTION'`, `production_jobs.status = 'DONE'`) before it is updated — an unexpected state rolls the whole repair back;
+- re-runs the detection query afterwards and warns if `production.set_ready` is missing from that database (that would make Set to Ready answer 403 and needs migration `024_production_workflow.sql`).
+
+Order of steps on the remote database: stop the API, point `server/.env` at it, run `npm run db:migrate` (applies the pending `024` and `035`), run the dry run, then `--apply`, then start the API.
+
 ## 6. Order of work
 
 1. Repair the stuck job(s) (section 5).

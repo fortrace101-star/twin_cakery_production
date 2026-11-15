@@ -92,14 +92,12 @@ export function NewOrderDialog({open,onOpenChange,onCreated}: {open:boolean;onOp
 export function OrderDialog({order,onClose,onNotice}: {order:Order|null;onClose:()=>void;onNotice:(s:string)=>void}) {
   const {orders,updateOrder}=useWorkspace();
   const current=orders.find(o=>o.id===order?.id);
-  const [override,setOverride]=useState<{key:string;value:string}|null>(null);
-  // Record-a-payment form state (a hook — hoisted above the early return).
   const [payForm,setPayForm]=useState({amount:'',method:'Cash',reference:''});
-  // Status-change receipt (same green-tick confirmation as a recorded payment).
+  const [payOpen,setPayOpen]=useState(false);
+  const [busy,setBusy]=useState(false);
   const [stageSuccess,setStageSuccess]=useState<{id:string;status:string;previous?:string}|null>(null);
   const [stageError,setStageError]=useState<{id:string;message:string}|null>(null);
-  // Undo puts the order back on the stage it came from; a rejected revert is
-  // surfaced in the failure dialog rather than dropping the click silently.
+  useEffect(()=>{ setPayForm({amount:'',method:'Cash',reference:''}); setPayOpen(false); setBusy(false); },[current?.id]);
   async function undoStage():Promise<boolean>{
     const done=stageSuccess;
     const target=done?.previous;
@@ -113,55 +111,97 @@ export function OrderDialog({order,onClose,onNotice}: {order:Order|null;onClose:
   if(!current)return null;
   if(stageError)return <OrderStatusErrorDialog error={stageError} onClose={()=>setStageError(null)}/>;
   if(stageSuccess)return <OrderStatusSuccessDialog result={stageSuccess} {...(stageSuccess.previous?{onUndo:undoStage}:{})} onClose={()=>{setStageSuccess(null);onClose()}}/>;
-  const outstandingAmount=orderOutstandingAmount(current);
-  // Payment status is CALCULATED from the amount paid against the order total —
-  // nothing on this dialog lets you set it by hand.
-  const resolvedPayment=resolvePayment(current);
-  // Amount already paid on a partially paid order — shown in brackets next to
-  // the order total in the product header.
-  const paidOnPartial=resolvedPayment==='Partially paid'?(current.paidAmount??0):0;
-  const stageKey=`${current.id}:${current.status}`;
-  const stageIdx=orderStageIndex(current.status);
-  // The ACTIVE stage is the selected target when the modal opens — nothing
-  // auto-advances; the user steps forward manually with the Next button.
-  const nextStatus=override&&override.key===stageKey?override.value:current.status;
-  const effIdx=orderStageIndex(nextStatus);
-  const prevStage=effIdx>0?(ORDER_STAGE_PIPELINE[effIdx-1]??null):null;
-  const nextStage=effIdx>=0&&effIdx<ORDER_STAGE_PIPELINE.length-1?(ORDER_STAGE_PIPELINE[effIdx+1]??null):null;
-  const statusChanged=nextStatus!==current.status;
-  // The calculated status differs from what the server holds → applying the
-  // update persists it alongside the stage move.
-  const paymentChanged=resolvedPayment!==normalizePayment(current.payment);
-  async function update(e:FormEvent){
-    e.preventDefault();
-    if(!current||(!statusChanged&&!paymentChanged))return;
-    const res=await updateOrder(current.id,nextStatus,paymentChanged?resolvedPayment:undefined);
-    if(res.ok){
-      onNotice(statusChanged&&paymentChanged?`${current.id} updated to ${nextStatus} · payment ${resolvedPayment}`:paymentChanged?`${current.id} payment resolved to ${resolvedPayment}`:`${current.id} updated to ${nextStatus}`);
-      setOverride(null);
-      if(statusChanged)setStageSuccess({id:current.id,status:nextStatus,previous:current.status});
-    }else{
-      setStageError({id:current.id,message:res.error||`Failed to update ${current.id}. The server may have rejected the change or the database is unavailable.`});
-      onNotice(res.error||`Failed to update ${current.id}. The server may have rejected the change or the database is unavailable — refreshed to the current state.`);
-    }
+  const c=current;
+  const outstandingAmount=orderOutstandingAmount(c);
+  const resolvedPayment=resolvePayment(c);
+  const paidAmount=c.paidAmount??0;
+  const stageIdx=orderStageIndex(c.status);
+  const stepCount=ORDER_STAGE_PIPELINE.length;
+  const step=stageIdx>=0?stageIdx+1:0;
+  const prevStage=stageIdx>0?(ORDER_STAGE_PIPELINE[stageIdx-1]??null):null;
+  const nextStage=stageIdx>=0&&stageIdx<stepCount-1?(ORDER_STAGE_PIPELINE[stageIdx+1]??null):null;
+  const isInTransit=c.status==='In Transit';
+  const primaryLabel=!nextStage?null:outstandingAmount>0&&isInTransit?'Mark delivered anyway':isInTransit?'Mark delivered':`Move to ${nextStage}`;
+  const needsRef=(payForm.method||'Cash').trim().toLowerCase()!=='cash';
+  const canRecord=!!payForm.amount && Number(payForm.amount)>0 && (!needsRef || !!payForm.reference.trim());
+  async function moveTo(target:string,prev:string){
+    if(busy)return;
+    setBusy(true);
+    const res=await updateOrder(c.id,target);
+    setBusy(false);
+    if(res.ok){ onNotice(`${c.id} updated to ${target}`); setStageSuccess({id:c.id,status:target,previous:prev}); }
+    else { const msg=res.error||`Failed to update ${c.id}.`; setStageError({id:c.id,message:msg}); onNotice(msg); }
   }
-  // Record a payment against this order: the store POSTs it to the server
-  // ledger and accumulates paidAmount, which re-resolves the payment status
-  // and the outstanding balance shown above.
-  const recordPayment=async()=>{
+  async function recordPayment(){
     const amt=Math.round(Number(payForm.amount));
     if(!Number.isFinite(amt)||amt<=0)return;
-    const res=await updateOrder(current.id,current.status,undefined,amt,{method:payForm.method||'Cash',...(payForm.reference?.trim()?{reference:payForm.reference.trim()}:{})});
-    if(res.ok){
-      onNotice(`Payment of ${money(amt)} recorded for ${current.id}`);
-      setPayForm({amount:'',method:'Cash',reference:''});
-    }else{
-      onNotice(res.error||`Failed to record payment for ${current.id}.`);
-    }
+    if(needsRef && !payForm.reference.trim())return;
+    setBusy(true);
+    const res=await updateOrder(c.id,c.status,undefined,amt,{method:payForm.method||'Cash',...(payForm.reference?.trim()?{reference:payForm.reference.trim()}:{})});
+    setBusy(false);
+    if(res.ok){ onNotice(`Payment of ${money(amt)} recorded for ${c.id}`); setPayForm({amount:'',method:'Cash',reference:''}); setPayOpen(false); }
+    else { onNotice(res.error||`Failed to record payment for ${c.id}.`); }
   }
-  return <Dialog open={Boolean(order)} onOpenChange={v=>{if(!v)onClose()}}><DialogContent className="order-detail-dialog"><div className="dialog-head"><div><DialogTitle>Order #{current.id}</DialogTitle><DialogDescription>{current.customer} · {current.channel}</DialogDescription></div><span className="dialog-head-loc" aria-label="Delivery location"><span className="dialog-head-loc-main"><MapPin size={14}/>{current.deliveryLocation||'No delivery location'}</span>{current.locationNote&&<small className="dialog-head-note">{current.locationNote}</small>}</span></div><div className="order-form-scroll"><div className="order-detail-product"><img src={cake} alt="Chocolate celebration cake sample" width={1024} height={768}/><div><h3>{current.product}</h3><p>{current.options}</p><strong>{money(current.amount)}{paidOnPartial>0&&<span className="amount-paid" title="Amount paid so far"> ({money(paidOnPartial)})</span>}</strong></div></div><div className="order-status-grid"><div className={`tone-${orderStageTone(current.status)}`}><small>ORDER</small><Status value={current.status}/></div><div className={`tone-${orderStageTone(resolvedPayment)}`}><small>PAYMENT</small><Status value={resolvedPayment}/></div><div className={`tone-${orderStageTone(current.delivery)}`}><small>DELIVERY</small><Status value={current.delivery}/></div></div><div className="detail-meta"><span><CalendarDays size={15}/>{current.date} · {current.time}</span><span>Recipe v1.2 · Price snapshot retained</span></div><form className="erp-form" onSubmit={update}><ol className="order-stage-strip" aria-label="Order pipeline stages">{ORDER_STAGE_PIPELINE.map((s,i)=><li key={s} className={`tone-${orderStageTone(s)}${s===current.status?' is-current':''}${s===nextStatus&&s!==current.status?' is-target':''}${i<stageIdx?' is-done':''}`} aria-current={s===current.status?'step':undefined}>{i<stageIdx&&<Check size={12}/>}{s}</li>)}</ol>{stageIdx<0&&<p className="text-xs text-muted-foreground">This order sits outside the production pipeline — stage navigation is unavailable.</p>}<div className="stage-nav"><Button type="button" variant="outline" className={`stage-nav-btn tone-${orderStageTone(prevStage||current.status)}`} disabled={!prevStage} onClick={()=>prevStage&&setOverride({key:stageKey,value:prevStage})}><ChevronLeft size={14}/>Previous{prevStage?`: ${prevStage}`:''}</Button><Button type="button" variant="outline" className={`stage-nav-btn tone-${orderStageTone(nextStage||current.status)}`} disabled={!nextStage} onClick={()=>nextStage&&setOverride({key:stageKey,value:nextStage})}>Next{nextStage?`: ${nextStage}`:''}<ChevronRight size={14}/></Button></div><label>Payment status<Input value={resolvedPayment} readOnly aria-label="Payment status" className={resolvedPayment==='Paid'?'payment-status-entry payment-status-paid':(resolvedPayment==='Unpaid'||resolvedPayment==='Not paid')?'payment-status-entry payment-status-unpaid':'payment-status-entry payment-status-partial'} /></label>{paymentChanged&&<p className="form-note"><CircleAlert size={15}/>Calculated from the amount paid — will be saved as “{resolvedPayment}”.</p>}{outstandingAmount>0&&<p className="form-note balance-due"><CircleAlert size={15}/>Outstanding balance: <strong>{money(outstandingAmount)}</strong></p>}{resolvedPayment!=='Paid'&&<div className="payment-recorder"><p className="recorder-head"><Wallet size={15}/>Record a payment for this order</p><div className="recorder-fields"><label>Amount<Input type="number" min={0} step={1} value={payForm.amount} onChange={e=>setPayForm({...payForm,amount:e.target.value})}/></label><label>Method<Input value={payForm.method} onChange={e=>setPayForm({...payForm,method:e.target.value})}/></label>{(payForm.method||'Cash').trim().toLowerCase()!=='cash'&&<label>Reference<Input value={payForm.reference} onChange={e=>setPayForm({...payForm,reference:e.target.value})} placeholder="Transaction/reference"/></label>}</div></div>}<div className="dialog-actions">{resolvedPayment!=='Paid'&&<Button type="button" variant="outline" onClick={recordPayment} disabled={!payForm.amount || ((payForm.method||'Cash').trim().toLowerCase()!=='cash' && !payForm.reference.trim())}><Wallet size={14}/>Record payment</Button>}<Button type="submit" disabled={!statusChanged&&!paymentChanged}><Check/>Update status</Button></div></form></div></DialogContent></Dialog>
+  return <Dialog open={Boolean(order)} onOpenChange={v=>{if(!v)onClose()}}>
+    <DialogContent className="order-detail-dialog">
+      <div className="dialog-head">
+        <div>
+          <DialogTitle>Order #{current.id}</DialogTitle>
+          <DialogDescription>{current.customer} · {current.channel}</DialogDescription>
+        </div>
+        <div className="dialog-head-loc" aria-label="Delivery location">
+          <span className="dialog-head-loc-main"><MapPin size={14}/><span>{current.deliveryLocation||'No delivery location'}</span></span>
+          {current.locationNote&&<small className="dialog-head-note">{current.locationNote}</small>}
+          {current.customerPhone&&<a className="dialog-head-call" href={`tel:${current.customerPhone}`}>Call</a>}
+        </div>
+      </div>
+      <div className="order-detail-body">
+        <div className="order-detail-product order-detail-product-compact">
+          <img src={cake} alt={current.product} width={48} height={48}/>
+          <div className="order-detail-product-text">
+            <h3>{current.product}</h3>
+            <p>{current.options}</p>
+            <strong>{money(current.amount)}{paidAmount>0?<span className="amount-paid"> ({money(paidAmount)} paid)</span>:null}</strong>
+          </div>
+        </div>
+        <div className="order-status-chips" aria-label="Order status">
+          <span className={`order-chip tone-${orderStageTone(current.status)}`}><small>Order</small> {current.status}</span>
+          <span className={`order-chip tone-${orderStageTone(resolvedPayment)}`}><small>Payment</small> {resolvedPayment}</span>
+          <span className={`order-chip tone-${orderStageTone(current.delivery)}`}><small>Delivery</small> {current.delivery}</span>
+        </div>
+        {stageIdx>=0
+          ? <div className="order-progress" aria-label="Order pipeline stages" role="group">
+              <div className="order-progress-bar" role="progressbar" aria-valuemin={1} aria-valuemax={stepCount} aria-valuenow={step} aria-valuetext={`Step ${step} of ${stepCount} · ${current.status}`}>
+                {ORDER_STAGE_PIPELINE.map((s,i)=><span key={s} title={s} className={`order-progress-seg${i<step?' is-done':''}${i===step-1?' is-current':''}`}/>) }
+              </div>
+              <div className="order-progress-label">Step {step} of {stepCount} · {current.status}</div>
+            </div>
+          : <p className="text-xs text-muted-foreground">This order sits outside the production pipeline — stage navigation is unavailable.</p>}
+        {outstandingAmount>0&&<p className="form-note balance-due"><CircleAlert size={15}/>Balance due <strong>{money(outstandingAmount)}</strong></p>}
+        {resolvedPayment!=='Paid'&&<div className="payment-recorder payment-recorder-collapsible">
+          <button type="button" className="recorder-toggle" onClick={()=>{ if(!payOpen){ setPayForm(f=>({...f,amount:f.amount||String(outstandingAmount||'')})); } setPayOpen(o=>!o); }}>
+            <Wallet size={15}/><span>Record payment</span><ChevronRight size={14} className={payOpen?'is-open':''}/>
+          </button>
+          {payOpen&&<div className="recorder-fields recorder-fields-inline">
+            <label>Amount<Input type="number" min={0} step={1} value={payForm.amount} onChange={e=>setPayForm({...payForm,amount:e.target.value})}/></label>
+            <label>Method<Input value={payForm.method} onChange={e=>setPayForm({...payForm,method:e.target.value})}/></label>
+            {needsRef&&<label>Reference<Input value={payForm.reference} onChange={e=>setPayForm({...payForm,reference:e.target.value})} placeholder="Reference"/></label>}
+            <Button type="button" onClick={recordPayment} disabled={busy||!canRecord}><Wallet size={14}/>Record</Button>
+          </div>}
+        </div>}
+      </div>
+      <div className="dialog-actions order-detail-footer">
+        {outstandingAmount>0&&isInTransit&&nextStage&&<p className="footer-unpaid-note">{money(outstandingAmount)} still unpaid. Mark delivered anyway?</p>}
+        <div className="order-detail-footer-buttons">
+          <Button type="button" variant="outline" aria-label={prevStage?`Back: ${prevStage}`:'Back'} disabled={!prevStage||busy} onClick={()=>prevStage&&moveTo(prevStage,current.status)}><ChevronLeft size={14}/>Back{prevStage?<span className="btn-sub">: {prevStage}</span>:null}</Button>
+          {primaryLabel
+            ? <Button type="button" disabled={busy} aria-label={primaryLabel} onClick={()=>nextStage&&moveTo(nextStage,current.status)}><Check size={14}/>{busy?'Updating…':primaryLabel}</Button>
+            : <Button type="button" disabled aria-label="No next stage"><Check size={14}/>No next stage</Button>}
+        </div>
+      </div>
+    </DialogContent>
+  </Dialog>;
 }
-
 /**
  * Stage-change receipt — the same green-tick confirmation a recorded payment
  * gets. Shown after an order moves stage so PC (modal footer / order dialog) and

@@ -48,6 +48,7 @@ export const RESOURCE_KEYS = {
   notificationRecipients: "notificationRecipients" as ResourceKey,
   notificationPreferences: "notificationPreferences" as ResourceKey,
   notificationTemplates: "notificationTemplates" as ResourceKey,
+  pushSubscriptions: "pushSubscriptions" as ResourceKey,
   auditLogs: "auditLogs" as ResourceKey,
   users: "users" as ResourceKey,
   roles: "roles" as ResourceKey,
@@ -78,6 +79,7 @@ export const RESOURCE_KEYS = {
 import type {
   AuditLog,
   BlogCategory,
+  PushSubscription,
   BlogPost,
   Catalogue,
   Customer,
@@ -238,6 +240,7 @@ export interface DbCache {
   notificationRecipients: NotificationRecipient[];
   notificationPreferences: NotificationPreference[];
   notificationTemplates: NotificationTemplate[];
+  pushSubscriptions: PushSubscription[];
   auditLogs: AuditLog[];
   users: User[];
   roles: Role[];
@@ -374,6 +377,7 @@ export function createCache(): DbCache {
     notificationRecipients: [],
     notificationPreferences: [],
     notificationTemplates: [],
+    pushSubscriptions: [],
     auditLogs: [],
     users: [],
     roles: [],
@@ -617,6 +621,7 @@ export async function loadCache(): Promise<void> {
     cache.notificationRecipients = (await load<NotificationRecipient>("notification_recipients")) ?? [];
     cache.notificationPreferences = (await load<NotificationPreference>("notification_preferences")) ?? [];
     cache.notificationTemplates = (await load<NotificationTemplate>("notification_templates")) ?? [];
+    cache.pushSubscriptions = (await load<PushSubscription>("push_subscriptions")) ?? [];
     cache.auditLogs = (await load<AuditLog>("audit_logs")) ?? [];
     cache.users = (await load<User>("users")) ?? [];
     cache.roles = (await load<Role>("roles")) ?? [];
@@ -795,6 +800,7 @@ const MIRRORS: Mirror[] = [
   { table: "notification_recipients", rows: (c) => c.notificationRecipients },
   { table: "notification_preferences", rows: (c) => c.notificationPreferences },
   { table: "notification_templates", rows: (c) => c.notificationTemplates },
+  { table: "push_subscriptions", rows: (c) => c.pushSubscriptions },
   { table: "audit_logs", rows: (c) => c.auditLogs },
   { table: "users", rows: (c) => c.users },
   { table: "roles", rows: (c) => c.roles },
@@ -873,6 +879,7 @@ function saveToFile(cache: DbCache) {
       notificationRecipients: cache.notificationRecipients,
       notificationPreferences: cache.notificationPreferences,
       notificationTemplates: cache.notificationTemplates,
+      pushSubscriptions: cache.pushSubscriptions,
       auditLogs: cache.auditLogs,
       users: cache.users,
       roles: cache.roles,
@@ -945,7 +952,7 @@ function loadFromFile(cache: DbCache): boolean {
       p.items = cache.orderProposalItems.filter((i: any) => i.proposalId === p.id);
     }
     // Mark all tables as loaded for file fallback
-    const allTables = ['customers','customer_interactions','inquiries','quotations','quotation_items','orders','order_items','order_status_history','payments','production_jobs','quality_checks','production_wastage','production_consumption','production_costs','inventory_items','inventory_transactions','stock_reservations','suppliers','production_fixed_cost_categories','production_fixed_cost_entries','purchase_orders','purchase_order_items','purchase_requirements','goods_receipts','goods_receipt_items','supplier_price_history','deliveries','expense_categories','expenses','notifications','notification_recipients','notification_preferences','notification_templates','audit_logs','users','roles','permissions','user_roles','role_permissions','customer_feedback','order_customer_snapshots','customer_events','customer_event_reminders','order_proposals','order_proposal_items','staff','staff_attendance','salary_profiles','remuneration_periods','remuneration_items','staff_advances','remuneration_payments','payslips','blog_categories','blog_posts','website_users','catalogue_categories','product_types','products','product_variants','option_definitions','option_values','customer_addresses'];
+    const allTables = ['customers','customer_interactions','inquiries','quotations','quotation_items','orders','order_items','order_status_history','payments','production_jobs','quality_checks','production_wastage','production_consumption','production_costs','inventory_items','inventory_transactions','stock_reservations','suppliers','production_fixed_cost_categories','production_fixed_cost_entries','purchase_orders','purchase_order_items','purchase_requirements','goods_receipts','goods_receipt_items','supplier_price_history','deliveries','expense_categories','expenses','notifications','notification_recipients','notification_preferences','notification_templates','push_subscriptions','audit_logs','users','roles','permissions','user_roles','role_permissions','customer_feedback','order_customer_snapshots','customer_events','customer_event_reminders','order_proposals','order_proposal_items','staff','staff_attendance','salary_profiles','remuneration_periods','remuneration_items','staff_advances','remuneration_payments','payslips','blog_categories','blog_posts','website_users','catalogue_categories','product_types','products','product_variants','option_definitions','option_values','customer_addresses'];
     allTables.forEach(t => loadedTables.add(t));
     loadedTables.add('catalogue_categories');
     loadedTables.add('products');

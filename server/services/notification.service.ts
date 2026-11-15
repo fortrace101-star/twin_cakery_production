@@ -1,5 +1,7 @@
 import { store } from "../database/store.js";
 import type { Patch } from "../database/store.js";
+import { sendPushToUser } from "./push.service.js";
+import { emitNotificationEvent } from "./notification-events.js";
 import type {
   Notification,
   NotificationRecipient,
@@ -331,6 +333,32 @@ export class NotificationService {
       updatedAt: notification.createdAt,
     };
     store.createNotificationRecipient(recipient as unknown as Patch);
+    if (channel === "IN_APP") {
+      emitNotificationEvent(user.id, "notification.created", {
+        notificationId: notification.id,
+        recipientId: recipient.id,
+        title,
+        message,
+        priority: event.priority,
+        actionUrl: event.actionUrl,
+        deepLink: event.deepLink,
+        entityType: event.entityType,
+        entityId: event.entityId,
+        eventTypeId: event.eventTypeId,
+        at: Date.now(),
+      });
+      void sendPushToUser(user.id, {
+        title,
+        body: message,
+        actionUrl: event.actionUrl,
+        deepLink: event.deepLink,
+        tag: notification.id,
+        notificationId: notification.id,
+        entityType: event.entityType,
+        entityId: event.entityId,
+        eventTypeId: event.eventTypeId,
+      });
+    }
     return recipient;
   }
 
@@ -346,37 +374,19 @@ export class NotificationService {
   }
 
   getUserNotifications(userId: string, limit = 50): Notification[] {
-    const all = store.notifications();
-    return all
-      .filter((n) => n.createdBy !== userId)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, limit);
+    return store.getUserNotifications(userId, limit) as unknown as Notification[];
   }
 
   getUnreadCount(userId: string): number {
-    return store.notificationRecipients().filter((r) => r.userId === userId && !r.readAt).length;
+    return store.getUnreadCount(userId);
   }
 
   markAsRead(notificationId: string, userId: string): boolean {
-    const recipients = store.notificationRecipients();
-    const rec = recipients.find((r) => r.id === notificationId && r.userId === userId);
-    if (!rec) return false;
-    rec.readAt = new Date().toISOString();
-    store.persist();
-    return true;
+    return store.markAsRead(notificationId, userId);
   }
 
   markAllAsRead(userId: string): number {
-    let count = 0;
-    const recipients = store.notificationRecipients();
-    for (const rec of recipients) {
-      if (rec.userId === userId && !rec.readAt) {
-        rec.readAt = new Date().toISOString();
-        count += 1;
-      }
-    }
-    store.persist();
-    return count;
+    return store.markAllAsRead(userId);
   }
 
   getNotificationPreferences(userId: string): NotificationPreference[] {
