@@ -8,7 +8,7 @@ import { DataTable, type Column } from "@/components/data-table/DataTable";
 import { useDensity } from "@/lib/density";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { buildCustomerRows, formatOccasionDate, formatPhoneDisplay, groupOccasions, initialOccasions, money, type CustomerRow, type Occasion, type OccasionPeriod, type Order } from "./data";
-import { createCustomerEvent, deleteCustomerEvent, listCustomerEvents, listCustomerFeedback, listCustomerOrders, listCustomers, orderStatusLabel, printCustomerOrders, type ServerCustomer, type ServerCustomerEvent, type ServerCustomerFeedback, type ServerCustomerOrder } from "@/lib/api";
+import { createCustomerEvent, createCustomerFeedback, deleteCustomerEvent, listCustomerEvents, listCustomerFeedback, listCustomerOrders, listCustomers, orderStatusLabel, printCustomerOrders, type ServerCustomer, type ServerCustomerEvent, type ServerCustomerFeedback, type ServerCustomerOrder } from "@/lib/api";
 import { useAsync, Empty, StarRating, feedbackTypeLabel } from "./crm-panels";
 
 type SortKey = "recent" | "name_asc" | "name_desc" | "spent" | "orders" | "balance" | "first";
@@ -202,6 +202,75 @@ function OccasionsView({ connected }: { connected: boolean }) {
   );
 }
 
+const FOLLOW_UP_TYPES: [string, string][] = [["GENERAL","General feedback"],["COMPLIMENT","Compliment"],["COMPLAINT","Complaint"],["PRODUCT_FEEDBACK","Product feedback"],["DELIVERY_FEEDBACK","Delivery feedback"],["SERVICE_FEEDBACK","Service feedback"]];
+
+/** One pending follow-up. A follow-up is only complete once the customer's feedback has been written down. */
+function FollowUpCard({ id, customer, customerId, connected, onOpenOrder, onDone }: { id: string; customer: string; customerId?: string | undefined; connected: boolean; onOpenOrder: (id: string)=>void; onDone: (id: string)=>void }) {
+  const [open, setOpen] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [type, setType] = useState("GENERAL");
+  const [comment, setComment] = useState("");
+  const [resolution, setResolution] = useState("");
+  const [needsMore, setNeedsMore] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const canSave = !busy && rating > 0 && comment.trim().length > 0;
+
+  const save = async () => {
+    setError("");
+    if (!connected) { setError("Sign in and connect to the server to register a follow-up."); return; }
+    setBusy(true);
+    try {
+      let serverOrderId = id;
+      if (customerId) {
+        const theirs = await listCustomerOrders(customerId);
+        const match = theirs.find(o => o.orderNumber === id || o.id === id);
+        if (match) serverOrderId = match.id;
+      }
+      const record = await createCustomerFeedback({
+        ...(customerId ? { customerId } : {}),
+        orderId: serverOrderId,
+        rating,
+        type,
+        comment: comment.trim(),
+        resolution: resolution.trim() || undefined,
+        followUpRequired: needsMore,
+      });
+      if (!record) { setError("The feedback could not be saved. Nothing was marked as done - please try again."); setBusy(false); return; }
+      onDone(id); // only now is the follow-up stamped as done
+    } catch {
+      setError("The feedback could not be saved. Nothing was marked as done - please try again.");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <li className="crm-followup-item" style={{display:"block"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px"}}>
+        <div>
+          <strong className="product-name">{customer}</strong>
+          <small className="cell-sub" style={{display:"block"}}>{id} · Completed / Delivered - waiting for follow-up</small>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => onOpenOrder(id)}>Open order</Button>
+          <Button size="sm" onClick={() => setOpen(o=>!o)}>{open ? "Cancel" : "Register follow-up"}</Button>
+        </div>
+      </div>
+      {open && (
+        <form className="erp-form crm-feedback-form" style={{marginTop:12}} onSubmit={e=>{ e.preventDefault(); if (canSave) void save(); }}>
+          <label>Customer rating<StarRating rating={rating} onChange={setRating}/></label>
+          <label>Feedback type<select value={type} onChange={e=>setType(e.target.value)}>{FOLLOW_UP_TYPES.map(([v,l])=> <option key={v} value={v}>{l}</option>)}</select></label>
+          <label>Customer feedback (required)<textarea rows={4} value={comment} onChange={e=>setComment(e.target.value)} placeholder="Write what the customer told you about this order…"/></label>
+          <label>Action taken (optional)<textarea rows={2} value={resolution} onChange={e=>setResolution(e.target.value)} placeholder="e.g. Offered a discount on their next order"/></label>
+          <label style={{display:"flex",gap:8,alignItems:"center"}}><input type="checkbox" checked={needsMore} onChange={e=>setNeedsMore(e.target.checked)}/> Needs another follow-up later</label>
+          {error && <p role="alert" className="text-destructive text-sm">{error}</p>}
+          <Button type="submit" disabled={!canSave}>{busy ? <Loader2 className="animate-spin"/> : <Check size={14}/>} Save follow-up</Button>
+        </form>
+      )}
+    </li>
+  );
+}
+
 export function CrmView({ tab, orders, search, setSearch, connected, onOpenOrder, followUps = [], onCompleteFollowUp }: { tab: string; orders: Order[]; search: string; setSearch: (s: string)=>void; connected: boolean; onOpenOrder: (orderId: string)=>void; followUps?: {id:string;customer:string}[]; onCompleteFollowUp?: (id:string)=>void }) {
   const isMobile = useIsMobile();
   const [sort, setSort] = useState<SortKey>("recent");
@@ -232,16 +301,7 @@ export function CrmView({ tab, orders, search, setSearch, connected, onOpenOrder
         ) : (
           <ul className="configuration-list crm-followup-list">
             {list.map((o) => (
-              <li key={o.id} className="crm-followup-item" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px"}}>
-                <div>
-                  <strong className="product-name">{o.customer}</strong>
-                  <small className="cell-sub" style={{display:"block"}}>{o.id} · Completed / Delivered — document the follow-up in CRM</small>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => onOpenOrder(o.id)}>Open order</Button>
-                  {onCompleteFollowUp && <Button size="sm" onClick={() => onCompleteFollowUp(o.id)}><Check size={14}/> Mark done</Button>}
-                </div>
-              </li>
+              <FollowUpCard key={o.id} id={o.id} customer={o.customer} customerId={orders.find(x=>x.id===o.id)?.customerId} connected={connected} onOpenOrder={onOpenOrder} onDone={id=>onCompleteFollowUp?.(id)}/>
             ))}
           </ul>
         )}

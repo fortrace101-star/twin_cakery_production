@@ -276,7 +276,7 @@ router.patch("/:id", required("deliveries.update"), async (req, res) => {
 
   // Non-status field updates (allowed subset).
   const allowedUpdates: Record<string, unknown> = {};
-  const allowed = ['notes', 'deliveryType', 'deliveryLocation', 'deliveryDate', 'deliveryTime', 'dueDate', 'dueTime', 'eventType', 'reference', 'guest', 'items', 'source', 'fulfilmentType'] as const;
+  const allowed = ['notes', 'deliveryType', 'deliveryLocation', 'deliveryDate', 'deliveryTime', 'dueDate', 'dueTime', 'eventType', 'reference', 'guest', 'items', 'source', 'fulfilmentType', 'followUpCompletedAt'] as const;
   for (const key of allowed) {
     if (key in patch) allowedUpdates[key] = (patch as any)[key];
   }

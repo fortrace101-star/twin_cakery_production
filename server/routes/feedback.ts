@@ -37,20 +37,27 @@ router.get("/by-order/:orderId", required("feedback.view"), async (req, res) => 
 });
 
 router.post("/", required("feedback.create"), async (req, res) => {
-  const { customerId, orderId, productIds, rating, type, comment, resolution, followUpRequired, followUpCompleted, recordedBy } = req.body || {};
+  const { customerId, orderId, productIds, rating, type, comment, resolution, followUpRequired, followUpCompleted } = req.body || {};
   if (!orderId) return res.status(400).json({ error: "orderId is required" });
-  if (rating === undefined) return res.status(400).json({ error: "rating is required" });
+  const stars = Number(rating);
+  if (!Number.isFinite(stars) || stars < 1 || stars > 5) return res.status(400).json({ error: "rating must be between 1 and 5" });
+  if (!String(comment || "").trim()) return res.status(400).json({ error: "the customer's feedback text is required" });
+  // Take the customer from the order so a record can never be saved with an empty customer_id.
+  const order = store.orders().find((o) => o.id === orderId || o.orderNumber === orderId);
+  const resolvedCustomerId = String(customerId || order?.customerId || "");
+  if (!resolvedCustomerId) return res.status(400).json({ error: "customer could not be determined for this order" });
+  const session = await authService.getCurrentSession(extractToken(req.headers.authorization as string | undefined));
   const record = store.createCustomerFeedback({
-    customerId: customerId || "",
-    orderId: orderId || null,
+    customerId: resolvedCustomerId,
+    orderId: order?.id ?? orderId,
     productIds: productIds || "",
-    rating: rating || 0,
+    rating: stars,
     type: type || "GENERAL",
-    comment: comment || "",
+    comment: String(comment).trim(),
     resolution: resolution || null,
     followUpRequired: followUpRequired || false,
     followUpCompleted: followUpCompleted || false,
-    recordedBy: recordedBy || "admin",
+    recordedBy: session?.userId ?? "system",
   });
   store.persist();
   res.status(201).json(record);
@@ -62,9 +69,12 @@ router.patch("/:id", required("feedback.update"), async (req, res) => {
   const target = feedback.find((f) => f.id === id);
   if (!target) throw new NotFoundError("Feedback not found");
   const patch = req.body || {};
-  const updated = { ...target, ...patch, updatedAt: new Date().toISOString() };
+  for (const key of ["rating", "type", "comment", "resolution", "followUpRequired", "followUpCompleted"] as const) {
+    if (key in patch) (target as any)[key] = patch[key];
+  }
+  target.updatedAt = new Date().toISOString();
   store.persist();
-  res.json(updated);
+  res.json(target);
 });
 
 export default router;
