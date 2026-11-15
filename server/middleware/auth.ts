@@ -17,7 +17,11 @@ const rbacService = new RbacService();
 export async function attachAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const authHeader = req.headers.authorization as string | undefined;
-    const token = extractToken(authHeader);
+    const headerToken = extractToken(authHeader);
+    const q = req.query?.token;
+    const queryToken =
+      !headerToken && typeof q === "string" && q.trim() ? q.trim() : null;
+    const token = headerToken ?? queryToken;
     const session = token ? await AuthService.getSession(token) : null;
     (req as unknown as { auth?: { token: string | null; session: unknown } }).auth = {
       token: token ?? null,

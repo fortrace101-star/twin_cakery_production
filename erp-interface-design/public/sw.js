@@ -1,42 +1,22 @@
-/*
- * Twin Cakery ERP — service worker (hand-rolled, zero-dependency).
- *
- * Strategy:
- *  - Navigations (app shell): network-first, fall back to the cached shell so
- *    the app still opens offline.
- *  - Static assets (JS/CSS/fonts/images/icons): cache-first (they are
- *    content-hashed by Vite), with a runtime cache for anything new.
- *  - API calls (/api): network-only — the ERP is a live data app; we never
- *    serve stale business data. (Auth + writes must always hit the server.)
- *
- * Bump CACHE_VERSION on each deploy to retire old caches.
- */
-
-const CACHE_VERSION = "twin-cakery-v2";
-const SHELL_CACHE = `${CACHE_VERSION}-shell`;
-const ASSET_CACHE = `${CACHE_VERSION}-assets`;
-
-const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/favicon.png"];
+const CACHE_VERSION = "twin-cakery-v4";
+const STATIC_CACHE = `${CACHE_VERSION}-static`;
+const PRECACHE = ["/", "/index.html"];
+const MEDIA_CACHE_PREFIXES = ["/uploads/"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    (async () => {
-      const cache = await caches.open(SHELL_CACHE);
-      await cache.addAll(APP_SHELL).catch(() => {});
-      await self.skipWaiting();
-    })(),
+    caches.open(STATIC_CACHE).then((cache) => cache.addAll(PRECACHE)).then(() => self.skipWaiting()),
   );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    (async () => {
-      const keys = await caches.keys();
-      await Promise.all(
-        keys.filter((k) => !k.startsWith(CACHE_VERSION)).map((k) => caches.delete(k)),
-      );
-      await self.clients.claim();
-    })(),
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(keys.filter((key) => key !== STATIC_CACHE).map((key) => caches.delete(key))),
+      )
+      .then(() => self.clients.claim()),
   );
 });
 
@@ -45,45 +25,92 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
 
   const url = new URL(request.url);
-  if (url.origin !== self.location.origin) return; // ignore cross-origin (fonts, etc.)
+  const isSameOrigin = url.origin === self.location.origin;
+  const isPrecached = PRECACHE.includes(url.pathname);
+  const isMedia = MEDIA_CACHE_PREFIXES.some((prefix) => url.pathname.startsWith(prefix));
 
-  // API: always go to the network (live data); do not cache business data.
-  if (url.pathname.startsWith("/api")) return;
-
-  // Navigations: network-first with an offline shell fallback.
   if (request.mode === "navigate") {
     event.respondWith(
-      (async () => {
-        try {
-          const fresh = await fetch(request);
-          const cache = await caches.open(SHELL_CACHE);
-          cache.put("/index.html", fresh.clone());
-          return fresh;
-        } catch {
-          const cache = await caches.open(SHELL_CACHE);
-          return (
-            (await cache.match("/index.html")) ||
-            (await cache.match("/")) ||
-            new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } })
-          );
-        }
-      })(),
+      fetch(request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(STATIC_CACHE).then((cache) => cache.put("/index.html", copy));
+          return response;
+        })
+        .catch(async () => (await caches.match(request)) || caches.match("/index.html")),
     );
     return;
   }
 
-  // Static assets: cache-first, populate the runtime cache on miss.
-  event.respondWith(
+  if (isSameOrigin && (isPrecached || isMedia)) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((response) => {
+          const copy = response.clone();
+          caches.open(STATIC_CACHE).then((cache) => cache.put(request, copy));
+          return response;
+        });
+      }),
+    );
+  }
+});
+
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { body: event.data ? event.data.text() : "" };
+  }
+
+  const title = data.title || "Twin Cakery";
+  const targetUrl = data.deepLink || data.actionUrl || "/";
+  const options = {
+    body: data.body || "",
+    icon: "/uploads/twin-cakery-logo.webp",
+    badge: "/uploads/twin-cakery-logo.webp",
+    tag: data.tag || data.notificationId || "twin-cakery-notification",
+    renotify: true,
+    data: { url: targetUrl, ...data },
+  };
+
+  event.waitUntil(
     (async () => {
-      const cache = await caches.open(ASSET_CACHE);
-      const hit = await cache.match(request);
-      if (hit) return hit;
-      try {
-        const fresh = await fetch(request);
-        if (fresh && fresh.status === 200) cache.put(request, fresh.clone());
-        return fresh;
-      } catch {
-        return hit || Response.error();
+      // Let open clients react (toast/chime/badge refresh) without requiring focus.
+      const clientList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of clientList) {
+        client.postMessage({ type: "PUSH_NOTIFICATION", payload: data });
+      }
+      await self.registration.showNotification(title, options);
+    })(),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const rawUrl = (event.notification.data && event.notification.data.url) || "/";
+  let targetPath = "/";
+  try {
+    const u = new URL(rawUrl, self.location.origin);
+    targetPath = u.origin === self.location.origin ? (u.pathname + u.search + u.hash || "/") : "/";
+  } catch {
+    targetPath = rawUrl.startsWith("/") ? rawUrl : "/";
+  }
+
+  event.waitUntil(
+    (async () => {
+      const clientList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of clientList) {
+        const clientUrl = new URL(client.url);
+        if (clientUrl.origin === self.location.origin && "focus" in client) {
+          await client.focus();
+          client.postMessage({ type: "NOTIFICATION_NAVIGATE", url: targetPath });
+          return;
+        }
+      }
+      if (self.clients.openWindow) {
+        await self.clients.openWindow(targetPath);
       }
     })(),
   );

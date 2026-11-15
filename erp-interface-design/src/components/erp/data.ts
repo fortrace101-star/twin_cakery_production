@@ -1,5 +1,5 @@
 export const modules = [
-  { id: 'crm', label: 'Customers & CRM', icon: 'Users', group: 'WORKSPACE', tabs: ['Customers', 'Occasions', 'Feedback'] },
+  { id: 'crm', label: 'Customers & CRM', icon: 'Users', group: 'WORKSPACE', tabs: ['Customers', 'Occasions', 'Follow-ups', 'Feedback'] },
   { id: 'sales', label: 'Sales & orders', icon: 'ShoppingBag', group: 'WORKSPACE', tabs: ['Orders', 'Order history', 'Order proposals', 'Quotations', 'Sales analytics'] },
   { id: 'catalogue', label: 'Product catalogue', icon: 'CakeSlice', group: 'WORKSPACE', tabs: ['Products', 'Categories', 'Product types', 'Variants'] },
   { id: 'webapp', label: 'Site Management', icon: 'Globe', group: 'WORKSPACE', tabs: ['Overview', 'Product catalog', 'Website users'] },

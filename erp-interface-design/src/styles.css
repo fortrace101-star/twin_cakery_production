@@ -336,7 +336,8 @@ button.profile {background:none;cursor:pointer;width:100%;text-align:left;font-f
 .sample-tag {font-size:11px;color:var(--muted-foreground);border:1px solid var(--border);border-radius:4px;padding:3px 6px;}
 .topbar-actions>div>button {position:relative;}
 .topbar-actions>div>button i {position:absolute;right:9px;top:7px;width:4px;height:4px;background:var(--amber-ink);border-radius:50%;border:1px solid var(--card);}
-.notif-badge-count{display:none !important;}
+.notif-badge-count{position:absolute;top:2px;right:2px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--rose-ink, #d14343);color:#fff;font-size:10px;font-weight:700;line-height:18px;text-align:center;pointer-events:none;box-shadow:0 0 0 2px var(--card);}
+.dark .notif-badge-count{background:#f97316;color:#4b3621;}
 .top-avatar {width:30px;height:30px;font-size:11px;}
 .content {max-width:1620px;margin:0;padding:32px 32px 0;}
 .page-heading {display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:32px;}
@@ -1387,3 +1388,55 @@ h2 {font-size:14px;font-weight:600;letter-spacing:0;}
 .orders-table.order-register .order-stepper,
 .orders-table.order-register th:first-child,
 .orders-table.order-register td:first-child { overflow: hidden; }
+
+/* In-Transit / Order detail modal: compact layout with sticky footer (In_Transit_Modal_Layout.md) */
+.order-detail-dialog {max-height:min(92dvh,640px);display:flex;flex-direction:column;overflow:hidden;}
+.order-detail-dialog .dialog-head {flex:none;}
+.order-detail-body {flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:4px 2px 8px;}
+.order-detail-footer {flex:none;display:flex;flex-direction:column;gap:8px;padding-top:10px;border-top:1px solid var(--border);background:var(--card);position:sticky;bottom:0;}
+.order-detail-footer-buttons {display:flex;gap:10px;}
+.order-detail-footer-buttons > button {flex:1 1 0;min-height:44px;}
+.footer-unpaid-note {font-size:12px;color:var(--muted-foreground);margin:0;}
+/* Compact product row */
+.order-detail-product-compact {display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;}
+.order-detail-product-compact img {width:48px;height:48px;object-fit:cover;border-radius:6px;flex:none;}
+.order-detail-product-text {min-width:0;}
+.order-detail-product-text h3,.order-detail-product-text p,.order-detail-product-text strong {margin:0;overflow-wrap:anywhere;}
+.order-detail-product-text h3 {font-size:14px;font-weight:600;line-height:1.3;}
+.order-detail-product-text p {font-size:12px;color:var(--muted-foreground);line-height:1.3;}
+.order-detail-product-text strong {font-size:13px;display:block;margin-top:2px;}
+/* Status chips */
+.order-status-chips {display:flex;flex-wrap:wrap;gap:6px;}
+.order-chip {display:inline-flex;align-items:center;gap:4px;font-size:12px;line-height:1.2;padding:4px 8px;border-radius:999px;border:1px solid color-mix(in oklch,var(--tile-tone,var(--border)) 25%,var(--border));background:var(--tile-tone-soft,var(--muted));color:var(--foreground);}
+.order-chip small {font-size:10px;text-transform:uppercase;letter-spacing:.04em;opacity:.8;}
+.order-chip.tone-green {--tile-tone:var(--green-ink);--tile-tone-soft:var(--green-soft);}
+.order-chip.tone-blue {--tile-tone:var(--blue-ink);--tile-tone-soft:var(--blue-soft);}
+.order-chip.tone-violet {--tile-tone:var(--violet-ink);--tile-tone-soft:var(--violet-soft);}
+.order-chip.tone-red {--tile-tone:var(--red-ink);--tile-tone-soft:var(--red-soft);}
+.order-chip.tone-amber {--tile-tone:var(--amber-ink);--tile-tone-soft:var(--peach-soft);}
+.order-chip.tone-teal {--tile-tone:var(--teal-ink);--tile-tone-soft:var(--teal-soft);}
+.order-chip.tone-orange {--tile-tone:var(--orange-ink);--tile-tone-soft:var(--orange-soft);}
+.order-chip.tone-rose {--tile-tone:var(--rose-ink);--tile-tone-soft:var(--rose-soft);}
+.order-chip.tone-gray {--tile-tone:var(--muted-foreground);--tile-tone-soft:var(--muted);}
+/* Progress bar */
+.order-progress {display:flex;flex-direction:column;gap:4px;}
+.order-progress-bar {display:grid;grid-template-columns:repeat(7,1fr);gap:4px;height:8px;}
+.order-progress-seg {border-radius:999px;background:var(--border);}
+.order-progress-seg.is-done,.order-progress-seg.is-current {background:var(--primary,#16a34a);}
+.order-progress-label {font-size:12px;color:var(--muted-foreground);}
+/* Collapsed payment recorder */
+.payment-recorder-collapsible {margin-top:0;padding:0;border:none;}
+.recorder-toggle {width:100%;display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--card);font:inherit;font-size:13px;cursor:pointer;text-align:left;}
+.recorder-toggle svg:last-child {margin-left:auto;transition:transform .15s ease;}
+.recorder-toggle svg.is-open {transform:rotate(90deg);}
+.recorder-fields-inline {display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end;margin-top:8px;}
+.recorder-fields-inline label {font-size:12px;}
+.recorder-fields-inline input {font-size:16px;}
+.dialog-head-call {font-size:12px;font-weight:600;color:var(--primary,#16a34a);text-decoration:none;}
+.dialog-head-call:hover {text-decoration:underline;}
+@media(max-width:767.98px){
+  .order-detail-dialog {max-height:92dvh;border-bottom-left-radius:0;border-bottom-right-radius:0;}
+  .order-detail-footer {padding-bottom:calc(8px + env(safe-area-inset-bottom));}
+  .recorder-fields-inline {grid-template-columns:1fr 1fr;}
+  .recorder-fields-inline > button {grid-column:1 / -1;min-height:44px;}
+}

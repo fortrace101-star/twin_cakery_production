@@ -599,6 +599,15 @@ export interface NotificationTemplate extends BaseEntity {
   active: boolean;
 }
 
+/** Web Push subscription (per user, per browser/device endpoint). */
+export interface PushSubscription extends BaseEntity {
+  userId: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  userAgent: string;
+}
+
 export interface AuditLog extends BaseEntity {
   orderId: string;
   actor: string;

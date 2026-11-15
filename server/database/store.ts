@@ -21,6 +21,7 @@ import type {
   NotificationPreference,
   NotificationRecipient,
   NotificationTemplate,
+  PushSubscription,
   Order,
   OrderCustomerSnapshot,
   OrderItem,
@@ -1433,15 +1434,31 @@ export class MemoryStore {
     return record;
   }
 
-  getUserNotifications(userId: string, limit = 50): Notification[] {
-    void userId;
-    return [...this.db.notifications]
+  /**
+   * Per-user unread inbox (IN_APP). Returns notification payloads joined with
+   * the user's unread recipient row so the UI can ack/clear by recipient id.
+   * Rows are newest-first and capped; read/cleared items are excluded.
+   */
+  getUserNotifications(userId: string, limit = 50): Array<Notification & { recipientId: string; readAt: string | null }> {
+    const cap = mapNum(limit) || 50;
+    const unread = this.db.notificationRecipients
+      .filter((r) => r.userId === userId && r.deliveryChannel === "IN_APP" && !r.readAt)
       .sort((a, b) => String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")))
-      .slice(0, mapNum(limit) || 50);
+      .slice(0, cap);
+    const byId = new Map(this.db.notifications.map((n) => [n.id, n]));
+    return unread
+      .map((r) => {
+        const n = byId.get(r.notificationId);
+        if (!n) return null;
+        return { ...n, id: n.id, recipientId: r.id, readAt: r.readAt ?? null };
+      })
+      .filter((x): x is Notification & { recipientId: string; readAt: string | null } => Boolean(x));
   }
 
   getUnreadCount(userId: string): number {
-    return this.db.notificationRecipients.filter((r) => r.userId === userId && !r.readAt).length;
+    return this.db.notificationRecipients.filter(
+      (r) => r.userId === userId && r.deliveryChannel === "IN_APP" && !r.readAt,
+    ).length;
   }
 
   markAsRead(id: string, userId: string): boolean {
@@ -1458,13 +1475,92 @@ export class MemoryStore {
     const now = new Date().toISOString();
     let count = 0;
     for (const r of this.db.notificationRecipients) {
-      if (r.userId === userId && !r.readAt) {
+      if (r.userId === userId && r.deliveryChannel === "IN_APP" && !r.readAt) {
         r.readAt = now;
         count += 1;
       }
     }
     if (count > 0) this.db.persist();
     return count;
+  }
+
+  /** Acknowledge/remove a single inbox item for the user (Spiro-style click). */
+  deleteNotificationForUser(id: string, userId: string): boolean {
+    const before = this.db.notificationRecipients.length;
+    this.db.notificationRecipients = this.db.notificationRecipients.filter(
+      (r) => !(r.userId === userId && (r.id === id || r.notificationId === id)),
+    );
+    const removed = this.db.notificationRecipients.length < before;
+    if (removed) {
+      this.pruneOrphanNotifications();
+      this.db.persist();
+    }
+    return removed;
+  }
+
+  /** Clear the user's inbox (Spiro-style "Clear all"). */
+  clearNotificationsForUser(userId: string): number {
+    const before = this.db.notificationRecipients.length;
+    this.db.notificationRecipients = this.db.notificationRecipients.filter((r) => r.userId !== userId);
+    const removed = before - this.db.notificationRecipients.length;
+    if (removed > 0) {
+      this.pruneOrphanNotifications();
+      this.db.persist();
+    }
+    return removed;
+  }
+
+  private pruneOrphanNotifications(): void {
+    const referenced = new Set(this.db.notificationRecipients.map((r) => r.notificationId));
+    this.db.notifications = this.db.notifications.filter((n) => referenced.has(n.id));
+  }
+
+  // ---- push subscriptions ----
+  pushSubscriptions(): PushSubscription[] {
+    return this.db.pushSubscriptions;
+  }
+
+  pushSubscriptionsForUser(userId: string): PushSubscription[] {
+    return this.db.pushSubscriptions.filter((s) => s.userId === userId);
+  }
+
+  upsertPushSubscription(input: Patch): PushSubscription {
+    const endpoint = String(input.endpoint ?? "");
+    const userId = String(input.userId ?? "");
+    const now = new Date().toISOString();
+    const existing = this.db.pushSubscriptions.find((s) => s.endpoint === endpoint);
+    if (existing) {
+      existing.userId = userId || existing.userId;
+      existing.p256dh = String(input.p256dh ?? existing.p256dh);
+      existing.auth = String(input.auth ?? existing.auth);
+      existing.userAgent = String(input.userAgent ?? existing.userAgent ?? "");
+      existing.updatedAt = now;
+      this.db.persist();
+      return existing;
+    }
+    const record: PushSubscription = {
+      id: makeId("push"),
+      userId,
+      endpoint,
+      p256dh: String(input.p256dh ?? ""),
+      auth: String(input.auth ?? ""),
+      userAgent: String(input.userAgent ?? ""),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.db.pushSubscriptions.push(record);
+    this.db.persist();
+    return record;
+  }
+
+  deletePushSubscriptionByEndpoint(endpoint: string, userId?: string): boolean {
+    const before = this.db.pushSubscriptions.length;
+    this.db.pushSubscriptions = this.db.pushSubscriptions.filter(
+      (s) => !(s.endpoint === endpoint && (!userId || s.userId === userId)),
+    );
+    const removed = this.db.pushSubscriptions.length < before;
+    if (removed) this.db.persist();
+    return removed;
   }
 
   getNotificationPreferences(userId: string): NotificationPreference[] {

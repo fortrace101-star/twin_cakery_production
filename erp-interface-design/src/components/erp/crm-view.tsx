@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLiveRefresh } from "@/lib/live";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { CalendarDays, Search, Printer, Mail, Phone, Plus, ArrowUpRight, Edit, Clock3, CalendarPlus, Trash2, Check, Loader2 } from "lucide-react";
+import { CalendarDays, Search, Printer, Mail, Phone, Plus, ArrowUpRight, Edit, Clock3, CalendarPlus, Trash2, Check, Loader2, CheckCircle2 } from "lucide-react";
 import { StatusBadge as Status } from "@/components/data-table/StatusBadge";
 import { DataTable, type Column } from "@/components/data-table/DataTable";
 import { useDensity } from "@/lib/density";
@@ -202,7 +202,7 @@ function OccasionsView({ connected }: { connected: boolean }) {
   );
 }
 
-export function CrmView({ tab, orders, search, setSearch, connected, onOpenOrder }: { tab: string; orders: Order[]; search: string; setSearch: (s: string)=>void; connected: boolean; onOpenOrder: (orderId: string)=>void; followUps?: {id:string;customer:string}[]; onCompleteFollowUp?: (id:string)=>void }) {
+export function CrmView({ tab, orders, search, setSearch, connected, onOpenOrder, followUps = [], onCompleteFollowUp }: { tab: string; orders: Order[]; search: string; setSearch: (s: string)=>void; connected: boolean; onOpenOrder: (orderId: string)=>void; followUps?: {id:string;customer:string}[]; onCompleteFollowUp?: (id:string)=>void }) {
   const isMobile = useIsMobile();
   const [sort, setSort] = useState<SortKey>("recent");
   const [activeId, setActiveId] = useState<string|null>(null);
@@ -218,6 +218,36 @@ export function CrmView({ tab, orders, search, setSearch, connected, onOpenOrder
 
   useEffect(()=>{ if(!isMobile) setMobileDetailOpen(false); }, [isMobile]);
   if (tab === "Occasions") return <OccasionsView connected={connected} />;
+  if (tab === "Follow-ups") {
+    const q = search.trim().toLowerCase();
+    const list = q ? followUps.filter(o => `${o.id} ${o.customer}`.toLowerCase().includes(q)) : followUps;
+    return (
+      <section className="panel crm-view">
+        <div className="panel-heading"><div><h2>Follow-ups</h2><p>{followUps.length} completed order{followUps.length !== 1 ? "s" : ""} awaiting follow-up</p></div></div>
+        <div className="table-controls crm-list-controls">
+          <label className="search-box"><Search size={16}/><input aria-label="Search follow-ups" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by order or customer…"/></label>
+        </div>
+        {list.length === 0 ? (
+          <Empty icon={<CheckCircle2/>} title={followUps.length === 0 ? "No follow-ups pending" : "No matches"} body={followUps.length === 0 ? "Completed orders that still need a documented follow-up will appear here." : "Try a different search."} />
+        ) : (
+          <ul className="configuration-list crm-followup-list">
+            {list.map((o) => (
+              <li key={o.id} className="crm-followup-item" style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px"}}>
+                <div>
+                  <strong className="product-name">{o.customer}</strong>
+                  <small className="cell-sub" style={{display:"block"}}>{o.id} · Completed / Delivered — document the follow-up in CRM</small>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => onOpenOrder(o.id)}>Open order</Button>
+                  {onCompleteFollowUp && <Button size="sm" onClick={() => onCompleteFollowUp(o.id)}><Check size={14}/> Mark done</Button>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    );
+  }
 
   const active = isMobile ? (rows.find(r=>r.id===activeId) ?? null) : (rows.find(r=>r.id===activeId) ?? rows[0] ?? null);
   const select = (id: string, openMobile=false) => { setActiveId(id); setMobileDetailOpen(openMobile && isMobile); };
