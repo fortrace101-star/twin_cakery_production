@@ -103,8 +103,6 @@ export function DashboardView({period,setPeriod,orders,filtered,search,setSearch
   const weekStartISO = (() => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return dayKeyOf(d); })();
   // "Total orders" = every order in the workspace, at every stage.
   const periodOrders = orders;
-  // Jobs delivered (completed) in the currently selected period.
-  const deliveredInPeriod = orders.filter((o) => (o.status === 'Completed / Delivered' || o.delivery === 'Completed / Delivered') && inPeriodDate(o.date)).length;
   // "Total revenue" = money actually collected in the selected period, from the
   // payment ledger and bucketed by the day each payment was recorded, so a
   // deposit taken yesterday counts this week. Partial payments count when
@@ -117,6 +115,8 @@ export function DashboardView({period,setPeriod,orders,filtered,search,setSearch
     if (period === 'This week') return d >= weekStartISO && d <= todayISO;
     return d.slice(0, 7) === todayISO.slice(0, 7);
   };
+  // Jobs delivered (completed) in the currently selected period.
+  const deliveredInPeriod = orders.filter((o) => (o.status === 'Completed / Delivered' || o.delivery === 'Completed / Delivered') && inPeriodDate(o.date)).length;
   const ledgerRevenue = payments
     .filter((p) => inPeriodDate(p.createdAt || p.date))
     .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);

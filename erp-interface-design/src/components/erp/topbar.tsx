@@ -77,6 +77,7 @@ export function Topbar({
   theme,
   setTheme,
   followUps = [],
+  onCompleteFollowUp,
   onMenu,
   menuOpen,
   isMobile = false,
@@ -96,6 +97,7 @@ export function Topbar({
   theme: "light" | "dark" | null;
   setTheme: (t: "light" | "dark") => void;
   followUps?: { id: string; customer: string }[];
+  onCompleteFollowUp?: (id: string) => void;
   onMenu?: () => void;
   menuOpen?: boolean;
   isMobile?: boolean;
@@ -403,18 +405,32 @@ export function Topbar({
               </div>
 
               {followUps.map((o) => (
-                <Link
-                  key={o.id}
-                  to="/workspace/crm"
-                  onClick={() => setNotification(false)}
-                  className="notification-followup"
-                >
-                  <Users />
-                  <div>
-                    <strong>Follow up with {o.customer}</strong>
-                    <span>{o.id} is Completed / Delivered - document the follow-up in CRM.</span>
-                  </div>
-                </Link>
+                <div key={o.id} className="notification-followup" style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <Link
+                    to="/workspace/crm"
+                    onClick={() => setNotification(false)}
+                    className="notification-followup-link"
+                    style={{ display: "flex", gap: 10, alignItems: "flex-start", flex: 1, minWidth: 0, color: "inherit", textDecoration: "none" }}
+                  >
+                    <Users />
+                    <div>
+                      <strong>Follow up with {o.customer}</strong>
+                      <span>{o.id} is Completed / Delivered - document the follow-up in CRM.</span>
+                    </div>
+                  </Link>
+                  {onCompleteFollowUp && (
+                    <IconButton
+                      icon={CheckCheck}
+                      label={`Mark follow-up for ${o.id} as done`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onCompleteFollowUp(o.id);
+                        setNotice(`Follow-up for ${o.id} marked as done`);
+                      }}
+                    />
+                  )}
+                </div>
               ))}
 
               {loadingNotifs && notifs.length === 0 ? (
