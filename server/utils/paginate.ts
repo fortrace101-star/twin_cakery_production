@@ -51,7 +51,7 @@ export function paginate<T>(
   query: unknown,
   options: PaginateOptions = {},
 ): T[] | PageEnvelope<T> {
-  const q = ((query ?? {}) ?? {}) as Record<string, unknown>;
+  const q = (query ?? {}) as Record<string, unknown>;
   // Opt-out: no page params → plain array, exactly as before.
   if (q["page"] === undefined && q["pageSize"] === undefined) return [...rows];
 

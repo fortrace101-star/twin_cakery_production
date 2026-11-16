@@ -16,6 +16,7 @@ import {
   toUiOrder,
   createOrderApi,
   updateOrderApi,
+  editOrderApi,
   recordPayment,
   findCustomerByName,
   createCustomerApi,
@@ -58,6 +59,7 @@ type WorkspaceContextValue = {
   addOrder: (order: Order, phone?: string) => void;
   /** Records the order stage and (optionally) its payment status & paid amount in one write. */
   updateOrder: (id: string, status: string, payment?: string, paidDelta?: number, payMeta?: { method?: string; receivedBy?: string; reference?: string; notes?: string }) => Promise<{ ok: boolean; error?: string }>;
+  editOrder: (id: string, payload: Record<string, unknown>) => Promise<{ ok: boolean; error?: string; order?: any }>;
   /**
    * Best-effort duplicate guard used by the new-order flow. Returns an existing CRM customer
    * whose phone or email matches the given contact exactly (case-/space-insensitive), or null
@@ -398,6 +400,24 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       /* Non-fatal. */
     }
   }, []);
+  const editOrder = useCallback(async (id: string, payload: Record<string, unknown>) => {
+    try {
+      if (!user) {
+        return { ok: false, error: "Sign in to edit orders." };
+      }
+      const server = serverOrdersRef.current.find((o) => o.orderNumber === id || o.id === id);
+      const res = await editOrderApi(server?.id ?? id, payload);
+      if (!res) {
+        const { lastApiError } = await import("@/lib/api");
+        return { ok: false, error: lastApiError() || "Failed to save order changes." };
+      }
+      await refresh();
+      return { ok: true, order: res };
+    } catch {
+      return { ok: false, error: "Failed to save order changes." };
+    }
+  }, [user, refresh]);
+
   const value: WorkspaceContextValue = {
     orders,
     audit,
@@ -410,6 +430,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     signOut,
     addOrder,
     updateOrder,
+    editOrder,
     completeFollowUp,
     refresh,
     findCustomerByContact,

@@ -3,14 +3,14 @@ import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input, PasswordInput } from "@/components/ui/input";
-import { CalendarDays, Check, CircleAlert, ChevronLeft, ChevronRight, MapPin, Plus, Wallet } from "lucide-react";
+import { CalendarDays, Check, CircleAlert, ChevronLeft, ChevronRight, History, MapPin, Pencil, Plus, Wallet, X } from "lucide-react";
 import { money, orderOutstandingAmount, type Order } from "./data";
 import { StatusBadge as Status } from "../data-table/StatusBadge";
 import { useWorkspace } from "./store";
-import { createCustomerEvent, findCustomerByName, listCustomers, recordPayment as recordPaymentApi, type ServerCustomer } from "@/lib/api";
+import { createCustomerEvent, editOrderApi, findCustomerByName, listCustomers, listOrderRevisionsApi, previewOrderEditApi, recordPayment as recordPaymentApi, type EditOrderPreview, type ServerCustomer, type ServerOrderRevision } from "@/lib/api";
 import { ORDER_STAGE_PIPELINE, orderStageIndex, orderStageTone } from "@/lib/theme-tokens";
 import cake from "@/assets/chocolate-cake.jpg";
-export function SignInDialog({open,onOpenChange}: {open:boolean;onOpenChange:(v:boolean)=>void}) {const {signIn,authError}=useWorkspace();const [username,setUsername]=useState('');const [password,setPassword]=useState('');const [busy,setBusy]=useState(false);const [error,setError]=useState('');async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();if(busy)return;setError('');setBusy(true);const ok=await signIn(username.trim(),password);setBusy(false);if(ok){setPassword('');onOpenChange(false)}else{setError(authError||'Sign in failed. Check your credentials.')}}return <Dialog open={open} onOpenChange={v=>{if(!busy)onOpenChange(v)}}><DialogContent className="login-dialog"><DialogTitle>Sign in to Twin Cakery</DialogTitle><DialogDescription>Connect to your live workspace to view and manage real orders.</DialogDescription><form className="erp-form" onSubmit={submit}><label>Username<Input name="username" autoComplete="username" autoFocus value={username} onChange={e=>setUsername(e.target.value)} placeholder="manager" required/></label><label>Password<PasswordInput name="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label>{error&&<p className="form-error">{error}</p>}<div className="dialog-actions"><Button type="button" variant="outline" onClick={()=>onOpenChange(false)} disabled={busy}>Cancel</Button><Button type="submit" disabled={busy}>{busy?'Signing in…':'Sign in'}</Button></div></form></DialogContent></Dialog>}
+export function SignInDialog({open,onOpenChange}: {open:boolean;onOpenChange:(v:boolean)=>void}) {const {signIn,authError}=useWorkspace();const [username,setUsername]=useState('');const [password,setPassword]=useState('');const [busy,setBusy]=useState(false);const [error,setError]=useState('');async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();if(busy)return;setError('');setBusy(true);const ok=await signIn(username.trim(),password);setBusy(false);if(ok){setPassword('');onOpenChange(false)}else{setError(authError||'Sign in failed. Check your credentials.')}}return <Dialog open={open} onOpenChange={v=>{if(!busy)onOpenChange(v)}}><DialogContent className="login-dialog"><DialogTitle>Sign in to Twin Cakery</DialogTitle><DialogDescription>Connect to your live workspace to view and manage real orders.</DialogDescription><form className="erp-form" onSubmit={submit}><label>Username<Input name="username" autoComplete="username" autoFocus value={username} onChange={e=>setUsername(e.target.value)} placeholder="manager" required/></label><label>Password<PasswordInput name="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required/></label>{error&&<p className="form-error">{error}</p>}<div className="dialog-actions"><Button type="button" variant="outline" onClick={()=>onOpenChange(false)} disabled={busy}>Cancel</Button><Button type="submit" disabled={busy}>{busy?'Signing in…':'Sign in'}</Button></div></form></DialogContent></Dialog>}
 const orderSchema=z.object({customer:z.string().trim().min(2,'Enter a customer name.').max(100),product:z.string().min(1),amount:z.coerce.number().positive('Enter an amount greater than zero.').max(10000000),paidAmount:z.coerce.number().min(0,'Paid amount cannot be negative.').default(0),deliveryLocation:z.string().trim().max(200).optional().default(''),locationNote:z.string().trim().max(300).optional().default(''),isOccasion:z.coerce.boolean().optional().default(false),occasionType:z.string().trim().max(80).optional().default(''),occasionDate:z.string().trim().optional().default(''),occasionFrequency:z.enum(['WEEKLY','MONTHLY','ANNUAL']).optional().default('MONTHLY'),date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/,'Choose a due date.'),time:z.string().regex(/^\d{2}:\d{2}$/,'Choose a due time.'),options:z.string().trim().max(250),phone:z.string().trim().max(20).optional().default('')}).superRefine((data,ctx)=>{if(data.paidAmount>data.amount){ctx.addIssue({code:z.ZodIssueCode.custom,message:'Paid amount cannot exceed the total amount.',path:['paidAmount']});}if(data.isOccasion){if(!data.occasionDate){ctx.addIssue({code:z.ZodIssueCode.custom,message:'Pick the occasion date for the reminder.',path:['occasionDate']});}if(!data.occasionType.trim()){ctx.addIssue({code:z.ZodIssueCode.custom,message:'Name the occasion (e.g. Birthday).',path:['occasionType']});}}});
 /** A brand-new customer must leave a reachable number (registered ones use their CRM record). */
 const phoneSchema=z.string().trim().regex(/^\+?[\d\s()-]{7,20}$/,'Enter a valid phone number (e.g. +256 700 000 011).').refine(v=>(v.match(/\d/g)??[]).length>=7,'Enter at least 7 digits.');
@@ -25,7 +25,7 @@ function resolvePayment(order:Pick<Order,"amount"|"payment"|"paidAmount">):strin
   if(paid===undefined)return normalizePayment(order.payment);
   if(paid<=0)return 'Unpaid';
   return paid>=order.amount?'Paid':'Partially paid';
-}
+}
 export function NewOrderDialog({open,onOpenChange,onCreated}: {open:boolean;onOpenChange:(v:boolean)=>void;onCreated:(o:Order)=>void}) {
   const {orders,addOrder}=useWorkspace();
   const [error,setError]=useState('');
@@ -88,16 +88,18 @@ export function NewOrderDialog({open,onOpenChange,onCreated}: {open:boolean;onOp
     {error&&<p className="form-error">{error}</p>}
     <div className="dialog-actions"><Button type="button" variant="outline" onClick={()=>close(false)}>Cancel</Button><Button type="submit"><Plus/>Create order</Button></div>
   </form></DialogContent></Dialog>
-}
+}
 export function OrderDialog({order,onClose,onNotice}: {order:Order|null;onClose:()=>void;onNotice:(s:string)=>void}) {
-  const {orders,updateOrder}=useWorkspace();
+  const {orders,updateOrder,permissions}=useWorkspace();
   const current=orders.find(o=>o.id===order?.id);
   const [payForm,setPayForm]=useState({amount:'',method:'Cash',reference:''});
   const [payOpen,setPayOpen]=useState(false);
   const [busy,setBusy]=useState(false);
   const [stageSuccess,setStageSuccess]=useState<{id:string;status:string;previous?:string}|null>(null);
   const [stageError,setStageError]=useState<{id:string;message:string}|null>(null);
-  useEffect(()=>{ setPayForm({amount:'',method:'Cash',reference:''}); setPayOpen(false); setBusy(false); },[current?.id]);
+  const [editOpen,setEditOpen]=useState(false);
+  const [historyOpen,setHistoryOpen]=useState(false);
+  useEffect(()=>{ setPayForm({amount:'',method:'Cash',reference:''}); setPayOpen(false); setBusy(false); setEditOpen(false); setHistoryOpen(false); },[current?.id]);
   async function undoStage():Promise<boolean>{
     const done=stageSuccess;
     const target=done?.previous;
@@ -111,6 +113,8 @@ export function OrderDialog({order,onClose,onNotice}: {order:Order|null;onClose:
   if(!current)return null;
   if(stageError)return <OrderStatusErrorDialog error={stageError} onClose={()=>setStageError(null)}/>;
   if(stageSuccess)return <OrderStatusSuccessDialog result={stageSuccess} {...(stageSuccess.previous?{onUndo:undoStage}:{})} onClose={()=>{setStageSuccess(null);onClose()}}/>;
+  if(editOpen) return <EditOrderDialog order={current} onClose={()=>setEditOpen(false)} onSaved={(msg)=>{setEditOpen(false); onNotice(msg)}} onNotice={onNotice}/>;
+  if(historyOpen) return <OrderHistoryDialog order={current} onClose={()=>setHistoryOpen(false)}/>;
   const c=current;
   const outstandingAmount=orderOutstandingAmount(c);
   const resolvedPayment=resolvePayment(c);
@@ -124,6 +128,8 @@ export function OrderDialog({order,onClose,onNotice}: {order:Order|null;onClose:
   const primaryLabel=!nextStage?null:outstandingAmount>0&&isInTransit?'Mark delivered anyway':isInTransit?'Mark delivered':`Move to ${nextStage}`;
   const needsRef=(payForm.method||'Cash').trim().toLowerCase()!=='cash';
   const canRecord=!!payForm.amount && Number(payForm.amount)>0 && (!needsRef || !!payForm.reference.trim());
+  const terminal = c.status==='Completed / Delivered' || c.status==='Closed' || c.status==='Cancelled';
+  const canEdit = !terminal && (permissions===null || permissions.includes('orders.update'));
   async function moveTo(target:string,prev:string){
     if(busy)return;
     setBusy(true);
@@ -147,7 +153,7 @@ export function OrderDialog({order,onClose,onNotice}: {order:Order|null;onClose:
       <div className="dialog-head">
         <div>
           <DialogTitle>Order #{current.id}</DialogTitle>
-          <DialogDescription>{current.customer} · {current.channel}</DialogDescription>
+          <DialogDescription>{current.customer} · {current.channel}{current.version? ` · v${current.version}`:''}</DialogDescription>
         </div>
         <div className="dialog-head-loc" aria-label="Delivery location">
           <span className="dialog-head-loc-main"><MapPin size={14}/><span>{current.deliveryLocation||'No delivery location'}</span></span>
@@ -192,13 +198,166 @@ export function OrderDialog({order,onClose,onNotice}: {order:Order|null;onClose:
       </div>
       <div className="dialog-actions order-detail-footer">
         {outstandingAmount>0&&isInTransit&&nextStage&&<p className="footer-unpaid-note">{money(outstandingAmount)} still unpaid. Mark delivered anyway?</p>}
-        <div className="order-detail-footer-buttons">
-          <Button type="button" variant="outline" aria-label={prevStage?`Back: ${prevStage}`:'Back'} disabled={!prevStage||busy} onClick={()=>prevStage&&moveTo(prevStage,current.status)}><ChevronLeft size={14}/>Back{prevStage?<span className="btn-sub">: {prevStage}</span>:null}</Button>
-          {primaryLabel
-            ? <Button type="button" disabled={busy} aria-label={primaryLabel} onClick={()=>nextStage&&moveTo(nextStage,current.status)}><Check size={14}/>{busy?'Updating…':primaryLabel}</Button>
-            : <Button type="button" disabled aria-label="No next stage"><Check size={14}/>No next stage</Button>}
+        <div className="order-detail-footer-buttons" style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'space-between',width:'100%'}}>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+            <Button type="button" variant="outline" onClick={()=>setHistoryOpen(true)}><History size={14}/>History</Button>
+            {canEdit&&<Button type="button" variant="outline" onClick={()=>setEditOpen(true)}><Pencil size={14}/>Edit order</Button>}
+          </div>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+            <Button type="button" variant="outline" aria-label={prevStage?`Back: ${prevStage}`:'Back'} disabled={!prevStage||busy} onClick={()=>prevStage&&moveTo(prevStage,current.status)}><ChevronLeft size={14}/>Back{prevStage?<span className="btn-sub">: {prevStage}</span>:null}</Button>
+            {primaryLabel
+              ? <Button type="button" disabled={busy} aria-label={primaryLabel} onClick={()=>nextStage&&moveTo(nextStage,current.status)}><Check size={14}/>{busy?'Updating…':primaryLabel}</Button>
+              : <Button type="button" disabled aria-label="No next stage"><Check size={14}/>No next stage</Button>}
+          </div>
         </div>
       </div>
+    </DialogContent>
+  </Dialog>;
+}
+
+type EditItem = { id?: string; productId?: string; name: string; quantity: number; unitPrice: number; notes?: string };
+function EditOrderDialog({order,onClose,onSaved,onNotice}:{order:Order;onClose:()=>void;onSaved:(msg:string)=>void;onNotice:(s:string)=>void}){
+  const {editOrder,permissions}=useWorkspace();
+  const canPrice = permissions===null || permissions.includes('orders.update_price');
+  const [reason,setReason]=useState('');
+  const [notes,setNotes]=useState(order.notes||'');
+  const [deliveryLocation,setDeliveryLocation]=useState(order.deliveryLocation||'');
+  const [locationNote,setLocationNote]=useState(order.locationNote||'');
+  const [deliveryAddress,setDeliveryAddress]=useState((order as any).deliveryAddress||'');
+  const [deliveryType,setDeliveryType]=useState((order as any).deliveryType||'PICKUP');
+  const [priority,setPriority]=useState((order as any).priority||'NORMAL');
+  const [requiredBy,setRequiredBy]=useState(order.requiredBy||order.date||'');
+  const [requiredAt,setRequiredAt]=useState(order.requiredAt||'');
+  const [discount,setDiscount]=useState(String(order.discount ?? 0));
+  const [deliveryCharge,setDeliveryCharge]=useState(String(order.deliveryCharge ?? 0));
+  const [taxAmount,setTaxAmount]=useState(String(order.taxAmount ?? 0));
+  const initialItems: EditItem[] = ((order as any).items || []).map((it:any)=>({ id: it.id, productId: it.productId || it.product_id, name: it.productName || it.product_name || 'Item', quantity: Number(it.quantity ?? 1), unitPrice: Number(it.unitPrice ?? it.unit_price ?? 0), notes: it.customizationNotes || it.customization_notes || '' }));
+  const [items,setItems]=useState<EditItem[]>(initialItems.length ? initialItems : [{name: order.product || 'Item', quantity:1, unitPrice: Number(order.amount||0), notes: order.options||''}]);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const [preview,setPreview]=useState<EditOrderPreview|null>(null);
+
+  function payload(includeReason=true){
+    const body:any = {
+      expectedVersion: order.version ?? 1,
+      notes, deliveryLocation, locationNote, deliveryAddress, deliveryType, priority,
+      requiredBy: requiredBy || null,
+      requiredAt: requiredAt || null,
+      items: items.map(it=>({ ...(it.id?{id:it.id}:{}), ...(it.productId?{productId:it.productId}:{}), name: it.name, quantity: Number(it.quantity||0), unitPrice: Number(it.unitPrice||0), notes: it.notes || '' })),
+    };
+    if (includeReason) body.reason = reason.trim();
+    if (canPrice) {
+      body.discount = Number(discount||0);
+      body.deliveryCharge = Number(deliveryCharge||0);
+      body.taxAmount = Number(taxAmount||0);
+    }
+    return body;
+  }
+
+  async function doPreview(){
+    setError(''); setBusy(true);
+    const p = await previewOrderEditApi(order.id, payload(false));
+    setBusy(false);
+    if(!p){ onNotice('Could not preview changes.'); return; }
+    setPreview(p);
+  }
+  async function save(){
+    if(!reason.trim()){ setError('A reason for the change is required.'); return; }
+    if(items.length===0 || items.some(it=>!String(it.name||'').trim() || Number(it.quantity)<=0 || Number(it.unitPrice)<0)){ setError('Each item needs a name, quantity > 0, and a non-negative unit price.'); return; }
+    setBusy(true); setError('');
+    const res = await editOrder(order.id, payload(true));
+    setBusy(false);
+    if(!res.ok){ setError(res.error||'Failed to save changes.'); return; }
+    onSaved(`${order.id} updated`);
+  }
+  function setItem(idx:number, patch:Partial<EditItem>){ setItems(prev=>prev.map((it,i)=>i===idx?{...it,...patch}:it)); setPreview(null); }
+  function addItem(){ setItems(prev=>[...prev,{name:'',quantity:1,unitPrice:0,notes:''}]); setPreview(null); }
+  function removeItem(idx:number){ setItems(prev=>prev.length<=1?prev:prev.filter((_,i)=>i!==idx)); setPreview(null); }
+
+  const itemsTotal = items.reduce((s,it)=>s + Number(it.quantity||0)*Number(it.unitPrice||0), 0);
+
+  return <Dialog open onOpenChange={v=>{if(!v)onClose()}}>
+    <DialogContent className="order-form-dialog" style={{maxWidth:760}}>
+      <DialogTitle>Edit order #{order.id}</DialogTitle>
+      <DialogDescription>Adjust line items, schedule, delivery, notes, or pricing. Status/payment use their own actions. A reason is required.</DialogDescription>
+      <div className="erp-form order-form-scroll">
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}><strong>Line items</strong><Button type="button" variant="outline" size="sm" onClick={addItem}><Plus size={14}/>Add item</Button></div>
+          <div style={{display:'grid',gap:8}}>
+            {items.map((it,idx)=>(
+              <div key={idx} style={{border:'1px solid var(--border,#e5e7eb)',borderRadius:8,padding:8,display:'grid',gap:6}}>
+                <div className="form-row">
+                  <label>Item name<Input value={it.name} onChange={e=>setItem(idx,{name:e.target.value})} placeholder="Product / item"/></label>
+                  <label>Qty<Input type="number" min={1} step={1} value={it.quantity} onChange={e=>setItem(idx,{quantity:Number(e.target.value)})}/></label>
+                  <label>Unit price<Input type="number" min={0} step={1} value={it.unitPrice} onChange={e=>setItem(idx,{unitPrice:Number(e.target.value)})} disabled={!canPrice}/></label>
+                </div>
+                <div className="form-row" style={{alignItems:'end'}}>
+                  <label style={{flex:1}}>Item notes<Input value={it.notes||''} onChange={e=>setItem(idx,{notes:e.target.value})} placeholder="Customization / notes"/></label>
+                  <Button type="button" variant="outline" onClick={()=>removeItem(idx)} disabled={items.length<=1}><X size={14}/>Remove</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="form-note" style={{marginTop:6}}>Items subtotal (client): <strong>{money(itemsTotal)}</strong>{!canPrice && <span> · pricing fields locked without price permission</span>}</p>
+        </div>
+        <div className="form-row">
+          <label>Required by<Input type="date" value={String(requiredBy).slice(0,10)} onChange={e=>{setRequiredBy(e.target.value);setPreview(null)}}/></label>
+          <label>Required at<Input type="datetime-local" value={requiredAt?String(requiredAt).slice(0,16):''} onChange={e=>{setRequiredAt(e.target.value? new Date(e.target.value).toISOString(): '');setPreview(null)}}/></label>
+        </div>
+        <div className="form-row">
+          <label>Delivery type<select value={deliveryType} onChange={e=>{setDeliveryType(e.target.value);setPreview(null)}}><option value="PICKUP">Pickup</option><option value="DELIVERY">Delivery</option></select></label>
+          <label>Priority<select value={priority} onChange={e=>{setPriority(e.target.value);setPreview(null)}}><option value="LOW">Low</option><option value="NORMAL">Normal</option><option value="HIGH">High</option><option value="URGENT">Urgent</option></select></label>
+        </div>
+        <label>Delivery location<Input value={deliveryLocation} onChange={e=>{setDeliveryLocation(e.target.value);setPreview(null)}} maxLength={200}/></label>
+        <label>Location note<Input value={locationNote} onChange={e=>{setLocationNote(e.target.value);setPreview(null)}} maxLength={300}/></label>
+        <label>Delivery address<Input value={deliveryAddress} onChange={e=>{setDeliveryAddress(e.target.value);setPreview(null)}} maxLength={300}/></label>
+        <label>Notes<textarea value={notes} onChange={e=>{setNotes(e.target.value);setPreview(null)}} rows={3} style={{width:'100%'}}/></label>
+        {canPrice && <><div className="form-row"><label>Discount (UGX)<Input type="number" min={0} value={discount} onChange={e=>{setDiscount(e.target.value);setPreview(null)}}/></label><label>Delivery charge (UGX)<Input type="number" min={0} value={deliveryCharge} onChange={e=>{setDeliveryCharge(e.target.value);setPreview(null)}}/></label></div><label>Tax amount (UGX)<Input type="number" min={0} value={taxAmount} onChange={e=>{setTaxAmount(e.target.value);setPreview(null)}}/></label></>}
+        <label>Reason for change<Input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Why are you editing this order?" required/></label>
+        <p className="form-note"><CircleAlert size={15}/>Server recalculates totals and records an immutable revision (v{order.version ?? 1}).</p>
+        {preview && <div className="form-note" style={{display:'block'}}><strong>Server preview</strong>
+          <div style={{marginTop:4}}><small>Subtotal {money(preview.totals.subtotal)} · Discount {money(preview.totals.discount)} · Delivery {money(preview.totals.deliveryCharge)} · Tax {money(preview.totals.taxAmount)} · <strong>Total {money(preview.totals.total)}</strong></small></div>
+          <div style={{marginTop:6}}>{preview.changes.length===0? <small>No field changes detected.</small> : preview.changes.map((ch,i)=>(
+            <div key={i} style={{padding:'4px 0',borderTop:i? '1px dashed var(--border,#e5e7eb)':'none'}}><small><strong>{ch.label||ch.field}</strong></small><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}><small style={{opacity:.8}}>Before: {typeof ch.before==='object'? JSON.stringify(ch.before): String(ch.before ?? '—')}</small><small>After: {typeof ch.after==='object'? JSON.stringify(ch.after): String(ch.after ?? '—')}</small></div></div>
+          ))}</div>
+          {preview.warnings.map((w,i)=><div key={'w'+i} style={{color:'var(--amber-ink, #92400e)',marginTop:4}}><small>⚠ {w}</small></div>)}{preview.errors.map((e,i)=><div key={'e'+i} className="form-error"><small>{e}</small></div>)}
+        </div>}
+        {error&&<p className="form-error">{error}</p>}
+        <div className="dialog-actions">
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button type="button" variant="outline" onClick={doPreview} disabled={busy}>Preview</Button>
+          <Button type="button" onClick={save} disabled={busy || (preview? (!preview.canSave || preview.errors.length>0) : false)}><Pencil size={14}/>{busy?'Saving…':'Save changes'}</Button>
+        </div>
+      </div>
+    </DialogContent>
+  </Dialog>;
+}
+function OrderHistoryDialog({order,onClose}:{order:Order;onClose:()=>void}){
+  const [loading,setLoading]=useState(true);
+  const [revisions,setRevisions]=useState<ServerOrderRevision[]>([]);
+  const [statusHistory,setStatusHistory]=useState<any[]>([]);
+  useEffect(()=>{ let on=true; (async()=>{ const r=await listOrderRevisionsApi(order.id); if(on){ setRevisions(r.revisions||[]); setStatusHistory(r.statusHistory||[]); setLoading(false);} })(); return ()=>{on=false}; },[order.id]);
+  return <Dialog open onOpenChange={v=>{if(!v)onClose()}}>
+    <DialogContent className="order-detail-dialog">
+      <DialogTitle>Order history · #{order.id}</DialogTitle>
+      <DialogDescription>Edit revisions and status changes.</DialogDescription>
+      <div className="order-detail-body" style={{maxHeight:'60vh',overflow:'auto'}}>
+        {loading? <p>Loading history…</p> : <>
+          <h4>Edit revisions</h4>
+          {revisions.length===0? <p className="text-xs text-muted-foreground">No edit revisions recorded.</p> : revisions.map(r=>(
+            <div key={r.id} style={{border:'1px solid var(--border,#e5e7eb)',borderRadius:8,padding:10,marginBottom:8}}>
+              <div><strong>v{r.version}</strong> · {new Date(r.createdAt).toLocaleString()} {r.actorName?`· ${r.actorName}`:''}</div>
+              <div><small>Reason: {r.reason||'—'}</small></div>
+              <ul style={{margin:'6px 0 0 16px'}}>{(r.changes||[]).map((c,i)=><li key={i}><small><strong>{c.label||c.field}</strong>: {JSON.stringify(c.before)} → {JSON.stringify(c.after)}</small></li>)}</ul>
+            </div>
+          ))}
+          <h4 style={{marginTop:12}}>Status history</h4>
+          {statusHistory.length===0? <p className="text-xs text-muted-foreground">No status history recorded.</p> : statusHistory.map((h:any,i:number)=>(
+            <div key={h.id||i} style={{padding:'6px 0',borderBottom:'1px solid var(--border,#e5e7eb)'}}><small>{new Date(h.timestamp||h.createdAt||Date.now()).toLocaleString()} · {h.previousStatus||h.fromStatus||'—'} → {h.newStatus||h.toStatus||h.action||'—'} {h.reason?`(${h.reason})`:''}</small></div>
+          ))}
+        </>}
+      </div>
+      <div className="dialog-actions"><Button type="button" variant="outline" onClick={onClose}>Close</Button></div>
     </DialogContent>
   </Dialog>;
 }

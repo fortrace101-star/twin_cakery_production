@@ -536,6 +536,15 @@ export class MemoryStore {
       station: String(input.station ?? "pendingConfirm") as Order["station"],
       deliveredAt: mapDate(input.deliveredAt),
       followUpCompletedAt: mapDate(input.followUpCompletedAt),
+      // Editable order fields (migration 037)
+      eventType: String(input.eventType ?? ""),
+      reference: String(input.reference ?? ""),
+      guestCount: input.guestCount === undefined || input.guestCount === null || input.guestCount === "" ? null : mapNum(input.guestCount),
+      deliveryType: String(input.deliveryType ?? ""),
+      source: String(input.source ?? ""),
+      contactName: String(input.contactName ?? ""),
+      contactPhone: String(input.contactPhone ?? ""),
+      version: Math.max(1, mapNum(input.version) || 1),
       createdAt: now,
       updatedAt: now,
     };
@@ -567,13 +576,10 @@ export class MemoryStore {
       "orderNumber", "customerId", "salespersonId", "subtotal", "discount", "deliveryCharge",
       "taxAmount", "total", "requiredBy", "requiredAt", "notes", "status", "paymentStatus",
       "deliveryStatus", "quotationId", "inquiryId", "createdBy", "deliveredAt", "followUpCompletedAt",
-      // The bakery station board transitions orders through
-      // pendingConfirm â†’ confirmed â†’ baking â†’ done; dropping `station` here
-      // made every station write a silent no-op.
       "station",
-      // Delivery location + landmark note (migration 021) â€” PATCH-able so the
-      // client can edit them after creation.
       "deliveryLocation", "locationNote",
+      // Editable order fields (migration 037)
+      "eventType", "reference", "guestCount", "deliveryType", "source", "contactName", "contactPhone", "version",
     ]);
     // Keep the UNIQUE(order_number) constraint safe even when the patch swaps
     // in a number that another order already holds.

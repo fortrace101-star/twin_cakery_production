@@ -29,7 +29,7 @@ export type DeliveryType_ = "HOME_DELIVERY" | "PICKUP" | "COLLECTION";
 export type RoleKey = "Admin / Proprietor" | "Production Manager" | "Sales Manager" | "Customer Service Representative";
 export type UserRoleKey = "Admin / Proprietor" | "Production Manager" | "Sales Manager" | "Customer Service Representative";
 export type AuditAction =
-  | "order:status_changed" | "order:confirmed" | "order:cancelled" | "order:payment_received"
+  | "order:status_changed" | "order:confirmed" | "order:cancelled" | "order:payment_received" | "order:edited"
   | "quotation:created" | "quotation:accepted" | "quotation:sent"
   | "inquiry:created" | "inquiry:resolved"
   | "customer:updated" | "customer:interaction" | "customer:feedback"
@@ -160,6 +160,9 @@ export interface OrderItem extends BaseEntity {
   total: number;
   recipeVersion: string | null;
   unit?: string;
+  /** Explicit staff override of the catalogue price (orders.update_price). */
+  unitPriceOverride?: number | null;
+  priceOverridden?: boolean;
 }
 
 export interface OrderStatusHistory extends BaseEntity {
@@ -197,6 +200,34 @@ export interface Order extends BaseEntity {
   deliveryLocation: string;
   locationNote: string;
   station: OrderStation;
+  // Editable order fields (migration 037 / order-editing-feature.md)
+  eventType: string;
+  reference: string;
+  guestCount: number | null;
+  deliveryType: string;
+  source: string;
+  contactName: string;
+  contactPhone: string;
+  /** Optimistic locking for concurrent edits. Defaults to 1. */
+  version: number;
+}
+
+export interface OrderRevisionChange {
+  field: string;
+  label?: string;
+  from: unknown;
+  to: unknown;
+}
+
+export interface OrderRevision extends BaseEntity {
+  orderId: string;
+  version: number;
+  changedBy: string;
+  changedAt: string;
+  reason: string;
+  changes: OrderRevisionChange[];
+  totalBefore: number;
+  totalAfter: number;
 }
 
 export type OrderProposalStatus = "PENDING_REVIEW" | "CONFIRMED" | "CANCELLED";

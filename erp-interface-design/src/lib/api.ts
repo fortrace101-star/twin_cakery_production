@@ -135,7 +135,7 @@ export interface ServerOrder {
   id: string;
   orderNumber: string;
   customerId: string;
-  items: { productId: string; variantOptions: string; quantity: number; unitPrice: number }[];
+  items: { id?: string; productId: string; variantOptions: string; quantity: number; unitPrice: number; unitPriceOverride?: number | null; priceOverridden?: boolean; discount?: number; total?: number }[];
   subtotal: number;
   discount: number;
   deliveryCharge: number;
@@ -147,6 +147,13 @@ export interface ServerOrder {
   status: string;
   paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PROCESSING" | "PAID" | "REFUNDED" | "OVERPAID";
   deliveryStatus: string;
+  deliveryType?: string;
+  priority?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  customerSnapshot?: unknown;
+  deliveryAddress?: string;
+  version?: number;
   createdBy: string;
   deliveredAt: string | null;
   /** Stamped when the post-delivery CRM follow-up has been done & documented. */
@@ -340,6 +347,23 @@ export interface UiOrder {
   /** CRM grouping: server customer id + phone (one entry per customer). */
   customerId?: string;
   customerPhone?: string;
+  version?: number;
+  subtotal?: number;
+  discount?: number;
+  deliveryCharge?: number;
+  taxAmount?: number;
+  total?: number;
+  paymentStatusRaw?: string;
+  deliveryStatusRaw?: string;
+  deliveryType?: string;
+  priority?: string;
+  customerName?: string;
+  customerEmail?: string;
+  deliveryAddress?: string;
+  requiredBy?: string | null;
+  requiredAt?: string | null;
+  notes?: string;
+  items?: ServerOrder["items"];
 }
 
 function initialsOf(name: string): string {
@@ -403,6 +427,23 @@ export function toUiOrder(
     customerId: order.customerId,
     customerPhone: customersById[order.customerId]?.phone ?? "",
     ...(cappedPaid > 0 ? { paidAmount: cappedPaid } : {}),
+    version: order.version,
+    subtotal: order.subtotal,
+    discount: order.discount,
+    deliveryCharge: order.deliveryCharge,
+    taxAmount: order.taxAmount,
+    total: order.total,
+    paymentStatusRaw: order.paymentStatus,
+    deliveryStatusRaw: order.deliveryStatus,
+    deliveryType: order.deliveryType,
+    priority: order.priority,
+    customerName: customersById[order.customerId]?.name ?? order.customerId,
+    customerEmail: order.customerEmail ?? customersById[order.customerId]?.email ?? "",
+    deliveryAddress: order.deliveryAddress ?? "",
+    requiredBy: order.requiredBy ?? null,
+    requiredAt: order.requiredAt ?? null,
+    notes: order.notes ?? "",
+    items: order.items ?? [],
   };
 }
 
@@ -529,6 +570,29 @@ export async function createCustomerApi(name: string, phone?: string): Promise<S
 export async function findProductByName(name: string): Promise<ServerProduct | null> {
   const list = await safe(() => request<ServerProduct[]>(`/catalogue/products?name=${encodeURIComponent(name)}`), []);
   return list[0] ?? null;
+}
+
+export interface OrderRevisionChange { field: string; label?: string; before: unknown; after: unknown; }
+export interface ServerOrderRevision { id: string; orderId: string; version: number; reason: string; actorId?: string; actorName?: string; changes: OrderRevisionChange[]; beforeSnapshot?: any; afterSnapshot?: any; createdAt: string; }
+export interface EditOrderPreview {
+  orderId: string;
+  currentVersion: number;
+  base?: Partial<ServerOrder>;
+  proposed?: Partial<ServerOrder>;
+  changes: OrderRevisionChange[];
+  warnings: string[];
+  errors: string[];
+  canSave: boolean;
+}
+
+export async function previewOrderEditApi(id: string, payload: Record<string, unknown>): Promise<EditOrderPreview | null> {
+  return safe(() => request<EditOrderPreview>(`/orders/${id}/edit/preview`, { method: "POST", body: payload }), null);
+}
+export async function editOrderApi(id: string, payload: Record<string, unknown>): Promise<ServerOrder | null> {
+  return safe(() => request<ServerOrder>(`/orders/${id}/edit`, { method: "PUT", body: payload }), null);
+}
+export async function listOrderRevisionsApi(id: string): Promise<{ revisions: ServerOrderRevision[]; statusHistory: ServerAuditLog[] }> {
+  return safe(() => request<{ revisions: ServerOrderRevision[]; statusHistory: ServerAuditLog[] }>(`/orders/${id}/revisions`), { revisions: [], statusHistory: [] });
 }
 
 /* ── E1: Customer order history, occasions & recurring event reminders ── */

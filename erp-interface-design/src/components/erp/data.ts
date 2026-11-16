@@ -71,6 +71,22 @@ export type Order = {
   notes?: string; 
   customerId?: string;
   customerPhone?: string;
+  version?: number;
+  subtotal?: number;
+  discount?: number;
+  deliveryCharge?: number;
+  taxAmount?: number;
+  total?: number;
+  paymentStatusRaw?: string;
+  deliveryStatusRaw?: string;
+  deliveryType?: string;
+  priority?: string;
+  customerName?: string;
+  customerEmail?: string;
+  deliveryAddress?: string;
+  requiredBy?: string | null;
+  requiredAt?: string | null;
+  items?: any[];
 };
 export const initialOrders: Order[] = [
   { id: 'TC-1048', customer: 'Sarah Mwangi', customerId: 'CUST-001', customerPhone: '0772000101', initials: 'SM', product: 'Chocolate celebration cake', options: '2 kg · Chocolate · Birthday', date: '2026-10-07', time: '10:00 AM', amount: 4500, paidAmount: 1500, status: 'In production', payment: 'Partially paid', delivery: 'Pending', channel: 'WhatsApp' },
