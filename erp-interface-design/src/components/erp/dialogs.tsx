@@ -236,45 +236,63 @@ function EditOrderDialog({order,onClose,onSaved,onNotice}:{order:Order;onClose:(
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [preview,setPreview]=useState<EditOrderPreview|null>(null);
+  const [saved,setSaved]=useState<{orderId:string;version:number}|null>(null);
 
   function payload(includeReason=true){
-    const body:any = {
-      expectedVersion: order.version ?? 1,
+    const changes:any = {
       notes, deliveryLocation, locationNote, deliveryAddress, deliveryType, priority,
       requiredBy: requiredBy || null,
       requiredAt: requiredAt || null,
       items: items.map(it=>({ ...(it.id?{id:it.id}:{}), ...(it.productId?{productId:it.productId}:{}), name: it.name, quantity: Number(it.quantity||0), unitPrice: Number(it.unitPrice||0), notes: it.notes || '' })),
     };
-    if (includeReason) body.reason = reason.trim();
     if (canPrice) {
-      body.discount = Number(discount||0);
-      body.deliveryCharge = Number(deliveryCharge||0);
-      body.taxAmount = Number(taxAmount||0);
+      changes.discount = Number(discount||0);
+      changes.deliveryCharge = Number(deliveryCharge||0);
+      changes.taxAmount = Number(taxAmount||0);
     }
+    const body:any = { expectedVersion: order.version ?? 1, changes };
+    if (includeReason) body.reason = reason.trim();
     return body;
   }
 
   async function doPreview(){
     setError(''); setBusy(true);
-    const p = await previewOrderEditApi(order.id, payload(false));
+    const p = await Promise.race([
+      previewOrderEditApi(order.id, payload(false)),
+      new Promise<null>(resolve => setTimeout(()=>resolve(null), 25000)),
+    ]);
     setBusy(false);
-    if(!p){ onNotice('Could not preview changes.'); return; }
+    if(!p){ setError('Preview is taking too long or failed. Check your connection and try again.'); return; }
     setPreview(p);
   }
   async function save(){
     if(!reason.trim()){ setError('A reason for the change is required.'); return; }
     if(items.length===0 || items.some(it=>!String(it.name||'').trim() || Number(it.quantity)<=0 || Number(it.unitPrice)<0)){ setError('Each item needs a name, quantity > 0, and a non-negative unit price.'); return; }
     setBusy(true); setError('');
-    const res = await editOrder(order.id, payload(true));
+    const timeout = new Promise<{ok:false;error:string}>(resolve => setTimeout(()=>resolve({ok:false,error:'Saving is taking too long. The server may be slow or unreachable — check your connection and try again. (If the change was recorded, reopen the order to confirm.)'}), 25000));
+    const res = await Promise.race([editOrder(order.id, payload(true)), timeout]);
     setBusy(false);
     if(!res.ok){ setError(res.error||'Failed to save changes.'); return; }
-    onSaved(`${order.id} updated`);
+    setSaved({orderId: order.id, version: (order.version ?? 1) + 1});
   }
   function setItem(idx:number, patch:Partial<EditItem>){ setItems(prev=>prev.map((it,i)=>i===idx?{...it,...patch}:it)); setPreview(null); }
   function addItem(){ setItems(prev=>[...prev,{name:'',quantity:1,unitPrice:0,notes:''}]); setPreview(null); }
   function removeItem(idx:number){ setItems(prev=>prev.length<=1?prev:prev.filter((_,i)=>i!==idx)); setPreview(null); }
 
   const itemsTotal = items.reduce((s,it)=>s + Number(it.quantity||0)*Number(it.unitPrice||0), 0);
+
+  if(saved){
+    return <Dialog open onOpenChange={v=>{if(!v) onSaved(`${saved.orderId} updated`)}}>
+      <DialogContent className="payment-record-dialog payment-record-success">
+        <div className="payment-success-state" role="status" aria-live="polite">
+          <span className="payment-success-tick" aria-hidden="true"><Check size={28} strokeWidth={3}/></span>
+          <DialogTitle>Edit recorded</DialogTitle>
+          <DialogDescription>Changes to order #{saved.orderId} have been recorded (revision v{saved.version}).</DialogDescription>
+          <Button type="button" onClick={()=>onSaved(`${saved.orderId} updated`)}>Done</Button>
+        </div>
+      </DialogContent>
+    </Dialog>;
+  }
 
   return <Dialog open onOpenChange={v=>{if(!v)onClose()}}>
     <DialogContent className="order-form-dialog" style={{maxWidth:760}}>

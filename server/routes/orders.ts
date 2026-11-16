@@ -541,23 +541,31 @@ function computeEditedItems(order: any, incomingItems: any[] | undefined, canPri
   const items = source.map((raw: any, idx: number) => {
     const existing = (order.items || []).find((it: any) => it.id && raw.id && it.id === raw.id) || (order.items || [])[idx];
     const productId = asStr(raw.productId ?? existing?.productId, "");
-    const qty = asNum(raw.quantity ?? existing?.quantity, 0);
-    if (!productId) errors.push(`Item ${idx + 1}: productId is required`);
-    if (!Number.isInteger(qty) || qty < 1) errors.push(`Item ${idx + 1}: quantity must be a whole number >= 1`);
+    const qtyRaw = asNum(raw.quantity ?? existing?.quantity, 0);
+    const qty = Math.round(qtyRaw);
+    if (productId === "" && !existing?.productId) {
+      // allow legacy/custom items with no catalogue product
+    } else if (!productId && existing?.productId) {
+      // keep existing
+    }
+    if (!productId && !asStr(existing?.productId, "")) {
+      // custom/legacy line item without a catalogue product is allowed
+    } else if (!productId) {
+      // should not happen, but be lenient
+    }
+    if (!Number.isFinite(qtyRaw) || qty < 1) errors.push(`Item ${idx + 1}: quantity must be a whole number >= 1`);
     const product = catalogue.find((p: any) => p.id === productId);
-    const cataloguePrice = product && product.basePrice !== undefined ? Number(product.basePrice) : asNum(existing?.unitPrice, 0);
+    const cataloguePrice = product && product.basePrice !== undefined ? Number(product.basePrice) : asNum(existing?.unitPrice ?? raw.unitPrice, 0);
     let unitPrice = cataloguePrice;
     let unitPriceOverride = null;
     let priceOverridden = false;
-    const rawOverride = raw.unitPriceOverride ?? raw.unitPrice;
+    const rawOverride = raw.unitPriceOverride ?? (raw.unitPrice !== undefined ? raw.unitPrice : undefined);
     if (canPrice && rawOverride !== undefined && rawOverride !== null && rawOverride !== "") {
       const ov = asNum(rawOverride, cataloguePrice);
       unitPrice = ov;
-      if (ov !== cataloguePrice) { unitPriceOverride = ov; priceOverridden = true; }
-    } else if (canPrice && raw.unitPrice !== undefined) {
-      const ov = asNum(raw.unitPrice, cataloguePrice);
-      unitPrice = ov;
-      if (ov !== cataloguePrice) { unitPriceOverride = ov; priceOverridden = true; }
+      if (product ? ov !== Number(product.basePrice ?? ov) : ov !== asNum(existing?.unitPrice, ov)) { unitPriceOverride = ov; priceOverridden = true; }
+    } else if (!canPrice) {
+      unitPrice = asNum(existing?.unitPrice ?? raw.unitPrice, 0);
     }
     if (unitPrice < 0) errors.push(`Item ${idx + 1}: unit price cannot be negative`);
     const discount = asNum(raw.discount ?? existing?.discount, 0);
@@ -711,7 +719,7 @@ router.get("/:id/revisions", required("orders.view"), async (req, res) => {
   if (!order) throw new NotFoundError("Order not found");
   try {
     const r = await pool.query(
-      `SELECT id, order_id as "orderId", version, changed_by as "changedBy", changed_at as "changedAt", reason, changes, total_before as "totalBefore", total_after as "totalAfter", created_at as "createdAt", updated_at as "updatedAt"
+      `SELECT id, order_id as "orderId", version, changed_by as "changedBy", changed_at as "changedAt", reason, changes, null::numeric as "totalBefore", null::numeric as "totalAfter", changed_at as "createdAt", changed_at as "updatedAt"
        FROM order_revisions WHERE order_id = $1 ORDER BY changed_at DESC, version DESC`,
       [order.id],
     );
@@ -793,7 +801,7 @@ router.put("/:id/edit", required("orders.update"), async (req, res) => {
       await client.query(
         `INSERT INTO order_items (id,order_id,product_id,variant_options,quantity,unit_price,discount,total,recipe_version,created_at,updated_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-        [item.id, order.id, item.productId, asStr(item.variantOptions, ""), Number(item.quantity||0), Number(item.unitPrice||0), Number(item.discount||0), Number(item.total||0), item.recipeVersion ?? null, item.createdAt || now, now],
+        [item.id, order.id, asStr(item.productId, ""), asStr(item.variantOptions, ""), Number(item.quantity||0), Number(item.unitPrice||0), Number(item.discount||0), Number(item.total||0), item.recipeVersion ?? null, item.createdAt || now, now],
       );
     }
 
@@ -826,9 +834,9 @@ router.put("/:id/edit", required("orders.update"), async (req, res) => {
 
     const revId = `orev-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
     await client.query(
-      `INSERT INTO order_revisions (id, order_id, version, changed_by, changed_at, reason, changes, total_before, total_after, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$10)`,
-      [revId, order.id, newVersion, String(session.userId || ""), now, reason, JSON.stringify(changeLog), Number(before.total||0), Number(computed.total||0), now],
+      `INSERT INTO order_revisions (id, order_id, version, changed_by, changed_at, reason, changes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
+      [revId, order.id, newVersion, String(session.userId || ""), now, reason, JSON.stringify(changeLog)],
     );
     const auditId = `aud-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
     await client.query(
@@ -867,6 +875,7 @@ router.put("/:id/edit", required("orders.update"), async (req, res) => {
     res.json({ order: updated, changes: changeLog, warnings: preview.warnings, revision: { id: revId, orderId: order.id, version: newVersion, changedBy: session.userId, changedAt: now, reason, changes: changeLog, totalBefore: before.total, totalAfter: computed.total } });
   } catch (err: any) {
     try { await client.query("ROLLBACK"); } catch {}
+    console.error("[orders.edit] failed", err?.stack || err);
     if (err?.name === "NotFoundError" || err instanceof NotFoundError) throw err;
     const msg = err?.message || "Failed to edit order";
     if (/connect|ECONN|timeout|database/i.test(msg)) return res.status(503).json({ error: "Database unavailable", detail: msg });

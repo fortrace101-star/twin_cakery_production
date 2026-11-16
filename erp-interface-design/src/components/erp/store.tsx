@@ -204,6 +204,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     })();
   }, [refresh]);
 
+  // Safety: never leave the workspace in a perpetual loading state if network
+  // requests hang (the API client has no global timeout). Unblock the UI so the
+  // user sees the current state and can retry/refresh instead of an endless spinner.
+  useEffect(() => {
+    if (!loading) return;
+    const t = setTimeout(() => {
+      if (aliveRef.current) setLoading(false);
+    }, 20000);
+    return () => clearTimeout(t);
+  }, [loading]);
+
   const signIn = useCallback(
     async (username: string, password: string): Promise<boolean> => {
       setAuthError("");
